@@ -8,6 +8,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from '@/components/ui/Select';
+import { Dropdown, DropdownTrigger, DropdownContent } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
 import ImpactPreview from './ImpactPreview';
 
@@ -168,15 +169,10 @@ const TransferModal = ({ isOpen, onClose, products, godowns, user, onSuccess, ed
               <div className={isEditing ? "col-span-2 space-y-4" : "space-y-4"}>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Product</label>
-                  <Select value={form.product_id} onValueChange={(v) => setForm({ ...form, product_id: v })} disabled={isEditing}>
-                    <SelectTrigger className="w-full h-10"><SelectValue placeholder="Select Product" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectLabel>Product</SelectLabel>
-                        {products.map(p => <SelectItem key={p.product_id} value={p.product_id}>{p.name}</SelectItem>)}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                  <Dropdown value={form.product_id} onValueChange={(v) => setForm({ ...form, product_id: v })} options={products.map(p => ({ value: p.product_id, label: p.name }))} placeholder="Select Product">
+                    <DropdownTrigger disabled={isEditing} />
+                    <DropdownContent />
+                  </Dropdown>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>

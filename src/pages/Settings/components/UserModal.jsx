@@ -12,7 +12,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
 import { USER_ROLES, GENDERS, PAGES, DEFAULT_USER_PAGES } from '../../../constants';
 
 const DEFAULT_FORM_DATA = {
@@ -30,13 +30,19 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
   useEffect(() => {
     if (isOpen && editingUser) {
       setFormData({
-        ...DEFAULT_FORM_DATA, ...editingUser, password: editingUser.password || '',
+        ...DEFAULT_FORM_DATA, ...editingUser,
+        password: editingUser.password || '',
         role: editingUser.role || USER_ROLES[USER_ROLES.length - 1],
         page_access: editingUser.page_access || DEFAULT_USER_PAGES,
         profile_picture: editingUser.profile_picture || '',
-        designation: editingUser.designation || '', phone_number: editingUser.phone_number || '',
-        date_of_birth: editingUser.date_of_birth || '', gender: editingUser.gender || '',
-        current_address: editingUser.current_address || '', username: editingUser.username || ''
+        designation: editingUser.designation || '',
+        phone_number: editingUser.phone_number || '',
+        date_of_birth: editingUser.date_of_birth || '',
+        gender: editingUser.gender || '',
+        current_address: editingUser.current_address || '',
+        username: editingUser.username || '',
+        email: editingUser.email || '',
+        full_name: editingUser.full_name || ''
       });
     } else if (isOpen) {
       setFormData(DEFAULT_FORM_DATA);
@@ -53,6 +59,7 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
   const validateField = (name, value) => {
     if (name === 'phone_number') return value.replace(/[^0-9]/g, '').slice(0, 10);
     if (name === 'user_id') return value.replace(/^0+/, '').toUpperCase();
+    if (name === 'username') return value.replace(/\s/g, '').toLowerCase();
     return value;
   };
 
@@ -60,7 +67,7 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
     const { name, value, type, checked } = e.target;
     if (errors[name]) setErrors(prev => ({ ...prev, [name]: '' }));
     let newValue = type === 'checkbox' ? checked : value;
-    if (name === 'phone_number' || name === 'user_id') newValue = validateField(name, value);
+    if (['phone_number', 'user_id', 'username'].includes(name)) newValue = validateField(name, value);
     setFormData(prev => {
       const newState = { ...prev, [name]: newValue };
       if (name === 'role' && USER_ROLES.slice(0, -1).some(r => r.toLowerCase() === newValue?.toLowerCase())) {
@@ -103,6 +110,7 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
     if (editingUser && !data.user_id) newErrors.user_id = 'User ID is required';
     if (!data.username) newErrors.username = 'Username is required';
     else if (/\s/.test(data.username)) newErrors.username = 'Username cannot contain spaces';
+    else if (!/^[a-z]+$/.test(data.username)) newErrors.username = 'Username must be lowercase letters only (a-z)';
     if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) newErrors.email = 'Invalid email address';
     if (!data.full_name) newErrors.full_name = 'Full Name is required';
     if (!editingUser && !data.password) newErrors.password = 'Password is required';
@@ -173,8 +181,9 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
           <div className="bg-primary/10 p-2 rounded-lg">
             {editingUser ? <Shield size={20} className="text-primary" /> : <User size={20} className="text-primary" />}
           </div>
-          <h2 className="text-xl font-bold text-slate-800">{editingUser ? 'Edit User' : 'Add New User'}</h2>
+          <ModalTitle className="text-xl font-bold text-slate-800">{editingUser ? 'Edit User' : 'Add New User'}</ModalTitle>
         </ModalHeader>
+        <ModalDescription className="sr-only">{editingUser ? 'Edit user details' : 'Create a new user'}</ModalDescription>
 
         <div className="overflow-y-auto max-h-[60vh] p-6">
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">

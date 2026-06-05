@@ -11,14 +11,18 @@ export const fetchAllUsers = async () => {
 };
 
 export const createUser = async (userData) => {
-  const { error } = await supabase.from('users').insert([userData]);
+  const { password, user_id, ...rest } = userData;
+  const payload = { ...rest, password_hash: password };
+  const { error } = await supabase.from('users').insert([payload]);
   if (error) throw error;
 };
 
 export const updateUser = async (userId, userData) => {
+  const { password, ...rest } = userData;
+  const payload = password ? { ...rest, password_hash: password } : rest;
   const { error } = await supabase
     .from('users')
-    .update(userData)
+    .update(payload)
     .eq('user_id', userId);
 
   if (error) throw error;
