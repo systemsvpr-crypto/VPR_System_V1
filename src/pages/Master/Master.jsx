@@ -5,7 +5,7 @@ import useAuthStore from '../../store/authStore';
 import { getAllGodowns, getAllProducts, getAllProductStock, toggleGodownStatus } from '../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/Select';
 import Pagination from '@/components/ui/pagination';
 import ProductModal from './components/ProductModal';
 import ProductTable from './components/ProductTable';
