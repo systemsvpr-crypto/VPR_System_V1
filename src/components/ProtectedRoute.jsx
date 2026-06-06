@@ -10,42 +10,33 @@ const ProtectedRoute = ({ children }) => {
     return <Navigate to="/login" replace />;
   }
 
-  const isAdmin = user.Admin === 'Yes';
+  const allowedPages = user.page_access || [];
 
-  if (!isAdmin) {
-    const allowedPages = user.page_access || [];
+  // Normalize location to match page IDs (remove leading slash)
+  let currentPath = pathname.substring(1);
 
-    // Normalize location to match page IDs (remove leading slash)
-    let currentPath = pathname.substring(1);
+  // Handle root path explicitly
+  if (pathname === '/') currentPath = '/';
 
-    // Handle root path explicitly
-    if (pathname === '/') currentPath = '/';
+  // Check if the current path is allowed
+  const isAllowed =
+    allowedPages.includes(currentPath) ||
+    (currentPath === '/' && allowedPages.includes('/')) ||
+    allowedPages.some(page =>
+      page !== '/' && (currentPath === page || currentPath.startsWith(`${page}/`))
+    );
 
-    // Check if the current path is allowed
-    // We check exact match or if it's a sub-route of an allowed page
-    const isAllowed =
-      allowedPages.includes(currentPath) ||
-      (currentPath === '/' && allowedPages.includes('/')) ||
-      allowedPages.some(page =>
-        page !== '/' && (currentPath === page || currentPath.startsWith(`${page}/`))
-      );
+  if (!isAllowed) {
+    const fallback = allowedPages.length > 0 ? allowedPages[0] : null;
 
-    if (!isAllowed) {
-      // Logic to find fallback
-      // If they have access to some pages, send them to the first one.
-      // If no pages allowed, send to login.
-      const fallback = allowedPages.length > 0 ? allowedPages[0] : null;
+    if (!fallback) {
+      return <Navigate to="/login" replace />;
+    }
 
-      if (!fallback) {
-        return <Navigate to="/login" replace />;
-      }
+    const redirectPath = fallback === '/' ? '/' : `/${fallback}`;
 
-      const redirectPath = fallback === '/' ? '/' : `/${fallback}`;
-
-      // Prevent infinite loop if they are already at the redirect target
-      if (pathname !== redirectPath) {
-        return <Navigate to={redirectPath} replace />;
-      }
+    if (pathname !== redirectPath) {
+      return <Navigate to={redirectPath} replace />;
     }
   }
 

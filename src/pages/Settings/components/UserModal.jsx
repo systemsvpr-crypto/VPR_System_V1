@@ -13,11 +13,12 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
-import { USER_ROLES, GENDERS, PAGES, DEFAULT_USER_PAGES } from '../../../constants';
+import { USER_ROLES, GENDERS, PAGES, DEFAULT_USER_PAGES, PAGE_TABS } from '../../../constants';
 
 const DEFAULT_FORM_DATA = {
   user_id: '', full_name: '', email: '', password: '', role: USER_ROLES[USER_ROLES.length - 1],
-  designation: '', page_access: DEFAULT_USER_PAGES, phone_number: '', date_of_birth: '',
+  designation: '', page_access: DEFAULT_USER_PAGES, tab_access: {},
+  phone_number: '', date_of_birth: '',
   gender: '', current_address: '', username: '', is_active: true, profile_picture: ''
 };
 
@@ -34,6 +35,7 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
         password: editingUser.password || '',
         role: editingUser.role || USER_ROLES[USER_ROLES.length - 1],
         page_access: editingUser.page_access || DEFAULT_USER_PAGES,
+        tab_access: editingUser.tab_access || {},
         profile_picture: editingUser.profile_picture || '',
         designation: editingUser.designation || '',
         phone_number: editingUser.phone_number || '',
@@ -59,7 +61,7 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
   const validateField = (name, value) => {
     if (name === 'phone_number') return value.replace(/[^0-9]/g, '').slice(0, 10);
     if (name === 'user_id') return value.replace(/^0+/, '').toUpperCase();
-    if (name === 'username') return value.replace(/\s/g, '').toLowerCase();
+    if (name === 'username') return value.replace(/\s/g, '');
     return value;
   };
 
@@ -72,6 +74,9 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
       const newState = { ...prev, [name]: newValue };
       if (name === 'role' && USER_ROLES.slice(0, -1).some(r => r.toLowerCase() === newValue?.toLowerCase())) {
         newState.page_access = PAGES.map(p => p.id);
+        newState.tab_access = Object.fromEntries(
+          Object.entries(PAGE_TABS).map(([pageId, tabs]) => [pageId, tabs.map(t => t.id)])
+        );
       }
       return newState;
     });
@@ -99,9 +104,42 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
     setFormData(prev => {
       const currentAccess = prev.page_access || [];
       if (currentAccess.includes(pageId)) {
-        return { ...prev, page_access: currentAccess.filter(id => id !== pageId) };
+        const { [pageId]: _, ...rest } = prev.tab_access || {};
+        return { ...prev, page_access: currentAccess.filter(id => id !== pageId), tab_access: rest };
       }
-      return { ...prev, page_access: [...currentAccess, pageId] };
+      const pageTabs = PAGE_TABS[pageId];
+      const tabAccessUpdate = pageTabs ? { [pageId]: pageTabs.map(t => t.id) } : {};
+      return {
+        ...prev,
+        page_access: [...currentAccess, pageId],
+        tab_access: { ...prev.tab_access, ...tabAccessUpdate },
+      };
+    });
+  };
+
+  const handleTabAccessToggle = (pageId, tabId) => {
+    setFormData(prev => {
+      const currentTabs = prev.tab_access?.[pageId] || [];
+      const pageTabs = PAGE_TABS[pageId]?.map(t => t.id) || [];
+      if (currentTabs.includes(tabId)) {
+        const updated = currentTabs.filter(id => id !== tabId);
+        return { ...prev, tab_access: { ...prev.tab_access, [pageId]: updated } };
+      }
+      return { ...prev, tab_access: { ...prev.tab_access, [pageId]: [...currentTabs, tabId] } };
+    });
+  };
+
+  const handleSelectAllTabs = (pageId) => {
+    setFormData(prev => {
+      const pageTabs = PAGE_TABS[pageId]?.map(t => t.id) || [];
+      return { ...prev, tab_access: { ...prev.tab_access, [pageId]: [...pageTabs] } };
+    });
+  };
+
+  const handleDeselectAllTabs = (pageId) => {
+    setFormData(prev => {
+      const { [pageId]: _, ...rest } = prev.tab_access || {};
+      return { ...prev, tab_access: rest };
     });
   };
 
@@ -110,7 +148,7 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
     if (editingUser && !data.user_id) newErrors.user_id = 'User ID is required';
     if (!data.username) newErrors.username = 'Username is required';
     else if (/\s/.test(data.username)) newErrors.username = 'Username cannot contain spaces';
-    else if (!/^[a-z]+$/.test(data.username)) newErrors.username = 'Username must be lowercase letters only (a-z)';
+    else if (!/^[a-zA-Z0-9]+$/.test(data.username)) newErrors.username = 'Username must be alphanumeric only (a-z, A-Z, 0-9)';
     if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) newErrors.email = 'Invalid email address';
     if (!data.full_name) newErrors.full_name = 'Full Name is required';
     if (!editingUser && !data.password) newErrors.password = 'Password is required';
@@ -176,7 +214,7 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
 
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
-      <ModalContent className="max-w-2xl">
+      <ModalContent className="max-w-4xl">
         <ModalHeader>
           <div className="bg-primary/10 p-2 rounded-lg">
             {editingUser ? <Shield size={20} className="text-primary" /> : <User size={20} className="text-primary" />}
@@ -235,22 +273,76 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
             <FormField label="Designation" name="designation" value={formData.designation} onChange={handleInputChange} icon={Shield} placeholder="Eg: Accountant" />
 
             <div className="col-span-1 md:col-span-2">
-              <div className="flex items-center gap-2 mb-2">
-                <label className="block text-sm font-medium text-slate-700">Page Access</label>
-                <div className="flex gap-2 text-xs">
-                  <Button variant="link" size="sm" type="button" onClick={() => setFormData(prev => ({ ...prev, page_access: PAGES.map(p => p.id) }))} className="text-primary h-auto p-0">Select All</Button>
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-semibold text-slate-900 uppercase tracking-wider">Page Access</label>
+                <div className="flex items-center gap-2 text-xs">
+                  <button type="button" onClick={() => setFormData(prev => ({
+                    page_access: PAGES.map(p => p.id),
+                    tab_access: Object.fromEntries(
+                      Object.entries(PAGE_TABS).map(([pageId, tabs]) => [pageId, tabs.map(t => t.id)])
+                    ),
+                  }))} className="text-primary hover:underline font-medium">Select All</button>
                   <span className="text-slate-300">|</span>
-                  <Button variant="link" size="sm" type="button" onClick={() => setFormData(prev => ({ ...prev, page_access: [] }))} className="text-slate-500 h-auto p-0">None</Button>
+                  <button type="button" onClick={() => setFormData(prev => ({ ...prev, page_access: [], tab_access: {} }))}
+                    className="text-slate-400 hover:text-slate-600 hover:underline">None</button>
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                {PAGES.map(page => (
-                  <label key={page.id} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={formData.page_access?.includes(page.id) || false}
-                      onChange={() => handlePageAccessToggle(page.id)} className="rounded text-primary focus:ring-primary" />
-                    <span className="text-sm text-slate-700">{page.label}</span>
-                  </label>
-                ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {PAGES.map(page => {
+                  const isPageChecked = formData.page_access?.includes(page.id) || false;
+                  const pageTabs = PAGE_TABS[page.id];
+                  const hasTabs = !!pageTabs?.length;
+                  const selectedTabs = formData.tab_access?.[page.id] || [];
+                  const allTabsSelected = hasTabs && pageTabs.every(t => selectedTabs.includes(t.id));
+                  const selectedCount = selectedTabs.length;
+                  const totalCount = pageTabs?.length || 0;
+                  return (
+                    <div key={page.id}
+                      className={`rounded-lg border transition-all ${isPageChecked ? 'bg-white border-primary/30 shadow-sm' : 'bg-slate-50/50 border-slate-200'}`}>
+                      <label className={`flex items-center justify-between px-3.5 py-3 cursor-pointer rounded-t-lg ${isPageChecked ? '' : 'rounded-lg'}`}>
+                        <div className="flex items-center gap-2.5">
+                          <input type="checkbox" checked={isPageChecked}
+                            onChange={() => handlePageAccessToggle(page.id)}
+                            className="rounded text-primary focus:ring-primary" />
+                          <span className={`text-sm font-medium ${isPageChecked ? 'text-slate-900' : 'text-slate-500'}`}>{page.label}</span>
+                        </div>
+                        {hasTabs && isPageChecked && (
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${allTabsSelected ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
+                            {selectedCount}/{totalCount}
+                          </span>
+                        )}
+                      </label>
+                      {isPageChecked && hasTabs && (
+                        <div className="px-3.5 pb-3.5 pt-0 border-t border-slate-100">
+                          <div className="flex items-center gap-3 mt-2.5 mb-2">
+                            <span className="text-xs text-slate-400 font-medium">Sub-tabs</span>
+                            <div className="flex items-center gap-2 text-xs ml-auto">
+                              <button type="button" onClick={() => handleSelectAllTabs(page.id)}
+                                className="text-primary hover:underline">Select All</button>
+                              {!allTabsSelected && (
+                                <>
+                                  <span className="text-slate-300">·</span>
+                                  <button type="button" onClick={() => handleDeselectAllTabs(page.id)}
+                                    className="text-slate-400 hover:text-slate-600 hover:underline">None</button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                            {pageTabs.map(tab => (
+                              <label key={tab.id} className="flex items-center gap-2 cursor-pointer py-1 px-1 rounded hover:bg-slate-50 transition-colors">
+                                <input type="checkbox" checked={selectedTabs.includes(tab.id)}
+                                  onChange={() => handleTabAccessToggle(page.id, tab.id)}
+                                  className="rounded text-primary focus:ring-primary" />
+                                <span className="text-sm text-slate-600">{tab.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

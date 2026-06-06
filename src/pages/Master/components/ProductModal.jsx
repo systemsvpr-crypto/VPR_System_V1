@@ -12,7 +12,7 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/comp
 
 const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduct }) => {
   const [form, setForm] = useState({
-    name: '', unit: 'pcs', allow_negative_stock: false,
+    name: '', unit: 'pcs', product_type: '', allow_negative_stock: false,
     as_of_date: new Date().toISOString().split('T')[0], entries: [],
   });
   const [submitting, setSubmitting] = useState(false);
@@ -21,11 +21,12 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
 
   useEffect(() => {
     if (!isOpen) {
-      setForm({ name: '', unit: 'pcs', allow_negative_stock: false, as_of_date: new Date().toISOString().split('T')[0], entries: [] });
+      setForm({ name: '', unit: 'pcs', product_type: '', allow_negative_stock: false, as_of_date: new Date().toISOString().split('T')[0], entries: [] });
     } else if (editingProduct) {
       setForm({
         name: editingProduct.name,
         unit: editingProduct.unit,
+        product_type: editingProduct.product_type || '',
         allow_negative_stock: editingProduct.allow_negative_stock,
         as_of_date: new Date().toISOString().split('T')[0],
         entries: [],
@@ -43,12 +44,13 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
           product_id: editingProduct.product_id,
           name: form.name.trim(),
           unit: form.unit,
+          product_type: form.product_type.trim(),
           allow_negative_stock: form.allow_negative_stock,
         });
         toast.success('Product updated successfully');
       } else {
         await createProduct({
-          name: form.name.trim(), unit: form.unit, allow_negative_stock: form.allow_negative_stock,
+          name: form.name.trim(), unit: form.unit, product_type: form.product_type.trim(), allow_negative_stock: form.allow_negative_stock,
           openingEntries: form.entries, as_of_date: form.as_of_date, created_by: user?.user_id,
         });
         toast.success('Product created successfully');
@@ -87,6 +89,10 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Product Name</label>
               <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Enter product name" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Product Type</label>
+              <Input value={form.product_type} onChange={(e) => setForm({ ...form, product_type: e.target.value })} placeholder="Ex: 10*12" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

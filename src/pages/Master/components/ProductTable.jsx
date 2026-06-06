@@ -31,17 +31,19 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
           <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Unit</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Allow Negative</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stock</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Created</th>
-              <th className="w-16" />
+              <th className="w-16 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Actions</th>
             </tr>
           </thead>
         <tbody className="divide-y divide-slate-100">
           {products.map(p => (
             <tr key={p.product_id} className="hover:bg-slate-50 transition-colors group">
               <td className="px-4 py-3 font-medium text-slate-800">{p.name}</td>
+              <td className="px-4 py-3 text-slate-600">{p.product_type || <span className="text-slate-300">—</span>}</td>
               <td className="px-4 py-3 text-slate-600">{p.unit}</td>
               <td className="px-4 py-3 text-center">
                 {p.allow_negative_stock
@@ -65,7 +67,7 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
               <td className="px-4 py-3 text-slate-400 text-xs">{new Date(p.created_at).toLocaleDateString()}</td>
               <td className="px-4 py-3">
                 <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(p)}
-                  className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all opacity-0 group-hover:opacity-100">
+                  className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
                   <Edit2 size={15} />
                 </Button>
               </td>

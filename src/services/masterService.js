@@ -44,10 +44,10 @@ export const getAllProducts = async () => {
   return data || [];
 };
 
-export const createProduct = async ({ name, unit, allow_negative_stock, openingEntries, as_of_date, created_by }) => {
+export const createProduct = async ({ name, unit, allow_negative_stock, product_type, openingEntries, as_of_date, created_by }) => {
   const { data: product, error: productError } = await supabase
     .from('products')
-    .insert([{ name, unit, allow_negative_stock }])
+    .insert([{ name, unit, allow_negative_stock, product_type: product_type || '' }])
     .select()
     .single();
   if (productError) throw productError;
@@ -77,15 +77,40 @@ export const createProduct = async ({ name, unit, allow_negative_stock, openingE
   return product;
 };
 
-export const updateProduct = async ({ product_id, name, unit, allow_negative_stock }) => {
+export const updateProduct = async ({ product_id, name, unit, allow_negative_stock, product_type }) => {
   const { data, error } = await supabase
     .from('products')
-    .update({ name, unit, allow_negative_stock })
+    .update({ name, unit, allow_negative_stock, product_type: product_type || '' })
     .eq('product_id', product_id)
     .select()
     .single();
   if (error) throw error;
   return data;
+};
+
+export const getProductStockByDate = async (date) => {
+  const { data: godowns } = await supabase
+    .from('godowns')
+    .select('*')
+    .order('name', { ascending: true });
+
+  const { data: transactions } = await supabase
+    .from('transactions')
+    .select('product_id, godown_id, qty, txn_type')
+    .eq('is_void', false)
+    .lte('txn_date', date);
+
+  const balanceMap = {};
+  for (const txn of transactions || []) {
+    const key = `${txn.product_id}|${txn.godown_id}`;
+    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN'].includes(txn.txn_type)) {
+      balanceMap[key] = (balanceMap[key] || 0) + Number(txn.qty);
+    } else {
+      balanceMap[key] = (balanceMap[key] || 0) - Number(txn.qty);
+    }
+  }
+
+  return { godowns: godowns || [], balanceMap };
 };
 
 export const getProductOpeningStock = async (productId) => {
@@ -120,16 +145,24 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
     productMap[p.name.toLowerCase().trim()] = p.product_id;
   }
 
-  const uniqueProductNames = [...new Set(rows.map(r => r.productName.trim()).filter(Boolean))];
+  const uniqueProducts = [];
+  const seen = new Set();
+  for (const r of rows) {
+    const name = r.productName?.trim();
+    if (name && !seen.has(name.toLowerCase())) {
+      seen.add(name.toLowerCase());
+      uniqueProducts.push({ name, product_type: r.productType?.trim() || '' });
+    }
+  }
   const errors = [];
   const newProducts = [];
 
-  for (const name of uniqueProductNames) {
-    const key = name.toLowerCase().trim();
+  for (const { name, product_type } of uniqueProducts) {
+    const key = name.toLowerCase();
     if (!productMap[key]) {
       const { data: created, error: createErr } = await supabase
         .from('products')
-        .insert([{ name: name.trim(), unit: 'kg', allow_negative_stock: false }])
+        .insert([{ name, unit: 'kg', allow_negative_stock: false, product_type }])
         .select()
         .single();
       if (createErr) {

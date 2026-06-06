@@ -31,7 +31,7 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm }) => 
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Action</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -44,8 +44,8 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm }) => 
                     : <span className="text-red-500 bg-red-50 px-2 py-0.5 rounded-full text-xs font-medium">Inactive</span>
                   }
                 </td>
-                <td className="px-4 py-3 text-center">
-                  <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary transition-colors opacity-0 group-hover:opacity-100">
+                <td className="px-4 py-3 text-right">
+                  <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary transition-colors">
                     {g.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
                   </button>
                 </td>

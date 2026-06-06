@@ -14,6 +14,7 @@ const COLUMN_ALIASES = {
   'Product Name': ['product name', 'product', 'productname', 'item name', 'item'],
   'Godown Name': ['godown name', 'godown', 'godownname', 'warehouse', 'warehouse name'],
   'Quantity': ['quantity', 'qty', 'qnty', 'stock', 'opening stock', 'opening', 'count'],
+  'Product Type': ['product type', 'producttype', 'type', 'category', 'item type'],
 };
 
 const normalizeHeader = (header) => {
@@ -88,11 +89,13 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
         const qtyKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Quantity') || 'Quantity';
         const productKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Product Name');
         const godownKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Godown Name');
+        const typeKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Product Type');
 
         const parsed = json.map((row) => ({
           productName: String(row[productKey] || '').trim(),
           godownName: String(row[godownKey] || '').trim(),
           qty: Number(row[qtyKey]) || 0,
+          productType: typeKey ? String(row[typeKey] || '').trim() : '',
         })).filter(r => r.productName || r.godownName);
 
         if (parsed.length === 0) {

@@ -9,6 +9,7 @@ import Settings from './pages/Settings/Settings';
 import Master from './pages/Master/Master';
 import StockManagement from './pages/StockManagement/StockManagement';
 import LiveStockDashboard from './pages/LiveStockDashboard/LiveStockDashboard';
+import StockList from './pages/StockList/StockList';
 import { PAGES } from './constants';
 
 function App() {
@@ -18,6 +19,12 @@ function App() {
         <Toaster position="top-right" containerStyle={{ zIndex: 99999 }} />
         <Routes>
           <Route path="/login" element={<Login />} />
+
+          <Route path="/stock-list" element={
+            <ProtectedRoute>
+              <StockList />
+            </ProtectedRoute>
+          } />
 
           <Route path="/" element={
             <ProtectedRoute>

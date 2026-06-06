@@ -15,6 +15,7 @@ import {
   Warehouse,
   ArrowLeftRight,
   BarChart3,
+  ClipboardList,
 } from 'lucide-react';
 
 const Sidebar = ({ onClose }) => {
@@ -79,11 +80,12 @@ const Sidebar = ({ onClose }) => {
   };
 
   const iconMap = {
-    'my-profile': User,
-    'settings': Settings,
-    'master': Package,
-    'stock-management': ArrowLeftRight,
     'live-stock-dashboard': BarChart3,
+    'stock-list': ClipboardList,
+    'stock-management': ArrowLeftRight,
+    'master': Package,
+    'settings': Settings,
+    'my-profile': User,
   };
 
   /* Combined Master Menu List for Permission Checking */
