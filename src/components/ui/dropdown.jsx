@@ -13,6 +13,7 @@ function Dropdown({
   options = [],
   searchPlaceholder = "Search...",
   emptyText = "No results found.",
+  renderOption,
   className,
   children,
   ...props
@@ -22,7 +23,7 @@ function Dropdown({
 
   return (
     <DropdownContext.Provider
-      value={{ value, onValueChange, open, setOpen, searchValue, setSearchValue, placeholder, options, searchPlaceholder, emptyText }}
+      value={{ value, onValueChange, open, setOpen, searchValue, setSearchValue, placeholder, options, searchPlaceholder, emptyText, renderOption }}
     >
       <div data-slot="dropdown" className={cn("relative", className)} {...props}>
         {children}
@@ -61,7 +62,7 @@ function DropdownTrigger({ className, children, ...props }) {
 function DropdownContent({ className, align = "start", ...props }) {
   const {
     open, setOpen, searchValue, setSearchValue,
-    searchPlaceholder, emptyText, options, value, onValueChange,
+    searchPlaceholder, emptyText, options, value, onValueChange, renderOption,
   } = React.useContext(DropdownContext)
 
   const filteredOptions = React.useMemo(
@@ -155,7 +156,11 @@ function DropdownContent({ className, align = "start", ...props }) {
                   {option.icon}
                 </span>
               )}
-              <span className="flex-1 text-left truncate">{option.label}</span>
+              {renderOption ? (
+                <span className="flex-1 text-left">{renderOption(option)}</span>
+              ) : (
+                <span className="flex-1 text-left truncate">{option.label}</span>
+              )}
               {value === option.value && (
                 <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center">
                   <Check className="size-4" />

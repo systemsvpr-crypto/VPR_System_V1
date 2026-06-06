@@ -12,7 +12,7 @@ import { Dropdown, DropdownTrigger, DropdownContent } from '@/components/ui/drop
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
 import ImpactPreview from './ImpactPreview';
 
-const TransferModal = ({ isOpen, onClose, products, godowns, user, onSuccess, editingTransaction }) => {
+const TransferModal = ({ isOpen, onClose, products, godowns, productStockMap = {}, user, onSuccess, editingTransaction }) => {
   const [form, setForm] = useState({
     product_id: '', from_godown_id: '', to_godown_id: '', qty: '',
     txn_date: new Date().toISOString().split('T')[0],
@@ -151,11 +151,34 @@ const TransferModal = ({ isOpen, onClose, products, godowns, user, onSuccess, ed
   };
 
   const activeGodowns = godowns.filter(g => g.is_active);
-  const productName = products.find(p => p.product_id === form.product_id)?.name || '';
+  const selectedProduct = products.find(p => p.product_id === form.product_id);
+  const productName = selectedProduct?.name || '';
+
+  const renderProductOption = (option) => {
+    const pId = option.value;
+    const pName = option.label;
+    const stockEntries = productStockMap[pId];
+    if (stockEntries && stockEntries.length > 0) {
+      return (
+        <span className="flex items-center justify-between gap-2 w-full">
+          <span className="font-medium truncate">{pName}</span>
+          <span className="flex items-center gap-1 flex-wrap justify-end shrink-0">
+            {stockEntries.map((s) => (
+              <span key={s.godownId} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-medium border ${s.badge}`}>
+                <span>{s.godownName}:</span>
+                <span className="font-semibold">{s.qty}</span>
+              </span>
+            ))}
+          </span>
+        </span>
+      );
+    }
+    return pName;
+  };
 
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <ModalContent className={isEditing ? "max-w-5xl" : "max-w-md"}>
+      <ModalContent className={isEditing ? "max-w-5xl" : "max-w-2xl"}>
         <ModalHeader>
           <div className="bg-amber-50 p-2 rounded-lg"><ArrowLeftRight size={20} className="text-amber-600" /></div>
           <ModalTitle asChild>
@@ -169,9 +192,9 @@ const TransferModal = ({ isOpen, onClose, products, godowns, user, onSuccess, ed
               <div className={isEditing ? "col-span-2 space-y-4" : "space-y-4"}>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Product</label>
-                  <Dropdown value={form.product_id} onValueChange={(v) => setForm({ ...form, product_id: v })} options={products.map(p => ({ value: p.product_id, label: p.name }))} placeholder="Select Product">
-                    <DropdownTrigger disabled={isEditing} />
-                    <DropdownContent />
+                  <Dropdown value={form.product_id} onValueChange={(v) => setForm({ ...form, product_id: v })} options={products.map(p => ({ value: p.product_id, label: p.name }))} placeholder="Select Product" renderOption={renderProductOption}>
+                    <DropdownTrigger disabled={isEditing}>{selectedProduct?.name}</DropdownTrigger>
+                    <DropdownContent className="w-full" />
                   </Dropdown>
                 </div>
                 <div className="grid grid-cols-2 gap-3">

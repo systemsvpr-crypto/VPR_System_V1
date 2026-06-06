@@ -2,9 +2,22 @@ import { useState, useEffect, useMemo } from 'react';
 import { Factory, ArrowLeftRight, Truck, Package, Warehouse } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
-import { getAllProducts, getAllGodowns } from '../../services/masterService';
+import { getAllProducts, getAllGodowns, getAllProductStock } from '../../services/masterService';
 import { getAllTransactions, voidTransaction } from '../../services/stockService';
 import Pagination from '@/components/ui/pagination';
+
+const GODOWN_COLORS = [
+  { badge: 'bg-blue-50 text-blue-600 border-blue-100' },
+  { badge: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
+  { badge: 'bg-purple-50 text-purple-600 border-purple-100' },
+  { badge: 'bg-orange-50 text-orange-600 border-orange-100' },
+  { badge: 'bg-rose-50 text-rose-600 border-rose-100' },
+  { badge: 'bg-cyan-50 text-cyan-600 border-cyan-100' },
+  { badge: 'bg-amber-50 text-amber-600 border-amber-100' },
+  { badge: 'bg-teal-50 text-teal-600 border-teal-100' },
+  { badge: 'bg-indigo-50 text-indigo-600 border-indigo-100' },
+  { badge: 'bg-pink-50 text-pink-600 border-pink-100' },
+];
 import FactoryInModal from './components/FactoryInModal';
 import TransferModal from './components/TransferModal';
 import DispatchModal from './components/DispatchModal';
@@ -25,6 +38,7 @@ const StockManagement = () => {
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [products, setProducts] = useState([]);
   const [godowns, setGodowns] = useState([]);
+  const [productStockMap, setProductStockMap] = useState({});
   const [transactions, setTransactions] = useState([]);
   const [txnLoading, setTxnLoading] = useState(true);
   const [voidingTransaction, setVoidingTransaction] = useState(null);
@@ -33,8 +47,24 @@ const StockManagement = () => {
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
-    Promise.all([getAllProducts(), getAllGodowns()])
-      .then(([p, g]) => { setProducts(p); setGodowns(g); })
+    Promise.all([getAllProducts(), getAllGodowns(), getAllProductStock()])
+      .then(([p, g, stockRows]) => {
+        setProducts(p);
+        setGodowns(g);
+        const godownNameMap = Object.fromEntries(g.map(gd => [gd.godown_id, gd.name]));
+        const godownColorMap = Object.fromEntries(g.map((gd, i) => [gd.godown_id, GODOWN_COLORS[i % GODOWN_COLORS.length]]));
+        const map = {};
+        for (const row of stockRows) {
+          if (!map[row.product_id]) map[row.product_id] = [];
+          map[row.product_id].push({
+            godownName: godownNameMap[row.godown_id] || 'Unknown',
+            godownId: row.godown_id,
+            qty: row.current_stock,
+            badge: godownColorMap[row.godown_id]?.badge || 'bg-slate-100 text-slate-700 border-slate-200',
+          });
+        }
+        setProductStockMap(map);
+      })
       .catch(() => toast.error('Failed to load masters'));
     fetchTransactions();
   }, []);
@@ -141,13 +171,13 @@ const StockManagement = () => {
       </div>
 
       <FactoryInModal isOpen={activeModal === 'factory-in'} onClose={handleCloseModal}
-        products={products} godowns={godowns} user={user} onSuccess={handleSuccess}
+        products={products} godowns={godowns} productStockMap={productStockMap} user={user} onSuccess={handleSuccess}
         editingTransaction={['IN_FACTORY', 'ADJUSTMENT_IN', 'OPEN_STOCK'].includes(editingTransaction?.txn_type) ? editingTransaction : null} />
       <TransferModal isOpen={activeModal === 'transfer'} onClose={handleCloseModal}
-        products={products} godowns={godowns} user={user} onSuccess={handleSuccess}
+        products={products} godowns={godowns} productStockMap={productStockMap} user={user} onSuccess={handleSuccess}
         editingTransaction={editingTransaction?.pair_id ? editingTransaction : null} />
       <DispatchModal isOpen={activeModal === 'dispatch'} onClose={handleCloseModal}
-        products={products} godowns={godowns} user={user} onSuccess={handleSuccess}
+        products={products} godowns={godowns} productStockMap={productStockMap} user={user} onSuccess={handleSuccess}
         editingTransaction={['OUT_GODOWN', 'ADJUSTMENT_OUT'].includes(editingTransaction?.txn_type) ? editingTransaction : null} />
 
       <VoidConfirmModal isOpen={!!voidingTransaction} onClose={() => setVoidingTransaction(null)}
