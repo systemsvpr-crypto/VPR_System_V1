@@ -1,5 +1,3 @@
--- WARNING: This schema is for context only and is not meant to be run.
--- Table order and constraints may not be valid for execution.
 
 CREATE TABLE public.users (
   user_id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -110,4 +108,44 @@ CREATE TABLE public.product_group_members (
   CONSTRAINT product_group_members_pkey PRIMARY KEY (id),
   CONSTRAINT product_group_members_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.product_groups(group_id),
   CONSTRAINT product_group_members_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(product_id)
+);
+CREATE TABLE public.sales_orders (
+  order_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  order_date date NOT NULL,
+  order_number text NOT NULL UNIQUE,
+  customer_id uuid NOT NULL,
+  total_amount numeric DEFAULT 0,
+  is_void boolean DEFAULT false,
+  created_by uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT sales_orders_pkey PRIMARY KEY (order_id),
+  CONSTRAINT sales_orders_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(customer_id),
+  CONSTRAINT sales_orders_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id)
+);
+CREATE TABLE public.sales_order_items (
+  item_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  order_id uuid NOT NULL,
+  product_id uuid NOT NULL,
+  godown_id uuid NOT NULL,
+  unit_price numeric NOT NULL DEFAULT 0,
+  quantity numeric NOT NULL CHECK (quantity > 0::numeric),
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT sales_order_items_pkey PRIMARY KEY (item_id),
+  CONSTRAINT sales_order_items_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.sales_orders(order_id),
+  CONSTRAINT sales_order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(product_id),
+  CONSTRAINT sales_order_items_godown_id_fkey FOREIGN KEY (godown_id) REFERENCES public.godowns(godown_id)
+);
+CREATE TABLE public.dispatch_plans (
+  plan_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  order_item_id uuid NOT NULL UNIQUE,
+  quantity numeric NOT NULL DEFAULT 0,
+  godown_id uuid,
+  unit_price numeric NOT NULL DEFAULT 0,
+  is_planned boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  dispatch_date date,
+  CONSTRAINT dispatch_plans_pkey PRIMARY KEY (plan_id),
+  CONSTRAINT dispatch_plans_order_item_id_fkey FOREIGN KEY (order_item_id) REFERENCES public.sales_order_items(item_id),
+  CONSTRAINT dispatch_plans_godown_id_fkey FOREIGN KEY (godown_id) REFERENCES public.godowns(godown_id)
 );

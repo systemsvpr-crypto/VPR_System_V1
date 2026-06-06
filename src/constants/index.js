@@ -24,4 +24,8 @@ export const PAGE_TABS = {
     { id: 'transporters', label: 'Transporters' },
     { id: 'product-grouping', label: 'Product Grouping' },
   ],
+  sales: [
+    { id: 'orders', label: 'Orders' },
+    { id: 'dispatch-planning', label: 'Dispatch Planning' },
+  ],
 };
