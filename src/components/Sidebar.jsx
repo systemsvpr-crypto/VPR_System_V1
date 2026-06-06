@@ -16,6 +16,8 @@ import {
   ArrowLeftRight,
   BarChart3,
   ClipboardList,
+  DollarSign,
+  ShoppingCart,
 } from 'lucide-react';
 
 const Sidebar = ({ onClose }) => {
@@ -84,6 +86,8 @@ const Sidebar = ({ onClose }) => {
     'stock-list': ClipboardList,
     'stock-management': ArrowLeftRight,
     'master': Package,
+    'sales': DollarSign,
+    'purchase': ShoppingCart,
     'settings': Settings,
     'my-profile': User,
   };

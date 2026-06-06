@@ -6,6 +6,8 @@ import Login from './pages/Login';
 import MyProfile from './pages/MyProfile/MyProfile';
 import ProtectedRoute from './components/ProtectedRoute';
 import Settings from './pages/Settings/Settings';
+import Sales from './pages/Sales/Sales';
+import Purchase from './pages/Purchase/Purchase';
 import Master from './pages/Master/Master';
 import StockManagement from './pages/StockManagement/StockManagement';
 import LiveStockDashboard from './pages/LiveStockDashboard/LiveStockDashboard';
@@ -36,6 +38,8 @@ function App() {
             <Route path="stock-management" element={<StockManagement />} />
             <Route path="master" element={<Master />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="sales" element={<Sales />} />
+            <Route path="purchase" element={<Purchase />} />
             <Route path="my-profile" element={<MyProfile />} />
           </Route>
 

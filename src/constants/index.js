@@ -7,6 +7,8 @@ export const PAGES = [
     { id: 'stock-list', label: 'Stock List' },
     { id: 'stock-management', label: 'Stock Management' },
     { id: 'master', label: 'Master' },
+    { id: 'sales', label: 'Sales' },
+    { id: 'purchase', label: 'Purchase' },
     { id: 'settings', label: 'Settings' },
     { id: 'my-profile', label: 'My Profile' },
 ];
