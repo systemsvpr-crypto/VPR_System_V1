@@ -30,12 +30,14 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
       setItems(data);
       const initial = {};
       data.forEach(item => {
-        const plan = item.dispatch_plans?.[0];
+        const uncancelledPlans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
+        const latestPlan = uncancelledPlans[uncancelledPlans.length - 1] || item.dispatch_plans?.[0];
         initial[item.item_id] = {
-          quantity: plan ? String(plan.quantity) : '',
-          godown_id: plan ? plan.godown_id : item.godown_id || '',
-          unit_price: plan ? String(plan.unit_price) : String(item.unit_price),
-          dispatch_date: plan?.dispatch_date || new Date().toISOString().split('T')[0],
+          plan_id: latestPlan?.plan_id || '',
+          quantity: latestPlan ? String(latestPlan.quantity) : '',
+          godown_id: latestPlan ? latestPlan.godown_id : item.godown_id || '',
+          unit_price: latestPlan ? String(latestPlan.unit_price) : String(item.unit_price),
+          dispatch_date: latestPlan?.dispatch_date || new Date().toISOString().split('T')[0],
         };
       });
       setEditedPlans(initial);
@@ -58,13 +60,13 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
     }
     if (dispatchFilter === 'pending') {
       result = result.filter(item => {
-        const plan = item.dispatch_plans?.[0];
-        return !plan;
+        const plans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
+        return plans.length === 0;
       });
     } else if (dispatchFilter === 'history') {
       result = result.filter(item => {
-        const plan = item.dispatch_plans?.[0];
-        return !!plan;
+        const plans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
+        return plans.length > 0;
       });
     }
     return result;
@@ -106,9 +108,15 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
     for (const item of itemsToSave) {
       const plan = editedPlans[item.item_id];
       if (!plan.godown_id) { errors.push(`Order ${item.sales_orders?.order_number}: Select a godown.`); continue; }
-      if (Number(plan.quantity || 0) > Number(item.quantity)) { errors.push(`Order ${item.sales_orders?.order_number}: Dispatch qty exceeds order qty.`); continue; }
+      if (!plan.quantity || Number(plan.quantity) <= 0) { errors.push(`Order ${item.sales_orders?.order_number}: Enter a dispatch quantity.`); continue; }
+      if (!plan.unit_price || Number(plan.unit_price) <= 0) { errors.push(`Order ${item.sales_orders?.order_number}: Enter a unit price.`); continue; }
+      if (Number(plan.quantity) > Number(item.quantity)) { errors.push(`Order ${item.sales_orders?.order_number}: Dispatch qty exceeds order qty.`); continue; }
       try {
+        const uncancelled = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
+        const latest = uncancelled[uncancelled.length - 1];
+        const isEdit = latest && (latest.dispatch_status === 'Pending' || latest.dispatch_status === 'Planned');
         const saved = await saveDispatchPlan({
+          plan_id: isEdit ? (plan.plan_id || undefined) : undefined,
           order_item_id: item.item_id,
           quantity: plan.quantity,
           godown_id: plan.godown_id,
@@ -123,11 +131,32 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
     }
     const savedIds = Object.keys(savedPlans);
     if (savedIds.length > 0) {
-      setItems(prev => prev.map(i =>
-        savedPlans[i.item_id]
-          ? { ...i, dispatch_plans: [savedPlans[i.item_id]] }
-          : i
-      ));
+      setItems(prev => prev.map(i => {
+        if (!savedPlans[i.item_id]) return i;
+        const existing = i.dispatch_plans || [];
+        const saved = savedPlans[i.item_id];
+        const idx = existing.findIndex(p => p.plan_id === saved.plan_id);
+        if (idx >= 0) {
+          const copy = [...existing];
+          copy[idx] = saved;
+          return { ...i, dispatch_plans: copy };
+        }
+        return { ...i, dispatch_plans: [...existing, saved] };
+      }));
+      setEditedPlans(prev => {
+        const next = { ...prev };
+        Object.entries(savedPlans).forEach(([itemId, sp]) => {
+          next[itemId] = {
+            ...(next[itemId] || {}),
+            plan_id: sp.plan_id,
+            quantity: String(sp.quantity),
+            unit_price: String(sp.unit_price),
+            godown_id: sp.godown_id,
+            dispatch_date: sp.dispatch_date,
+          };
+        });
+        return next;
+      });
     }
     setCheckedRows(new Set());
     if (savedIds.length > 0) onSave?.();
@@ -188,16 +217,32 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Order Qty</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatch Date</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatch Godown</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatch Qty</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Unit Price</th>
+              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatch Qty <span className="text-red-500">*</span></th>
+              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Unit Price <span className="text-red-500">*</span></th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remaining</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {currentItems.map(item => {
               const plan = editedPlans[item.item_id] || {};
-              const existingPlan = item.dispatch_plans?.[0];
-              const hasPlan = !!existingPlan;
+              const allPlans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
+              const totalPlanned = allPlans.reduce((s, p) => s + Number(p.quantity), 0);
+              const totalDispatched = allPlans.reduce((s, p) => s + Number(p.already_dispatched || 0), 0);
+              const cancelledQty = Number(item.cancelled_quantity || 0);
+              let remaining;
+              if (checkedRows.has(item.item_id)) {
+                const editedQty = Number(plan.quantity || 0);
+                if (plan.plan_id) {
+                  const savedPlanQty = Number(allPlans.find(p => p.plan_id === plan.plan_id)?.quantity || 0);
+                  remaining = Number(item.quantity) - (totalDispatched - Number(plan.already_dispatched || 0) + editedQty) - cancelledQty;
+                } else {
+                  remaining = Number(item.quantity) - totalDispatched - editedQty - cancelledQty;
+                }
+              } else {
+                remaining = Number(item.quantity) - totalDispatched - cancelledQty;
+              }
+              const hasUncancelled = allPlans.length > 0;
+              const lastPlan = allPlans[allPlans.length - 1] || allPlans[0];
               return (
                 <tr key={item.item_id} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-2 py-3 text-center">
@@ -207,7 +252,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
                     </button>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    {hasPlan ? (
+                    {hasUncancelled ? (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
                         Planned
                       </span>
@@ -218,7 +263,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
                     )}
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-800">
-                    {existingPlan?.dispatch_number || '—'}
+                    {lastPlan?.dispatch_number || '—'}
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-800">
                     {item.sales_orders?.order_number || '—'}
@@ -232,8 +277,11 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
                   <td className="px-4 py-3 text-slate-600">
                     {item.sales_orders?.customers?.name || '—'}
                   </td>
-                  <td className="px-4 py-3 text-center font-medium text-slate-700">
-                    {item.quantity}
+                  <td className="px-4 py-3 text-center">
+                    <span className="font-medium text-slate-700">{item.quantity}</span>
+                    {cancelledQty > 0 && (
+                      <span className="ml-1 text-[10px] text-red-400">({cancelledQty} cancelled)</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 min-w-[160px]">
                     <DatePicker
@@ -264,8 +312,11 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
                       onChange={(e) => updatePlan(item.item_id, 'unit_price', e.target.value)}
                       disabled={!checkedRows.has(item.item_id)} />
                   </td>
-                  <td className="px-4 py-3 text-center font-medium text-slate-700">
-                    {Math.max(0, Number(item.quantity) - Number(plan.quantity || 0))}
+                  <td className="px-4 py-3 text-center">
+                    <span className="font-medium text-slate-700">{remaining}</span>
+                    {cancelledQty > 0 && (
+                      <span className="ml-1 text-[10px] text-red-400">(-{cancelledQty} cancelled)</span>
+                    )}
                   </td>
                 </tr>
               );

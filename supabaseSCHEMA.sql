@@ -49,11 +49,14 @@ CREATE TABLE public.transactions (
   created_at timestamp with time zone DEFAULT now(),
   created_by uuid,
   back_dated boolean DEFAULT false,
+  dispatch_plan_id uuid,
+  dispatch_number text,
   CONSTRAINT transactions_pkey PRIMARY KEY (txn_id),
   CONSTRAINT transactions_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(product_id),
   CONSTRAINT transactions_godown_id_fkey FOREIGN KEY (godown_id) REFERENCES public.godowns(godown_id),
   CONSTRAINT transactions_ref_txn_id_fkey FOREIGN KEY (ref_txn_id) REFERENCES public.transactions(txn_id),
-  CONSTRAINT transactions_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id)
+  CONSTRAINT transactions_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id),
+  CONSTRAINT transactions_dispatch_plan_id_fkey FOREIGN KEY (dispatch_plan_id) REFERENCES public.dispatch_plans(plan_id)
 );
 CREATE TABLE public.daily_snapshots (
   snapshot_date date NOT NULL,
@@ -120,6 +123,7 @@ CREATE TABLE public.sales_orders (
   is_void boolean DEFAULT false,
   created_by uuid,
   created_at timestamp with time zone DEFAULT now(),
+  process_type text DEFAULT 'order_process'::text,
   CONSTRAINT sales_orders_pkey PRIMARY KEY (order_id),
   CONSTRAINT sales_orders_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(customer_id),
   CONSTRAINT sales_orders_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id)
@@ -148,9 +152,10 @@ CREATE TABLE public.dispatch_plans (
   updated_at timestamp with time zone DEFAULT now(),
   dispatch_date date,
   dispatch_number text,
-  inform_before_dispatch text,
   dispatch_status text DEFAULT 'Pending'::text,
   created_by uuid,
+  inform_after_dispatch text,
+  inform_before_dispatch text,
   CONSTRAINT dispatch_plans_pkey PRIMARY KEY (plan_id),
   CONSTRAINT dispatch_plans_order_item_id_fkey FOREIGN KEY (order_item_id) REFERENCES public.sales_order_items(item_id),
   CONSTRAINT dispatch_plans_godown_id_fkey FOREIGN KEY (godown_id) REFERENCES public.godowns(godown_id),

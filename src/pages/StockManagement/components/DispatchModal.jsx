@@ -173,7 +173,12 @@ const DispatchModal = ({ isOpen, onClose, products, godowns, productStockMap = {
         <ModalHeader>
           <div className="bg-rose-50 p-2 rounded-lg"><Truck size={20} className="text-rose-600" /></div>
           <ModalTitle asChild>
-            <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Dispatch Out' : 'Dispatch Out'}</h2>
+            <h2 className="text-xl font-bold text-slate-800">
+              {isEditing ? 'Edit Dispatch Out' : 'Dispatch Out'}
+              {editingTransaction?.dispatch_number && (
+                <span className="ml-2 text-sm font-normal text-slate-400">(Dispatch #{editingTransaction.dispatch_number})</span>
+              )}
+            </h2>
           </ModalTitle>
           <ModalDescription className="sr-only">{isEditing ? 'Editing dispatch out entry' : 'Dispatch stock out'}</ModalDescription>
         </ModalHeader>

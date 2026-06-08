@@ -54,7 +54,12 @@ const VoidConfirmModal = ({ isOpen, onClose, transaction, onConfirm, loading, pr
       <ModalContent className="max-w-5xl">
         <ModalHeader>
           <div className="bg-red-50 p-2 rounded-lg w-fit"><AlertTriangle size={20} className="text-red-600" /></div>
-          <h2 className="text-xl font-bold text-slate-800">Void Transaction</h2>
+          <h2 className="text-xl font-bold text-slate-800">
+            Void Transaction
+            {transaction?.dispatch_number && (
+              <span className="ml-2 text-sm font-normal text-slate-400">(Dispatch #{transaction.dispatch_number})</span>
+            )}
+          </h2>
         </ModalHeader>
         <ModalBody>
           <div className="grid grid-cols-5 gap-6">
@@ -67,6 +72,9 @@ const VoidConfirmModal = ({ isOpen, onClose, transaction, onConfirm, loading, pr
                 <div><span className="text-slate-500">Date:</span> <span className="font-medium">{transaction.txn_date}</span></div>
                 {isTransfer && (
                   <div className="text-amber-600 text-xs mt-1">This is part of a transfer — both legs will be voided together.</div>
+                )}
+                {transaction.dispatch_plan_id && (
+                  <div className="text-amber-600 text-xs mt-1">This is linked to Dispatch #{transaction.dispatch_number} from Sales. Voiding will reset the dispatch status to Pending.</div>
                 )}
               </div>
               <div>

@@ -56,13 +56,14 @@ const TransactionTable = ({ transactions, totalItems, loading, onEdit, onVoid })
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Godown</th>
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
+            <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatch #</th>
             <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Qty</th>
             <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-20">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {loading ? (
-            <tr><td colSpan={6}>
+            <tr><td colSpan={7}>
               <div className="flex flex-col items-center py-12">
                 <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3"></div>
                 <p className="text-sm text-slate-400">Loading transactions...</p>
@@ -92,6 +93,9 @@ const TransactionTable = ({ transactions, totalItems, loading, onEdit, onVoid })
                   t.txn_type === 'OUT_GODOWN' ? 'bg-rose-50 text-rose-700' :
                   'bg-slate-50 text-slate-600'
                 }`}>{t.txn_type.replace(/_/g, ' ')}</span>
+              </td>
+              <td className="px-4 py-3 text-center text-xs text-slate-500">
+                {t.dispatch_number || '—'}
               </td>
               <td className={`px-4 py-3 text-right font-medium tabular-nums ${
                 ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN'].includes(t.txn_type) ? 'text-green-600' : 'text-red-600'

@@ -124,7 +124,7 @@ export const transferStock = async ({ product_id, from_godown_id, to_godown_id, 
   return data;
 };
 
-export const dispatchStock = async ({ product_id, godown_id, qty, txn_date, created_by }) => {
+export const dispatchStock = async ({ product_id, godown_id, qty, txn_date, created_by, dispatch_plan_id, dispatch_number }) => {
   if (!qty || Number(qty) <= 0) throw new Error('Quantity must be greater than zero.');
   if (!Number.isInteger(Number(qty))) throw new Error('Quantity must be a whole number.');
   if (new Date(txn_date) > new Date(new Date().toDateString())) throw new Error('Transaction date cannot be in the future.');
@@ -138,12 +138,16 @@ export const dispatchStock = async ({ product_id, godown_id, qty, txn_date, crea
 
   const back_dated = new Date(txn_date) < new Date(new Date().toDateString());
 
+  const insertPayload = {
+    product_id, godown_id, txn_date, txn_type: 'OUT_GODOWN',
+    qty: Number(qty), is_void: false, created_by, back_dated,
+  };
+  if (dispatch_plan_id) insertPayload.dispatch_plan_id = dispatch_plan_id;
+  if (dispatch_number) insertPayload.dispatch_number = dispatch_number;
+
   const { data, error } = await supabase
     .from('transactions')
-    .insert([{
-      product_id, godown_id, txn_date, txn_type: 'OUT_GODOWN',
-      qty: Number(qty), is_void: false, created_by, back_dated,
-    }])
+    .insert([insertPayload])
     .select()
     .single();
   if (error) throw error;
@@ -332,22 +336,37 @@ export const editTransaction = async (txnId, updates, created_by) => {
     .eq('txn_id', txnId);
   if (voidErr) throw voidErr;
 
+  const newTxnPayload = {
+    product_id: original.product_id,
+    godown_id: godownId,
+    txn_date: txnDate,
+    txn_type: original.txn_type,
+    qty,
+    is_void: false,
+    ref_txn_id: txnId,
+    created_by,
+    back_dated,
+  };
+  if (original.dispatch_plan_id) newTxnPayload.dispatch_plan_id = original.dispatch_plan_id;
+  if (original.dispatch_number) newTxnPayload.dispatch_number = original.dispatch_number;
+
   const { data: newTxn, error: insertErr } = await supabase
     .from('transactions')
-    .insert([{
-      product_id: original.product_id,
-      godown_id: godownId,
-      txn_date: txnDate,
-      txn_type: original.txn_type,
-      qty,
-      is_void: false,
-      ref_txn_id: txnId,
-      created_by,
-      back_dated,
-    }])
+    .insert([newTxnPayload])
     .select()
     .single();
   if (insertErr) throw insertErr;
+
+  if (original.dispatch_plan_id && (godownId !== original.godown_id || qty !== Number(original.qty))) {
+    const planUpdate = {};
+    if (godownId !== original.godown_id) planUpdate.godown_id = godownId;
+    if (qty !== Number(original.qty)) planUpdate.quantity = qty;
+    planUpdate.updated_at = new Date().toISOString();
+    await supabase
+      .from('dispatch_plans')
+      .update(planUpdate)
+      .eq('plan_id', original.dispatch_plan_id);
+  }
 
   return newTxn;
 };
@@ -507,6 +526,13 @@ export const voidTransaction = async (txnId, reason, created_by) => {
       .in('txn_id', bothIds);
     if (voidErr) throw voidErr;
 
+    if (original.dispatch_plan_id) {
+      await supabase
+        .from('dispatch_plans')
+        .update({ dispatch_status: 'Cancelled', cancelled_at: new Date().toISOString(), cancelled_reason: reason.trim(), updated_at: new Date().toISOString() })
+        .eq('plan_id', original.dispatch_plan_id);
+    }
+
     return { voided: bothIds };
   }
 
@@ -518,6 +544,13 @@ export const voidTransaction = async (txnId, reason, created_by) => {
     .update({ is_void: true, void_reason: reason.trim() })
     .eq('txn_id', txnId);
   if (voidErr) throw voidErr;
+
+  if (original.dispatch_plan_id) {
+    await supabase
+      .from('dispatch_plans')
+      .update({ dispatch_status: 'Cancelled', cancelled_at: new Date().toISOString(), cancelled_reason: reason.trim(), updated_at: new Date().toISOString() })
+      .eq('plan_id', original.dispatch_plan_id);
+  }
 
   return { voided: [txnId] };
 };

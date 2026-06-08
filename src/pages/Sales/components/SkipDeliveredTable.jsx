@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Truck, Square, CheckSquare, Save } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getSkipDeliveredItems, saveDispatchPlan } from '../../../services/salesService';
+import { getSkipDeliveredItems, saveDispatchPlan, completeDispatchWithStockOut } from '../../../services/salesService';
 import { getAllProductStock } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -50,11 +50,13 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
       setItems(data);
       const initial = {};
       data.forEach(item => {
-        const plan = item.dispatch_plans?.[0];
+        const uncancelledPlans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
+        const latestPlan = uncancelledPlans[uncancelledPlans.length - 1] || item.dispatch_plans?.[0];
         initial[item.item_id] = {
-          quantity: plan ? String(plan.quantity) : '',
-          godown_id: plan ? plan.godown_id : item.godown_id || '',
-          dispatch_date: plan?.dispatch_date || new Date().toISOString().split('T')[0],
+          plan_id: latestPlan?.plan_id || '',
+          quantity: latestPlan ? String(latestPlan.quantity) : '',
+          godown_id: latestPlan ? latestPlan.godown_id : item.godown_id || '',
+          dispatch_date: latestPlan?.dispatch_date || new Date().toISOString().split('T')[0],
         };
       });
       setEditedPlans(initial);
@@ -81,9 +83,15 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
       );
     }
     if (skipFilter === 'pending') {
-      result = result.filter(item => !item.dispatch_plans?.[0]);
+      result = result.filter(item => {
+        const plans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
+        return plans.length === 0;
+      });
     } else if (skipFilter === 'skip-done') {
-      result = result.filter(item => !!item.dispatch_plans?.[0]);
+      result = result.filter(item => {
+        const plans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
+        return plans.length > 0;
+      });
     }
     return result;
   }, [items, searchTerm, skipFilter]);
@@ -121,17 +129,32 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
       const plan = editedPlans[item.item_id];
       if (!plan?.godown_id) { errors.push(`Order ${item.sales_orders?.order_number}: Select a godown.`); continue; }
       if (Number(plan.quantity || 0) > Number(item.quantity)) { errors.push(`Order ${item.sales_orders?.order_number}: Dispatch qty exceeds order qty.`); continue; }
+
+      const selectedGodownId = plan.godown_id || item.godown_id;
+      const currentStock = getCurrentStock(item.product_id, selectedGodownId);
+      if (Number(plan.quantity || 0) > currentStock) { errors.push(`Order ${item.sales_orders?.order_number}: Insufficient stock. Available: ${currentStock}, Required: ${plan.quantity}.`); continue; }
+
       try {
-        const saved = await saveDispatchPlan({
+        const savedPlan = await saveDispatchPlan({
           order_item_id: item.item_id,
           quantity: plan.quantity,
           godown_id: plan.godown_id,
           unit_price: item.unit_price,
           dispatch_date: plan.dispatch_date,
           created_by: user?.user_id,
-          dispatch_status: 'Dispatch Done',
         });
-        savedItems.push({ item_id: item.item_id, plan: saved });
+
+        await completeDispatchWithStockOut({
+          plan_id: savedPlan.plan_id,
+          product_id: item.product_id,
+          godown_id: plan.godown_id,
+          quantity: Number(plan.quantity),
+          dispatch_date: plan.dispatch_date || new Date().toISOString().split('T')[0],
+          dispatch_number: savedPlan.dispatch_number,
+          created_by: user?.user_id,
+        });
+
+        savedItems.push({ item_id: item.item_id, plan: savedPlan });
       } catch (err) {
         errors.push(`Order ${item.sales_orders?.order_number}: ${err.message}`);
       }
@@ -139,12 +162,12 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
     if (savedItems.length > 0) {
       setItems(prev => prev.map(i => {
         const found = savedItems.find(s => s.item_id === i.item_id);
-        return found ? { ...i, dispatch_plans: [found.plan] } : i;
+        return found ? { ...i, dispatch_plans: [...(i.dispatch_plans || []), found.plan] } : i;
       }));
     }
     setCheckedRows(new Set());
     if (savedItems.length > 0) onSave?.();
-    if (errors.length === 0) toast.success(`Saved ${savedItems.length} dispatch plan(s)`);
+    if (errors.length === 0) toast.success(`Completed ${savedItems.length} dispatch(s) with stock out`);
     else toast.error(errors[0]);
     setIsSaving(false);
   };
@@ -210,7 +233,8 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
           <tbody className="divide-y divide-slate-100">
             {currentItems.map(item => {
               const plan = editedPlans[item.item_id] || {};
-              const existingPlan = item.dispatch_plans?.[0];
+              const allPlans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
+              const hasUncancelled = allPlans.length > 0;
               const isChecked = checkedRows.has(item.item_id);
               const selectedGodownId = plan.godown_id || item.godown_id;
               const currentStock = getCurrentStock(item.product_id, selectedGodownId);
@@ -223,7 +247,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
                     </button>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    {existingPlan ? (
+                    {hasUncancelled ? (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
                         Skip Done
                       </span>

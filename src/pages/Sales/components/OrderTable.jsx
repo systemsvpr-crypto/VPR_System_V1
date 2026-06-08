@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { ShoppingCart, Edit2, ChevronDown } from 'lucide-react';
+import { ShoppingCart, Edit2, ChevronDown, Lock, Ban } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 
-const OrderTable = ({ orders, totalItems, loading, onEdit, searchTerm }) => {
+const OrderTable = ({ orders, totalItems, loading, onEdit, onCancel, searchTerm }) => {
   const [expandedOrders, setExpandedOrders] = useState(new Set());
 
   const toggleExpand = (orderId) => {
@@ -90,10 +90,15 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, searchTerm }) => {
                   ₹{Number(o.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </td>
                 <td className="px-4 py-3 text-slate-400 text-xs">{format(new Date(o.created_at), 'dd/MM/yyyy')}</td>
-                <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                <td className="px-4 py-3 text-center flex items-center justify-center gap-1" onClick={e => e.stopPropagation()}>
                   <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(o)}
                     className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
                     <Edit2 size={15} />
+                  </Button>
+                  <Button variant="ghost" size="icon" type="button" onClick={() => onCancel(o)}
+                    className="p-1.5 text-red-300 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                    title="Cancel items">
+                    <Ban size={15} />
                   </Button>
                 </td>
               </tr>
@@ -118,11 +123,13 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, searchTerm }) => {
                             const plansArr = Array.isArray(item.dispatch_plans) ? item.dispatch_plans : [];
                             const plannedQty = plansArr.reduce((sum, p) => sum + Number(p.quantity), 0);
                             const remaining = Number(item.quantity) - plannedQty;
+                            const itemLocked = plansArr.some(p => p.dispatch_status === 'Dispatch Done');
                             return (
-                              <tr key={item.item_id} className="hover:bg-white transition-colors">
+                              <tr key={item.item_id} className={`hover:bg-white transition-colors ${itemLocked ? 'opacity-60' : ''}`}>
                                 <td className="px-4 py-2">
                                   <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>
                                   <span className="text-xs text-slate-400 ml-1 uppercase">({item.products?.unit})</span>
+                                  {itemLocked && <Lock size={12} className="inline ml-1 text-slate-300" />}
                                 </td>
                                 <td className="px-4 py-2 text-slate-600">{item.godowns?.name || '—'}</td>
                                 <td className="px-4 py-2 text-center text-slate-700">{item.quantity}</td>

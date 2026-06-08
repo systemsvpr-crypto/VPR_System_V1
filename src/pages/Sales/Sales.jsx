@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import Pagination from '@/components/ui/pagination';
 import OrderTable from './components/OrderTable';
 import OrderModal from './components/OrderModal';
+import CancelOrderModal from './components/CancelOrderModal';
 import DispatchPlanningTable from './components/DispatchPlanningTable';
 import InformBeforeDispatchTable from './components/InformBeforeDispatchTable';
 import DispatchCompletedTable from './components/DispatchCompletedTable';
@@ -41,6 +42,8 @@ const Sales = () => {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancellingOrder, setCancellingOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [dispatchFilter, setDispatchFilter] = useState('pending');
@@ -87,6 +90,16 @@ const Sales = () => {
   const handleEditOrder = (order) => {
     setEditingOrder(order);
     setModalOpen(true);
+  };
+
+  const handleCancelOrder = (order) => {
+    setCancellingOrder(order);
+    setCancelModalOpen(true);
+  };
+
+  const handleCloseCancelModal = () => {
+    setCancelModalOpen(false);
+    setCancellingOrder(null);
   };
 
   const handleCloseModal = () => {
@@ -139,7 +152,7 @@ const Sales = () => {
 
           <div className="bg-white rounded-xl border border-slate-200 flex-col">
             <OrderTable orders={currentOrders} totalItems={filteredOrders.length} loading={loading}
-              onEdit={handleEditOrder} searchTerm={searchTerm} />
+              onEdit={handleEditOrder} onCancel={handleCancelOrder} searchTerm={searchTerm} />
             {!loading && filteredOrders.length > 0 && (
               <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={filteredOrders.length}
                 startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1}
@@ -151,6 +164,8 @@ const Sales = () => {
           <OrderModal isOpen={modalOpen} onClose={handleCloseModal}
             user={user} onSuccess={loadData} editingOrder={editingOrder}
             products={products} godowns={godowns} customers={customers} />
+          <CancelOrderModal isOpen={cancelModalOpen} onClose={handleCloseCancelModal}
+            order={cancellingOrder} onSuccess={loadData} user={user} />
         </div>
       )}
 
