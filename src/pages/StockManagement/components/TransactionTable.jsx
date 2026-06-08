@@ -3,15 +3,12 @@ import { DatePicker } from '@/components/ui/date-picker';
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from '@/components/ui/Select';
-import { Dropdown, DropdownTrigger, DropdownContent } from '@/components/ui/dropdown';
+import { Dropdown } from '@/components/ui/dropdown';
 
 const TransactionFilters = ({ filters, onChange, products, godowns }) => (
   <div className="flex flex-col md:flex-row md:items-center gap-3">
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3 w-full">
-      <Dropdown value={filters.product_id} onValueChange={(v) => onChange('product_id', v)} options={[{ value: "all", label: "All Products" }, ...products.map(p => ({ value: p.product_id, label: p.name }))]} placeholder="All Products">
-        <DropdownTrigger />
-        <DropdownContent />
-      </Dropdown>
+      <Dropdown value={filters.product_id} onValueChange={(v) => onChange('product_id', v)} options={[{ value: "all", label: "All Products" }, ...products.map(p => ({ value: p.product_id, label: p.name }))]} placeholder="All Products" />
       <Select value={filters.godown_id} onValueChange={(v) => onChange('godown_id', v)}>
         <SelectTrigger className="w-full h-10"><SelectValue placeholder="All Godowns" /></SelectTrigger>
         <SelectContent>

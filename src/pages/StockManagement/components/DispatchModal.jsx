@@ -8,7 +8,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from '@/components/ui/Select';
-import { Dropdown, DropdownTrigger, DropdownContent } from '@/components/ui/dropdown';
+import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
 import ImpactPreview from './ImpactPreview';
 
@@ -183,9 +183,8 @@ const DispatchModal = ({ isOpen, onClose, products, godowns, productStockMap = {
               <div className={isEditing ? "col-span-2 space-y-4" : "space-y-4"}>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Product</label>
-                  <Dropdown value={form.product_id} onValueChange={(v) => setForm({ ...form, product_id: v })} options={products.map(p => ({ value: p.product_id, label: p.name }))} placeholder="Select Product" renderOption={renderProductOption}>
-                    <DropdownTrigger disabled={isEditing}>{selectedProduct?.name}</DropdownTrigger>
-                    <DropdownContent className="w-full" />
+                  <Dropdown value={form.product_id} onValueChange={(v) => setForm({ ...form, product_id: v })} options={products.map(p => ({ value: p.product_id, label: p.name }))} placeholder="Select Product" renderOption={renderProductOption} disabled={isEditing} contentClassName="w-full">
+                    {selectedProduct?.name}
                   </Dropdown>
                 </div>
                 <div>

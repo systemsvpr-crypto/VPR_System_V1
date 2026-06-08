@@ -47,6 +47,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, searchTerm }) => {
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Order Date</th>
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Order No.</th>
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Customer</th>
+            <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[110px]">Type</th>
             <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Items</th>
             <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Amount</th>
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Created</th>
@@ -70,6 +71,17 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, searchTerm }) => {
                 <td className="px-4 py-3 font-medium text-slate-800">{o.order_number}</td>
                 <td className="px-4 py-3 text-slate-600">{o.customers?.name || '—'}</td>
                 <td className="px-4 py-3 text-center">
+                  {o.process_type === 'skip_delivered' ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">
+                      Skip
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                      Process
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-center">
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
                     {items.length}
                   </span>
@@ -89,7 +101,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, searchTerm }) => {
             if (isExpanded && items.length > 0) {
               rows.push(
                 <tr key={`${o.order_id}-details`}>
-                  <td colSpan={8} className="px-0 py-0">
+                  <td colSpan={9} className="px-0 py-0">
                     <div className="bg-slate-50 border-t border-slate-100">
                       <table className="w-full text-sm">
                         <thead>

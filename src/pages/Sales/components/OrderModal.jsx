@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, X, Plus } from 'lucide-react';
+import { ShoppingCart, X, Plus, Truck, ArrowRightCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createOrder, updateOrder, generateNextOrderNumber } from '../../../services/salesService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
-import { Dropdown, DropdownTrigger, DropdownContent } from '@/components/ui/dropdown';
+import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
 const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, godowns, customers }) => {
@@ -13,6 +13,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     order_date: new Date().toISOString().split('T')[0],
     order_number: '',
     customer_id: '',
+    process_type: 'order_process',
     items: [],
   });
   const [submitting, setSubmitting] = useState(false);
@@ -25,6 +26,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
         order_date: new Date().toISOString().split('T')[0],
         order_number: '',
         customer_id: '',
+        process_type: 'order_process',
         items: [],
       });
     } else if (editingOrder) {
@@ -32,6 +34,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
         order_date: editingOrder.order_date?.split('T')[0] || new Date().toISOString().split('T')[0],
         order_number: editingOrder.order_number || '',
         customer_id: editingOrder.customer_id || '',
+        process_type: editingOrder.process_type || 'order_process',
         items: (editingOrder.sales_order_items || []).map(item => ({
           item_id: item.item_id,
           product_id: item.product_id,
@@ -69,6 +72,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
           order_number: form.order_number.trim(),
           customer_id: form.customer_id,
           items: form.items,
+          process_type: form.process_type,
         });
         toast.success('Order updated successfully');
       } else {
@@ -78,6 +82,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
           customer_id: form.customer_id,
           items: form.items,
           created_by: user?.user_id,
+          process_type: form.process_type,
         });
         toast.success('Order created successfully');
       }
@@ -115,12 +120,32 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <ModalContent className="max-w-4xl">
         <ModalHeader>
-          <div className="bg-primary/10 p-2 rounded-lg">
-            <ShoppingCart size={20} className="text-primary" />
+          <div className="flex items-center justify-between w-full pr-12">
+            <div className="flex items-center gap-3">
+              <div className="bg-primary/10 p-2 rounded-lg">
+                <ShoppingCart size={20} className="text-primary" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-800">
+                {isEditing ? 'Edit Order' : 'Create Order'}
+              </h2>
+            </div>
+            <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
+              {[
+                { id: 'order_process', label: 'Order Process' },
+                { id: 'skip_delivered', label: 'Skip Delivered' },
+              ].map(t => (
+                <button key={t.id} type="button" onClick={() => setForm({ ...form, process_type: t.id })}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                    form.process_type === t.id
+                      ? 'bg-white text-slate-800 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}>
+                  {t.id === 'order_process' ? <ArrowRightCircle size={14} /> : <Truck size={14} />}
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <h2 className="text-xl font-bold text-slate-800">
-            {isEditing ? 'Edit Order' : 'Create Order'}
-          </h2>
         </ModalHeader>
         <form onSubmit={handleSubmit}>
           <ModalBody>
@@ -137,14 +162,12 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                 <label className="block text-sm font-medium text-slate-700 mb-1">Customer <span className="text-red-500">*</span></label>
                 <Dropdown value={form.customer_id} onValueChange={(v) => setForm({ ...form, customer_id: v })}
                   options={customers.map(c => ({ value: c.customer_id, label: c.name }))}
-                  placeholder="Select customer..." searchPlaceholder="Search customers...">
-                  <DropdownTrigger />
-                  <DropdownContent align="start" />
-                </Dropdown>
+                  placeholder="Select customer..." searchPlaceholder="Search customers..."
+                  align="start" />
               </div>
             </div>
 
-            <div>
+            <div className="mt-4">
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium text-slate-700">Products ({form.items.length})</label>
               </div>
@@ -157,19 +180,15 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                     <div className="col-span-4">
                       <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
                       <Dropdown value={item.product_id} onValueChange={(v) => updateItem(i, 'product_id', v)}
-                        options={productOptions} placeholder="Select product..." searchPlaceholder="Search products...">
-                        <DropdownTrigger />
-                        <DropdownContent align="start" />
-                      </Dropdown>
+                        options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
+                        align="start" />
                     </div>
                     <div className="col-span-3">
                       <label className="block text-xs font-medium text-slate-500 mb-1">Godown <span className="text-red-500">*</span></label>
                       <Dropdown value={item.godown_id} onValueChange={(v) => updateItem(i, 'godown_id', v)}
                         options={activeGodowns.map(g => ({ value: g.godown_id, label: g.name }))}
-                        placeholder="Select godown..." searchPlaceholder="Search godowns...">
-                        <DropdownTrigger />
-                        <DropdownContent align="start" />
-                      </Dropdown>
+                        placeholder="Select godown..." searchPlaceholder="Search godowns..."
+                        align="start" />
                     </div>
                     <div className="col-span-2">
                       <label className="block text-xs font-medium text-slate-500 mb-1">Unit Price</label>

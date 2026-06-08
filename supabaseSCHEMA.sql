@@ -1,3 +1,5 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
 CREATE TABLE public.users (
   user_id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -145,7 +147,12 @@ CREATE TABLE public.dispatch_plans (
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   dispatch_date date,
+  dispatch_number text,
+  inform_before_dispatch text,
+  dispatch_status text DEFAULT 'Pending'::text,
+  created_by uuid,
   CONSTRAINT dispatch_plans_pkey PRIMARY KEY (plan_id),
   CONSTRAINT dispatch_plans_order_item_id_fkey FOREIGN KEY (order_item_id) REFERENCES public.sales_order_items(item_id),
-  CONSTRAINT dispatch_plans_godown_id_fkey FOREIGN KEY (godown_id) REFERENCES public.godowns(godown_id)
+  CONSTRAINT dispatch_plans_godown_id_fkey FOREIGN KEY (godown_id) REFERENCES public.godowns(godown_id),
+  CONSTRAINT dispatch_plans_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id)
 );
