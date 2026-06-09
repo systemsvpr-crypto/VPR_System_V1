@@ -62,12 +62,11 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
     setCurrentPage(1);
   }, [searchTerm, informFilter]);
 
-  const toggleCheck = (orderId, itemId) => {
-    const key = `${orderId}-${itemId}`;
+  const toggleCheck = (planId) => {
     setCheckedRows(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(planId)) next.delete(planId);
+      else next.add(planId);
       return next;
     });
   };
@@ -75,12 +74,7 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
   const handleConfirmNotify = async () => {
     if (checkedRows.size === 0) return;
     setIsNotifying(true);
-    const planIds = [];
-    for (const { order, item, plan } of currentItems) {
-      const key = `${order.order_id}-${item.item_id}`;
-      if (!checkedRows.has(key)) continue;
-      planIds.push(plan.plan_id);
-    }
+    const planIds = Array.from(checkedRows);
     try {
       await batchUpdateInformBeforeDispatch(planIds, 'Informed');
       setCheckedRows(new Set());
@@ -146,11 +140,11 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
           </thead>
           <tbody className="divide-y divide-slate-100">
             {currentItems.map(({ order, item, plan }) => {
-              const rowKey = `${order.order_id}-${item.item_id}`;
+              const rowKey = plan.plan_id;
               return (
                   <tr key={rowKey} className={`hover:bg-slate-50 transition-colors group ${plan.dispatch_status === 'Dispatch Done' ? 'opacity-60' : ''}`}>
                   <td className="px-2 py-3 text-center">
-                    <button type="button" onClick={() => toggleCheck(order.order_id, item.item_id)}
+                    <button type="button" onClick={() => toggleCheck(plan.plan_id)}
                       className="inline-flex items-center justify-center text-slate-400 hover:text-primary transition-colors">
                       {checkedRows.has(rowKey) ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
                     </button>

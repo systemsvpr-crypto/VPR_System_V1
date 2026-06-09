@@ -497,16 +497,13 @@ export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown
     .eq('dispatch_plan_id', plan_id)
     .eq('is_void', false);
   const totalDispatched = (dispatchTxns || []).reduce((s, t) => s + Number(t.qty), 0);
-  const newStatus = totalDispatched >= Number(planRow?.quantity || 0)
-    ? 'Dispatch Done'
-    : 'Partially Dispatched';
+  
+  // Always close the plan at the actual dispatched amount
   const updateFields = {
-    dispatch_status: newStatus,
+    dispatch_status: 'Dispatch Done',
+    quantity: totalDispatched,
     updated_at: new Date().toISOString(),
   };
-  if (totalDispatched > Number(planRow?.quantity || 0)) {
-    updateFields.quantity = totalDispatched;
-  }
 
   const { error: planErr } = await supabase
     .from('dispatch_plans')

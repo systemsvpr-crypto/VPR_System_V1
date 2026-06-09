@@ -136,6 +136,7 @@ CREATE TABLE public.sales_order_items (
   unit_price numeric NOT NULL DEFAULT 0,
   quantity numeric NOT NULL CHECK (quantity > 0::numeric),
   created_at timestamp with time zone DEFAULT now(),
+  cancelled_quantity numeric DEFAULT 0 CHECK (cancelled_quantity >= 0::numeric),
   CONSTRAINT sales_order_items_pkey PRIMARY KEY (item_id),
   CONSTRAINT sales_order_items_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.sales_orders(order_id),
   CONSTRAINT sales_order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(product_id),
@@ -143,7 +144,7 @@ CREATE TABLE public.sales_order_items (
 );
 CREATE TABLE public.dispatch_plans (
   plan_id uuid NOT NULL DEFAULT gen_random_uuid(),
-  order_item_id uuid NOT NULL UNIQUE,
+  order_item_id uuid NOT NULL,
   quantity numeric NOT NULL DEFAULT 0,
   godown_id uuid,
   unit_price numeric NOT NULL DEFAULT 0,
@@ -156,8 +157,12 @@ CREATE TABLE public.dispatch_plans (
   created_by uuid,
   inform_after_dispatch text,
   inform_before_dispatch text,
+  cancelled_at timestamp with time zone,
+  cancelled_reason text,
+  cancelled_by uuid,
   CONSTRAINT dispatch_plans_pkey PRIMARY KEY (plan_id),
   CONSTRAINT dispatch_plans_order_item_id_fkey FOREIGN KEY (order_item_id) REFERENCES public.sales_order_items(item_id),
   CONSTRAINT dispatch_plans_godown_id_fkey FOREIGN KEY (godown_id) REFERENCES public.godowns(godown_id),
-  CONSTRAINT dispatch_plans_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id)
+  CONSTRAINT dispatch_plans_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id),
+  CONSTRAINT dispatch_plans_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.users(user_id)
 );

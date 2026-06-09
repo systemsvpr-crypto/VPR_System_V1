@@ -1,177 +1,157 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ClipboardList, Save, Square, CheckSquare } from 'lucide-react';
+import {
+  ClipboardList, Plus, Package, Truck, CheckCircle2,
+  AlertCircle, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getAllOrderItemsForDispatch, saveDispatchPlan } from '../../../services/salesService';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Dropdown } from '@/components/ui/dropdown';
-import { DatePicker } from '@/components/ui/date-picker';
+import { getAllOrderItemsForDispatch } from '../../../services/salesService';
 import Pagination from '@/components/ui/pagination';
+import PlanDispatchModal from './PlanDispatchModal';
 
 const ITEMS_PER_PAGE = 10;
 
-const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, user }) => {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [editedPlans, setEditedPlans] = useState({});
-  const [isSaving, setIsSaving] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [checkedRows, setCheckedRows] = useState(() => new Set());
+/* ─── tiny status badge ──────────────────────────────────── */
+const StatusBadge = ({ status }) => {
+  const map = {
+    Pending:                'bg-slate-100 text-slate-500 border-slate-200',
+    Planned:                'bg-blue-50 text-blue-700 border-blue-100',
+    'Dispatch Done':        'bg-emerald-50 text-emerald-700 border-emerald-100',
+    'Partially Dispatched': 'bg-amber-50 text-amber-700 border-amber-100',
+    Cancelled:              'bg-red-50 text-red-400 border-red-100',
+  };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${map[status] || map.Pending}`}>
+      {status}
+    </span>
+  );
+};
 
-  useEffect(() => {
-    loadItems();
-  }, []);
+/* ─── quantity pill ──────────────────────────────────────── */
+const QtyPill = ({ value, color, label }) => {
+  const colors = {
+    blue:    'bg-blue-50 text-blue-700 border-blue-100',
+    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    violet:  'bg-violet-50 text-violet-700 border-violet-100',
+    amber:   'bg-amber-50 text-amber-700 border-amber-100',
+    slate:   'bg-slate-100 text-slate-500 border-slate-200',
+  };
+  return (
+    <div className={`flex flex-col items-center justify-center rounded-lg border px-2.5 py-1.5 min-w-[56px] ${colors[color] || colors.slate}`}>
+      <span className="text-base font-bold tabular-nums leading-tight">{value}</span>
+      <span className="text-[9px] font-medium uppercase tracking-wide opacity-70 leading-tight mt-0.5">{label}</span>
+    </div>
+  );
+};
+
+/* ─── progress bar ───────────────────────────────────────── */
+const ProgressBar = ({ ordered, planned, dispatched }) => {
+  if (!ordered) return null;
+  const plannedPct    = Math.min((planned / ordered) * 100, 100);
+  const dispatchedPct = Math.min((dispatched / ordered) * 100, 100);
+  return (
+    <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden mt-2">
+      <div
+        className="h-full bg-violet-400 float-left rounded-l-full"
+        style={{ width: `${dispatchedPct}%` }}
+      />
+      <div
+        className="h-full bg-emerald-300 float-left"
+        style={{ width: `${Math.max(plannedPct - dispatchedPct, 0)}%` }}
+      />
+    </div>
+  );
+};
+
+/* ──────────────────────────────────────────────────────────
+   Main component
+────────────────────────────────────────────────────────── */
+const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, user }) => {
+  const [items, setItems]                   = useState([]);
+  const [loading, setLoading]               = useState(true);
+  const [currentPage, setCurrentPage]       = useState(1);
+  const [expandedItems, setExpandedItems]   = useState(new Set());
+  const [modalItem, setModalItem]           = useState(null);
+
+  useEffect(() => { loadItems(); }, []);
 
   const loadItems = async () => {
     setLoading(true);
     try {
       const data = await getAllOrderItemsForDispatch();
       setItems(data);
-      const initial = {};
-      data.forEach(item => {
-        const uncancelledPlans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
-        const latestPlan = uncancelledPlans[uncancelledPlans.length - 1] || item.dispatch_plans?.[0];
-        initial[item.item_id] = {
-          plan_id: latestPlan?.plan_id || '',
-          quantity: latestPlan ? String(latestPlan.quantity) : '',
-          godown_id: latestPlan ? latestPlan.godown_id : item.godown_id || '',
-          unit_price: latestPlan ? String(latestPlan.unit_price) : String(item.unit_price),
-          dispatch_date: latestPlan?.dispatch_date || new Date().toISOString().split('T')[0],
-        };
-      });
-      setEditedPlans(initial);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load dispatch items');
     }
     setLoading(false);
   };
 
+  /* ── toggle expand ────────────────────────────────────── */
+  const toggleExpand = (itemId) =>
+    setExpandedItems(prev => {
+      const next = new Set(prev);
+      next.has(itemId) ? next.delete(itemId) : next.add(itemId);
+      return next;
+    });
+
+  /* ── computed per-item quantities ─────────────────────── */
+  const withQty = useMemo(() =>
+    items
+      .filter(item => item.sales_orders?.process_type !== 'skip_delivered')
+      .map(item => {
+        const activePlans     = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
+        const cancelledQty    = Number(item.cancelled_quantity || 0);
+        const effectiveQty    = Number(item.quantity) - cancelledQty;
+        const totalPlanned    = activePlans.reduce((s, p) => s + Number(p.quantity), 0);
+        const totalDispatched = activePlans.reduce((s, p) => s + Number(p.already_dispatched || 0), 0);
+        const remaining       = effectiveQty - totalPlanned;
+        return { ...item, activePlans, cancelledQty, effectiveQty, totalPlanned, totalDispatched, remaining };
+      }),
+    [items],
+  );
+
+  /* ── filter ───────────────────────────────────────────── */
   const filteredItems = useMemo(() => {
-    let result = items;
-    result = result.filter(item => item.sales_orders?.process_type !== 'skip_delivered');
-    const term = searchTerm?.toLowerCase();
-    if (term) {
-      result = result.filter(item =>
-        item.sales_orders?.order_number?.toLowerCase().includes(term) ||
-        item.sales_orders?.customers?.name?.toLowerCase().includes(term) ||
-        item.products?.name?.toLowerCase().includes(term)
-      );
-    }
-    if (dispatchFilter === 'pending') {
-      result = result.filter(item => {
-        const plans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
-        return plans.length === 0;
+    const term = searchTerm?.toLowerCase() || '';
+    return withQty
+      .filter(item => {
+        if (!term) return true;
+        return (
+          item.sales_orders?.order_number?.toLowerCase().includes(term) ||
+          item.sales_orders?.customers?.name?.toLowerCase().includes(term) ||
+          item.products?.name?.toLowerCase().includes(term)
+        );
+      })
+      .filter(item => {
+        if (dispatchFilter === 'pending')  return item.activePlans.length === 0;
+        if (dispatchFilter === 'history')  return item.activePlans.length > 0;
+        return true;
       });
-    } else if (dispatchFilter === 'history') {
-      result = result.filter(item => {
-        const plans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
-        return plans.length > 0;
-      });
-    }
-    return result;
-  }, [items, searchTerm, dispatchFilter]);
+  }, [withQty, searchTerm, dispatchFilter]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, dispatchFilter]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, dispatchFilter]);
 
+  const totalPages   = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
   const currentItems = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredItems.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredItems, currentPage]);
 
-  const totalPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
+  /* ── modal open/close ─────────────────────────────────── */
+  const openModal = (item) => setModalItem(item);
+  const closeModal = () => setModalItem(null);
 
-  const updatePlan = (itemId, field, value) => {
-    setEditedPlans(prev => ({
-      ...prev,
-      [itemId]: { ...prev[itemId], [field]: value },
-    }));
+  const handleSaved = () => {
+    loadItems();
+    onSave?.();
+    closeModal();
   };
 
-  const toggleCheck = (itemId) => {
-    setCheckedRows(prev => {
-      const next = new Set(prev);
-      if (next.has(itemId)) next.delete(itemId);
-      else next.add(itemId);
-      return next;
-    });
-  };
-
-  const handleSaveAll = async () => {
-    if (checkedRows.size === 0) return;
-    setIsSaving(true);
-    const errors = [];
-    const savedPlans = {};
-    const itemsToSave = items.filter(i => checkedRows.has(i.item_id));
-    for (const item of itemsToSave) {
-      const plan = editedPlans[item.item_id];
-      if (!plan.godown_id) { errors.push(`Order ${item.sales_orders?.order_number}: Select a godown.`); continue; }
-      if (!plan.quantity || Number(plan.quantity) <= 0) { errors.push(`Order ${item.sales_orders?.order_number}: Enter a dispatch quantity.`); continue; }
-      if (!plan.unit_price || Number(plan.unit_price) <= 0) { errors.push(`Order ${item.sales_orders?.order_number}: Enter a unit price.`); continue; }
-      if (Number(plan.quantity) > Number(item.quantity)) { errors.push(`Order ${item.sales_orders?.order_number}: Dispatch qty exceeds order qty.`); continue; }
-      try {
-        const uncancelled = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
-        const latest = uncancelled[uncancelled.length - 1];
-        const isEdit = latest && (latest.dispatch_status === 'Pending' || latest.dispatch_status === 'Planned');
-        const saved = await saveDispatchPlan({
-          plan_id: isEdit ? (plan.plan_id || undefined) : undefined,
-          order_item_id: item.item_id,
-          quantity: plan.quantity,
-          godown_id: plan.godown_id,
-          unit_price: plan.unit_price,
-          dispatch_date: plan.dispatch_date,
-          created_by: user?.user_id,
-        });
-        savedPlans[item.item_id] = saved;
-      } catch (err) {
-        errors.push(`Order ${item.sales_orders?.order_number}: ${err.message}`);
-      }
-    }
-    const savedIds = Object.keys(savedPlans);
-    if (savedIds.length > 0) {
-      setItems(prev => prev.map(i => {
-        if (!savedPlans[i.item_id]) return i;
-        const existing = i.dispatch_plans || [];
-        const saved = savedPlans[i.item_id];
-        const idx = existing.findIndex(p => p.plan_id === saved.plan_id);
-        if (idx >= 0) {
-          const copy = [...existing];
-          copy[idx] = saved;
-          return { ...i, dispatch_plans: copy };
-        }
-        return { ...i, dispatch_plans: [...existing, saved] };
-      }));
-      setEditedPlans(prev => {
-        const next = { ...prev };
-        Object.entries(savedPlans).forEach(([itemId, sp]) => {
-          next[itemId] = {
-            ...(next[itemId] || {}),
-            plan_id: sp.plan_id,
-            quantity: String(sp.quantity),
-            unit_price: String(sp.unit_price),
-            godown_id: sp.godown_id,
-            dispatch_date: sp.dispatch_date,
-          };
-        });
-        return next;
-      });
-    }
-    setCheckedRows(new Set());
-    if (savedIds.length > 0) onSave?.();
-    if (errors.length === 0) toast.success(`Saved ${savedIds.length} dispatch plan(s)`);
-    else toast.error(errors[0]);
-    setIsSaving(false);
-  };
-
-  const activeGodowns = godowns.filter(g => g.is_active);
-  const godownOptions = activeGodowns.map(g => ({ value: g.godown_id, label: g.name }));
-
+  /* ── loading ──────────────────────────────────────────── */
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3" />
         <p className="text-sm text-slate-400">Loading dispatch items...</p>
       </div>
     );
@@ -185,153 +165,225 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
         </div>
         <h3 className="text-base font-semibold text-slate-600 mb-1">No Dispatch Items</h3>
         <p className="text-sm text-slate-400">
-          {searchTerm ? 'No items match your search.' : dispatchFilter === 'pending' ? 'All items have been planned.' : dispatchFilter === 'history' ? 'No planned dispatches yet.' : 'Create an order to start planning dispatches.'}
+          {searchTerm
+            ? 'No items match your search.'
+            : dispatchFilter === 'pending'
+            ? 'All items have been planned.'
+            : dispatchFilter === 'history'
+            ? 'No planned dispatches yet.'
+            : 'Create an order to start planning dispatches.'}
         </p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-        <span className="text-sm text-slate-500">
-          {checkedRows.size > 0 ? `${checkedRows.size} row(s) selected` : 'Select rows to edit'}
-        </span>
-        <Button onClick={handleSaveAll} disabled={checkedRows.size === 0 || isSaving}
-          className="gap-2 px-4 font-medium">
-          <Save size={16} />
-          {isSaving ? 'Saving...' : 'Save Selected'}
-        </Button>
-      </div>
-      <div className="overflow-x-auto custom-scrollbar">
-        <table className="w-full text-sm whitespace-nowrap">
-          <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
-            <tr>
-              <th className="w-10 px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center"></th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatch No.</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Order No.</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Order Date</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Customer</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Order Qty</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatch Date</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatch Godown</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatch Qty <span className="text-red-500">*</span></th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Unit Price <span className="text-red-500">*</span></th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remaining</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {currentItems.map(item => {
-              const plan = editedPlans[item.item_id] || {};
-              const allPlans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
-              const totalPlanned = allPlans.reduce((s, p) => s + Number(p.quantity), 0);
-              const totalDispatched = allPlans.reduce((s, p) => s + Number(p.already_dispatched || 0), 0);
-              const cancelledQty = Number(item.cancelled_quantity || 0);
-              let remaining;
-              if (checkedRows.has(item.item_id)) {
-                const editedQty = Number(plan.quantity || 0);
-                if (plan.plan_id) {
-                  const savedPlanQty = Number(allPlans.find(p => p.plan_id === plan.plan_id)?.quantity || 0);
-                  remaining = Number(item.quantity) - (totalDispatched - Number(plan.already_dispatched || 0) + editedQty) - cancelledQty;
-                } else {
-                  remaining = Number(item.quantity) - totalDispatched - editedQty - cancelledQty;
-                }
-              } else {
-                remaining = Number(item.quantity) - totalDispatched - cancelledQty;
-              }
-              const hasUncancelled = allPlans.length > 0;
-              const lastPlan = allPlans[allPlans.length - 1] || allPlans[0];
-              return (
-                <tr key={item.item_id} className="hover:bg-slate-50 transition-colors group">
-                  <td className="px-2 py-3 text-center">
-                    <button type="button" onClick={() => toggleCheck(item.item_id)}
-                      className="inline-flex items-center justify-center text-slate-400 hover:text-primary transition-colors">
-                      {checkedRows.has(item.item_id) ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {hasUncancelled ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
-                        Planned
+    <>
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+
+        {/* ── legend ── */}
+        <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-400">
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-200 inline-block" />Ordered</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-300 inline-block" />Planned</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-300 inline-block" />Dispatched</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-300 inline-block" />Remaining</span>
+          <span className="ml-auto font-medium text-slate-500">
+            {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        {/* ── item cards ── */}
+        <div className="divide-y divide-slate-100">
+          {currentItems.map(item => {
+            const isExpanded   = expandedItems.has(item.item_id);
+            const fullyPlanned = item.remaining <= 0;
+            const hasPlans     = item.activePlans.length > 0;
+
+            return (
+              <div key={item.item_id} className="group">
+
+                {/* ─ main row ─ */}
+                <div className="flex items-start gap-4 px-4 py-4 hover:bg-slate-50 transition-colors">
+
+                  {/* Left: order + product info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-slate-800 text-sm">
+                        {item.sales_orders?.order_number || '—'}
                       </span>
+                      <span className="text-slate-300">·</span>
+                      <span className="text-sm text-slate-600">
+                        {item.products?.name}
+                        <span className="text-xs text-slate-400 ml-1 uppercase">({item.products?.unit})</span>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span className="text-xs text-slate-500">
+                        {item.sales_orders?.customers?.name || '—'}
+                      </span>
+                      {item.sales_orders?.order_date && (
+                        <>
+                          <span className="text-slate-200 text-xs">·</span>
+                          <span className="text-xs text-slate-400">
+                            {format(new Date(item.sales_orders.order_date), 'dd/MM/yyyy')}
+                          </span>
+                        </>
+                      )}
+                      {item.cancelledQty > 0 && (
+                        <span className="text-[10px] text-red-400 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded-full">
+                          {item.cancelledQty} cancelled
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Progress bar */}
+                    <ProgressBar
+                      ordered={item.effectiveQty}
+                      planned={item.totalPlanned}
+                      dispatched={item.totalDispatched}
+                    />
+                  </div>
+
+                  {/* Centre: quantity pills */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <QtyPill value={item.effectiveQty}    color="blue"    label="Ordered" />
+                    <QtyPill value={item.totalPlanned}    color="emerald" label="Planned" />
+                    <QtyPill value={item.totalDispatched} color="violet"  label="Dispatched" />
+                    <QtyPill
+                      value={item.remaining}
+                      color={item.remaining > 0 ? 'amber' : 'slate'}
+                      label="Remaining"
+                    />
+                  </div>
+
+                  {/* Right: actions */}
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    {/* Plan / Edit button — always clickable */}
+                    {fullyPlanned ? (
+                      <button
+                        type="button"
+                        onClick={() => openModal(item)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100 transition-colors"
+                      >
+                        <CheckCircle2 size={13} /> Fully Planned
+                      </button>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500 border border-slate-200">
-                        Pending
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => openModal(item)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-primary text-white hover:bg-primary/90 shadow-sm transition-all hover:shadow-md active:scale-95"
+                      >
+                        <Plus size={13} />
+                        Plan Dispatch
+                        <span className="ml-0.5 bg-white/20 px-1.5 py-0.5 rounded text-[10px]">
+                          {item.remaining} left
+                        </span>
+                      </button>
                     )}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-800">
-                    {lastPlan?.dispatch_number || '—'}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-800">
-                    {item.sales_orders?.order_number || '—'}
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">
-                    {item.products?.name ? `${item.products.name} (${item.products.unit})` : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">
-                    {item.sales_orders?.order_date ? format(new Date(item.sales_orders.order_date), 'dd/MM/yyyy') : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {item.sales_orders?.customers?.name || '—'}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="font-medium text-slate-700">{item.quantity}</span>
-                    {cancelledQty > 0 && (
-                      <span className="ml-1 text-[10px] text-red-400">({cancelledQty} cancelled)</span>
+
+                    {/* Toggle existing plans */}
+                    {hasPlans && (
+                      <button
+                        type="button"
+                        onClick={() => toggleExpand(item.item_id)}
+                        className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        {isExpanded ? (
+                          <><ChevronUp size={12} /> Hide plans</>
+                        ) : (
+                          <><ChevronDown size={12} /> {item.activePlans.length} plan{item.activePlans.length !== 1 ? 's' : ''}</>
+                        )}
+                      </button>
                     )}
-                  </td>
-                  <td className="px-4 py-3 min-w-[160px]">
-                    <DatePicker
-                      value={plan.dispatch_date || ''}
-                      onChange={(e) => updatePlan(item.item_id, 'dispatch_date', e.target.value)}
-                      name="dispatch_date"
-                      placeholder="Select dispatch date..."
-                      disabled={!checkedRows.has(item.item_id)} />
-                  </td>
-                  <td className="px-4 py-3 min-w-[180px]">
-                    <Dropdown value={plan.godown_id || ''}
-                      onValueChange={(v) => updatePlan(item.item_id, 'godown_id', v)}
-                      options={godownOptions}
-                      placeholder="Select godown..." searchPlaceholder="Search godowns..."
-                      disabled={!checkedRows.has(item.item_id)} align="start" />
-                  </td>
-                  <td className="px-4 py-3">
-                    <Input type="number" step="1" min="0" placeholder="0"
-                      className="w-20 h-8 text-sm text-center mx-auto"
-                      value={plan.quantity || ''}
-                      onChange={(e) => updatePlan(item.item_id, 'quantity', e.target.value.replace(/\D/g, ''))}
-                      disabled={!checkedRows.has(item.item_id)} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <Input type="number" step="0.01" min="0" placeholder="0.00"
-                      className="w-24 h-8 text-sm text-center mx-auto"
-                      value={plan.unit_price || ''}
-                      onChange={(e) => updatePlan(item.item_id, 'unit_price', e.target.value)}
-                      disabled={!checkedRows.has(item.item_id)} />
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="font-medium text-slate-700">{remaining}</span>
-                    {cancelledQty > 0 && (
-                      <span className="ml-1 text-[10px] text-red-400">(-{cancelledQty} cancelled)</span>
+                  </div>
+                </div>
+
+                {/* ─ expanded: existing plans sub-table ─ */}
+                {isExpanded && hasPlans && (
+                  <div className="bg-slate-50 border-t border-slate-100 px-4 pb-3">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-slate-400 uppercase tracking-wide">
+                          <th className="text-left py-2 pr-4 font-semibold">Dispatch No.</th>
+                          <th className="text-center py-2 pr-4 font-semibold">Planned Qty</th>
+                          <th className="text-center py-2 pr-4 font-semibold">Dispatched</th>
+                          <th className="text-left py-2 pr-4 font-semibold">Date</th>
+                          <th className="text-left py-2 pr-4 font-semibold">Godown</th>
+                          <th className="text-left py-2 font-semibold">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {item.activePlans.map(plan => {
+                          const godown = godowns.find(g => g.godown_id === plan.godown_id);
+                          return (
+                            <tr key={plan.plan_id} className="hover:bg-white transition-colors">
+                              <td className="py-2 pr-4 font-semibold text-slate-700">
+                                {plan.dispatch_number || '—'}
+                              </td>
+                              <td className="py-2 pr-4 text-center font-medium text-slate-700">
+                                {plan.quantity}
+                              </td>
+                              <td className="py-2 pr-4 text-center">
+                                {plan.already_dispatched > 0 ? (
+                                  <span className="text-violet-600 font-medium">{plan.already_dispatched}</span>
+                                ) : (
+                                  <span className="text-slate-300">—</span>
+                                )}
+                              </td>
+                              <td className="py-2 pr-4 text-slate-500">
+                                {plan.dispatch_date
+                                  ? format(new Date(plan.dispatch_date), 'dd/MM/yyyy')
+                                  : '—'}
+                              </td>
+                              <td className="py-2 pr-4 text-slate-600">
+                                {godown?.name || '—'}
+                              </td>
+                              <td className="py-2">
+                                <StatusBadge status={plan.dispatch_status} />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+
+                    {/* Edit nudge */}
+                    {item.activePlans.some(p => p.dispatch_status === 'Pending' || p.dispatch_status === 'Planned') && (
+                      <p className="text-[10px] text-slate-400 mt-2 text-right">
+                        Tip: click <strong>Plan Dispatch</strong> to edit pending plans or add a new partial plan.
+                      </p>
                     )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── pagination ── */}
+        {filteredItems.length > ITEMS_PER_PAGE && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredItems.length}
+            startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1}
+            endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredItems.length)}
+            onPageChange={setCurrentPage}
+            className="border-t border-slate-200"
+          />
+        )}
       </div>
-      {filteredItems.length > 0 && (
-        <Pagination currentPage={currentPage} totalPages={totalPages}
-          totalItems={filteredItems.length}
-          startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1}
-          endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredItems.length)}
-          onPageChange={setCurrentPage} className="border-t border-slate-200" />
-      )}
-    </div>
+
+      {/* ── Plan Dispatch Modal ── */}
+      <PlanDispatchModal
+        isOpen={!!modalItem}
+        onClose={closeModal}
+        item={modalItem}
+        godowns={godowns}
+        user={user}
+        onSave={handleSaved}
+      />
+    </>
   );
 };
 

@@ -68,7 +68,10 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
 
   const filteredPlans = useMemo(() => {
     let result = plans;
-    result = result.filter(plan => plan.sales_order_items?.sales_orders?.process_type !== 'skip_delivered');
+    result = result.filter(plan => 
+      plan.sales_order_items?.sales_orders?.process_type !== 'skip_delivered' &&
+      plan.inform_before_dispatch === 'Informed'
+    );
     const term = searchTerm?.toLowerCase();
     if (term) {
       result = result.filter(plan =>
@@ -98,21 +101,7 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
     setCheckedRows(prev => {
       const next = new Set(prev);
       if (next.has(planId)) next.delete(planId);
-      else {
-        next.add(planId);
-        const plan = plans.find(p => p.plan_id === planId);
-        if (plan) {
-          const dispatched = Number(plan.already_dispatched || 0);
-          const planQty = Number(plan.quantity);
-          if (dispatched > 0 && dispatched < planQty) {
-            const remaining = planQty - dispatched;
-            setEditValues(v => ({
-              ...v,
-              [planId]: { ...(v[planId] || {}), quantity: String(remaining) },
-            }));
-          }
-        }
-      }
+      else next.add(planId);
       return next;
     });
   };
@@ -161,9 +150,8 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
       if (!vals) continue;
       if (!vals.godown_id) { errors.push(`${plan.dispatch_number || 'Plan'}: Select a godown.`); continue; }
       if (!vals.quantity || Number(vals.quantity) <= 0) { errors.push(`${plan.dispatch_number || 'Plan'}: Enter a valid quantity.`); continue; }
-      const alreadyDispatched = Number(plan.already_dispatched || 0);
-      if (Number(vals.quantity) + alreadyDispatched > Number(plan.sales_order_items?.quantity)) {
-        errors.push(`${plan.dispatch_number || 'Plan'}: Total (${alreadyDispatched} already + ${Number(vals.quantity)} new = ${alreadyDispatched + Number(vals.quantity)}) exceeds order qty ${plan.sales_order_items?.quantity}.`);
+      if (Number(vals.quantity) > Number(plan.sales_order_items?.quantity)) {
+        errors.push(`${plan.dispatch_number || 'Plan'}: Dispatch quantity (${vals.quantity}) cannot exceed total order quantity (${plan.sales_order_items?.quantity}).`);
         continue;
       }
 
@@ -257,8 +245,6 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[260px]">Product Name</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[220px]">Godown Name</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[90px]">Order Qty</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[90px]">Already Disp.</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[90px]">Remaining</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[110px]">Dispatch Qty</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[120px]">Available Stock</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[130px]">Dispatch Status</th>
@@ -321,26 +307,6 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
                   <td className="px-4 py-3 text-center font-medium text-slate-700 w-[90px]">
                     {plan.sales_order_items?.quantity}
                   </td>
-                  <td className="px-4 py-3 text-center w-[90px]">
-                    <span className="text-slate-600">{Number(plan.already_dispatched || 0)}</span>
-                  </td>
-                  <td className="px-4 py-3 text-center w-[90px]">
-                    {(() => {
-                      const planQty = Number(plan.quantity || 0);
-                      const alreadyDispatched = Number(plan.already_dispatched || 0);
-                      const editedQty = isChecked ? Number(vals.quantity || 0) : 0;
-                      const displayRemaining = Math.max(0, planQty - alreadyDispatched - editedQty);
-                      return (
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                          isDone || displayRemaining <= 0
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                            : 'bg-amber-50 text-amber-700 border border-amber-100'
-                        }`}>
-                          {displayRemaining}
-                        </span>
-                      );
-                    })()}
-                  </td>
                   <td className="px-4 py-3 w-[120px]">
                     <div className="flex flex-col items-center gap-0.5">
                       <Input type="number" step="1" min="0" placeholder="0"
@@ -350,11 +316,6 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
                         value={vals.quantity || ''}
                         onChange={(e) => updateEditValue(plan.plan_id, 'quantity', e.target.value.replace(/\D/g, ''))}
                         disabled={!isChecked || isDone} />
-                      {Number(plan.already_dispatched || 0) > 0 && (
-                        <span className="text-[10px] text-slate-400 whitespace-nowrap">
-                          {plan.already_dispatched} of {plan.quantity} dispatched
-                        </span>
-                      )}
                       {insufficient && (
                         <span className="text-[10px] text-red-600 font-medium whitespace-nowrap">
                           Exceeds stock by {qtyEntered - currentStock}
