@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { ShoppingCart, Edit2, ChevronDown, Lock, Ban } from 'lucide-react';
+import { ShoppingCart, Edit2, ChevronDown, Lock } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 
-const OrderTable = ({ orders, totalItems, loading, onEdit, onCancel, searchTerm }) => {
+const OrderTable = ({ orders, totalItems, loading, onEdit, searchTerm }) => {
   const [expandedOrders, setExpandedOrders] = useState(new Set());
 
   const toggleExpand = (orderId) => {
@@ -95,11 +95,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onCancel, searchTerm 
                     className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
                     <Edit2 size={15} />
                   </Button>
-                  <Button variant="ghost" size="icon" type="button" onClick={() => onCancel(o)}
-                    className="p-1.5 text-red-300 hover:text-red-600 hover:bg-red-50 rounded transition-all"
-                    title="Cancel items">
-                    <Ban size={15} />
-                  </Button>
+
                 </td>
               </tr>
             ];

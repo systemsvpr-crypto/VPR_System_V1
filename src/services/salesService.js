@@ -208,7 +208,7 @@ export const getSkipDeliveredItems = async () => {
     .select(`
       *,
       sales_orders!inner(
-        order_number, order_date, process_type, created_by,
+        order_number, order_date, process_type, created_by, customer_id,
         customers:customer_id(name)
       ),
       products:product_id(name, unit)
@@ -420,11 +420,19 @@ export const updateDispatchPlan = async (plan_id, { dispatch_date, godown_id, qu
   if (error) throw error;
 };
 
-export const updateOrderItemProduct = async (item_id, product_id) => {
+export const updateOrderItemFields = async (item_id, fields) => {
   const { error } = await supabase
     .from('sales_order_items')
-    .update({ product_id })
+    .update(fields)
     .eq('item_id', item_id);
+  if (error) throw error;
+};
+
+export const updateOrderCustomer = async (order_id, customer_id) => {
+  const { error } = await supabase
+    .from('sales_orders')
+    .update({ customer_id })
+    .eq('order_id', order_id);
   if (error) throw error;
 };
 

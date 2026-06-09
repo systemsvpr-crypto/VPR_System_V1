@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Truck, Square, CheckSquare, Save } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getSkipDeliveredItems, saveDispatchPlan, completeDispatchWithStockOut } from '../../../services/salesService';
+import { getSkipDeliveredItems, saveDispatchPlan, completeDispatchWithStockOut, updateOrderItemFields, updateOrderCustomer } from '../../../services/salesService';
 import { getAllProductStock } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import Pagination from '@/components/ui/pagination';
 
 const ITEMS_PER_PAGE = 10;
 
-const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns, user }) => {
+const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns, user, customers }) => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -57,6 +57,9 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
           quantity: latestPlan ? String(latestPlan.quantity) : '',
           godown_id: latestPlan ? latestPlan.godown_id : item.godown_id || '',
           dispatch_date: latestPlan?.dispatch_date || new Date().toISOString().split('T')[0],
+          customer_id: item.sales_orders?.customer_id || '',
+          product_id: item.product_id || '',
+          unit_price: String(item.unit_price || ''),
         };
       });
       setEditedPlans(initial);
@@ -125,13 +128,44 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
     const errors = [];
     const savedItems = [];
     const toSave = items.filter(i => checkedRows.has(i.item_id));
+    const updatedOrderCustomers = new Set();
+
     for (const item of toSave) {
       const plan = editedPlans[item.item_id];
+
+      // Persist field edits (customer, product, unit_price)
+      try {
+        if (plan.customer_id && plan.customer_id !== item.sales_orders?.customer_id) {
+          const orderId = item.order_id;
+          if (orderId && !updatedOrderCustomers.has(orderId)) {
+            await updateOrderCustomer(orderId, plan.customer_id);
+            updatedOrderCustomers.add(orderId);
+          }
+        }
+        const itemUpdates = {};
+        if (plan.product_id && plan.product_id !== item.product_id) {
+          itemUpdates.product_id = plan.product_id;
+        }
+        if (plan.unit_price !== undefined && Number(plan.unit_price) !== Number(item.unit_price)) {
+          itemUpdates.unit_price = Number(plan.unit_price);
+        }
+        if (Object.keys(itemUpdates).length > 0) {
+          await updateOrderItemFields(item.item_id, itemUpdates);
+        }
+      } catch (err) {
+        errors.push(`Order ${item.sales_orders?.order_number}: Failed to update fields - ${err.message}`);
+        continue;
+      }
+
+      // Use the potentially updated product_id and unit_price for dispatch
+      const effectiveProductId = plan.product_id || item.product_id;
+      const effectiveUnitPrice = plan.unit_price !== undefined && plan.unit_price !== '' ? Number(plan.unit_price) : Number(item.unit_price);
+      const effectiveGodownId = plan.godown_id || item.godown_id;
+
       if (!plan?.godown_id) { errors.push(`Order ${item.sales_orders?.order_number}: Select a godown.`); continue; }
       if (Number(plan.quantity || 0) > Number(item.quantity)) { errors.push(`Order ${item.sales_orders?.order_number}: Dispatch qty exceeds order qty.`); continue; }
 
-      const selectedGodownId = plan.godown_id || item.godown_id;
-      const currentStock = getCurrentStock(item.product_id, selectedGodownId);
+      const currentStock = getCurrentStock(effectiveProductId, effectiveGodownId);
       if (Number(plan.quantity || 0) > currentStock) { errors.push(`Order ${item.sales_orders?.order_number}: Insufficient stock. Available: ${currentStock}, Required: ${plan.quantity}.`); continue; }
 
       try {
@@ -139,14 +173,14 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
           order_item_id: item.item_id,
           quantity: plan.quantity,
           godown_id: plan.godown_id,
-          unit_price: item.unit_price,
+          unit_price: effectiveUnitPrice,
           dispatch_date: plan.dispatch_date,
           created_by: user?.user_id,
         });
 
         await completeDispatchWithStockOut({
           plan_id: savedPlan.plan_id,
-          product_id: item.product_id,
+          product_id: effectiveProductId,
           godown_id: plan.godown_id,
           quantity: Number(plan.quantity),
           dispatch_date: plan.dispatch_date || new Date().toISOString().split('T')[0],
@@ -175,6 +209,8 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
   const activeProducts = products?.filter(p => p.is_active !== false) || [];
   const activeGodowns = godowns?.filter(g => g.is_active) || [];
   const godownOptions = activeGodowns.map(g => ({ value: g.godown_id, label: g.name }));
+  const customerOptions = (customers || []).map(c => ({ value: c.customer_id, label: c.name }));
+  const productOptions = activeProducts.map(p => ({ value: p.product_id, label: `${p.name} (${p.unit})` }));
 
   if (loading) {
     return (
@@ -236,8 +272,9 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
               const allPlans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
               const hasUncancelled = allPlans.length > 0;
               const isChecked = checkedRows.has(item.item_id);
+              const effectiveProductId = plan.product_id || item.product_id;
               const selectedGodownId = plan.godown_id || item.godown_id;
-              const currentStock = getCurrentStock(item.product_id, selectedGodownId);
+              const currentStock = getCurrentStock(effectiveProductId, selectedGodownId);
               return (
                 <tr key={item.item_id} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-2 py-3 text-center">
@@ -260,11 +297,19 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
                   <td className="px-4 py-3 font-medium text-slate-800">
                     {item.sales_orders?.order_number || '—'}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {item.sales_orders?.customers?.name || '—'}
+                  <td className="px-4 py-3">
+                    <Dropdown value={plan.customer_id || ''}
+                      onValueChange={(v) => updatePlan(item.item_id, 'customer_id', v)}
+                      options={customerOptions}
+                      placeholder="Select customer..." searchPlaceholder="Search customers..."
+                      disabled={!isChecked} align="start" />
                   </td>
-                  <td className="px-4 py-3 text-slate-700">
-                    {item.products?.name ? `${item.products.name} (${item.products.unit})` : '—'}
+                  <td className="px-4 py-3">
+                    <Dropdown value={plan.product_id || ''}
+                      onValueChange={(v) => updatePlan(item.item_id, 'product_id', v)}
+                      options={productOptions}
+                      placeholder="Select product..." searchPlaceholder="Search products..."
+                      disabled={!isChecked} align="start" />
                   </td>
                   <td className="px-4 py-3 text-center font-medium text-slate-700">
                     {item.quantity}
@@ -303,8 +348,12 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
                   <td className="px-4 py-3 text-slate-500 text-xs">
                     {item.sales_orders?.order_date ? format(new Date(item.sales_orders.order_date), 'dd/MM/yyyy') : '—'}
                   </td>
-                  <td className="px-4 py-3 text-center font-medium text-slate-700">
-                    {Number(item.unit_price).toFixed(2)}
+                  <td className="px-4 py-3">
+                    <Input type="number" step="0.01" min="0" placeholder="0.00"
+                      className="w-24 h-8 text-sm text-center mx-auto"
+                      value={plan.unit_price || ''}
+                      onChange={(e) => updatePlan(item.item_id, 'unit_price', e.target.value)}
+                      disabled={!isChecked} />
                   </td>
                   <td className="px-4 py-3 text-slate-600">
                     {item.person_name || '—'}
