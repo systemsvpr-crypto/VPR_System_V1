@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { voidTransaction as stockVoidTransaction } from './stockService';
 
 export const generateNextOrderNumber = async () => {
   const { data, error } = await supabase
@@ -40,13 +41,16 @@ export const getAllOrders = async () => {
   if (plansErr) throw plansErr;
 
   const planMap = {};
-  (plans || []).forEach(p => { planMap[p.order_item_id] = p; });
+  (plans || []).forEach(p => {
+    if (!planMap[p.order_item_id]) planMap[p.order_item_id] = [];
+    planMap[p.order_item_id].push(p);
+  });
 
   return orders.map(o => ({
     ...o,
     sales_order_items: (o.sales_order_items || []).map(i => ({
       ...i,
-      dispatch_plans: planMap[i.item_id] ? [planMap[i.item_id]] : [],
+      dispatch_plans: planMap[i.item_id] || [],
     })),
   }));
 };
@@ -106,6 +110,7 @@ export const updateOrder = async (order_id, { order_date, order_number, customer
 
   for (const item of items) {
     if (item.item_id && incomingIds.has(item.item_id)) {
+      if (planItemIds.has(item.item_id)) continue;
       const { error: updErr } = await supabase
         .from('sales_order_items')
         .update({
@@ -163,13 +168,38 @@ export const getAllOrderItemsForDispatch = async () => {
     .in('order_item_id', ids);
   if (plansErr) throw plansErr;
 
-  const planMap = {};
-  (plans || []).forEach(p => { planMap[p.order_item_id] = p; });
+  const planIds = (plans || []).map(p => p.plan_id).filter(Boolean);
+  const dispatchedMap = {};
+  if (planIds.length > 0) {
+    const { data: txns } = await supabase
+      .from('transactions')
+      .select('dispatch_plan_id, qty')
+      .in('dispatch_plan_id', planIds)
+      .eq('is_void', false);
+    (txns || []).forEach(t => {
+      dispatchedMap[t.dispatch_plan_id] = (dispatchedMap[t.dispatch_plan_id] || 0) + Number(t.qty);
+    });
+  }
 
-  return items.map(item => ({
-    ...item,
-    dispatch_plans: planMap[item.item_id] ? [planMap[item.item_id]] : [],
-  }));
+  const planMap = {};
+  (plans || []).forEach(p => {
+    if (!planMap[p.order_item_id]) planMap[p.order_item_id] = [];
+    planMap[p.order_item_id].push({ ...p, already_dispatched: dispatchedMap[p.plan_id] || 0 });
+  });
+
+  return items
+    .map(item => ({
+      ...item,
+      dispatch_plans: planMap[item.item_id] || [],
+    }))
+    .filter(item => {
+      const allPlans = item.dispatch_plans || [];
+      const totalClaimed = allPlans
+        .filter(p => p.dispatch_status !== 'Cancelled')
+        .reduce((sum, p) => sum + Number(p.already_dispatched || 0), 0);
+      const cancelled = Number(item.cancelled_quantity || 0);
+      return Number(item.quantity) - totalClaimed - cancelled > 0;
+    });
 };
 
 export const getSkipDeliveredItems = async () => {
@@ -195,8 +225,24 @@ export const getSkipDeliveredItems = async () => {
     .in('order_item_id', ids);
   if (plansErr) throw plansErr;
 
+  const planIds = (plans || []).map(p => p.plan_id).filter(Boolean);
+  const dispatchedMap = {};
+  if (planIds.length > 0) {
+    const { data: txns } = await supabase
+      .from('transactions')
+      .select('dispatch_plan_id, qty')
+      .in('dispatch_plan_id', planIds)
+      .eq('is_void', false);
+    (txns || []).forEach(t => {
+      dispatchedMap[t.dispatch_plan_id] = (dispatchedMap[t.dispatch_plan_id] || 0) + Number(t.qty);
+    });
+  }
+
   const planMap = {};
-  (plans || []).forEach(p => { planMap[p.order_item_id] = p; });
+  (plans || []).forEach(p => {
+    if (!planMap[p.order_item_id]) planMap[p.order_item_id] = [];
+    planMap[p.order_item_id].push({ ...p, already_dispatched: dispatchedMap[p.plan_id] || 0 });
+  });
 
   const userIds = new Set(items.filter(i => i.sales_orders?.created_by).map(i => i.sales_orders.created_by));
   const { data: users } = userIds.size > 0
@@ -205,11 +251,20 @@ export const getSkipDeliveredItems = async () => {
   const userMap = {};
   (users || []).forEach(u => { userMap[u.user_id] = u.full_name; });
 
-  return items.map(item => ({
-    ...item,
-    dispatch_plans: planMap[item.item_id] ? [planMap[item.item_id]] : [],
-    person_name: userMap[item.sales_orders?.created_by] || '—',
-  }));
+  return items
+    .map(item => ({
+      ...item,
+      dispatch_plans: planMap[item.item_id] || [],
+      person_name: userMap[item.sales_orders?.created_by] || '—',
+    }))
+    .filter(item => {
+      const allPlans = item.dispatch_plans || [];
+      const totalClaimed = allPlans
+        .filter(p => p.dispatch_status !== 'Cancelled')
+        .reduce((sum, p) => sum + Number(p.already_dispatched || 0), 0);
+      const cancelled = Number(item.cancelled_quantity || 0);
+      return Number(item.quantity) - totalClaimed - cancelled > 0;
+    });
 };
 
 export const getAllDispatchPlans = async () => {
@@ -233,7 +288,24 @@ export const getAllDispatchPlans = async () => {
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  const plansData = data || [];
+  const planIds = plansData.map(p => p.plan_id).filter(Boolean);
+  if (planIds.length > 0) {
+    const { data: txns } = await supabase
+      .from('transactions')
+      .select('dispatch_plan_id, qty')
+      .in('dispatch_plan_id', planIds)
+      .eq('is_void', false);
+    const dispatchedMap = {};
+    (txns || []).forEach(t => {
+      dispatchedMap[t.dispatch_plan_id] = (dispatchedMap[t.dispatch_plan_id] || 0) + Number(t.qty);
+    });
+    return plansData.map(plan => ({
+      ...plan,
+      already_dispatched: dispatchedMap[plan.plan_id] || 0,
+    }));
+  }
+  return plansData.map(plan => ({ ...plan, already_dispatched: 0 }));
 };
 
 export const generateNextDispatchNumber = async () => {
@@ -257,49 +329,51 @@ export const generateNextDispatchNumber = async () => {
 
 const PG_UNIQUE_VIOLATION = '23505';
 
-export const saveDispatchPlan = async ({ order_item_id, quantity, godown_id, unit_price, dispatch_date, created_by, dispatch_status }) => {
-  const { data: existing } = await supabase
-    .from('dispatch_plans')
-    .select('dispatch_number, dispatch_status, created_by')
-    .eq('order_item_id', order_item_id)
-    .maybeSingle();
-
-  let dispatch_number = existing?.dispatch_number;
-  if (!dispatch_number) {
-    dispatch_number = await generateNextDispatchNumber();
-  }
-
+export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godown_id, unit_price, dispatch_date, created_by, dispatch_status }) => {
   const payload = {
     order_item_id,
     quantity: Number(quantity),
     godown_id,
     unit_price: Number(unit_price),
     dispatch_date,
-    dispatch_number,
     is_planned: true,
     updated_at: new Date().toISOString(),
+    dispatch_status: dispatch_status || 'Pending',
+    created_by,
   };
 
-  if (existing) {
-    payload.dispatch_status = dispatch_status || existing.dispatch_status || 'Pending';
-    payload.created_by = existing.created_by || created_by;
-  } else {
-    payload.created_by = created_by;
-    payload.dispatch_status = dispatch_status || 'Pending';
+  if (plan_id) {
+    const { data: existing } = await supabase
+      .from('dispatch_plans')
+      .select('dispatch_number')
+      .eq('plan_id', plan_id)
+      .single();
+    payload.dispatch_number = existing?.dispatch_number;
+    if (existing) payload.created_by = created_by;
+
+    const { data, error } = await supabase
+      .from('dispatch_plans')
+      .update(payload)
+      .eq('plan_id', plan_id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   }
+
+  payload.dispatch_number = await generateNextDispatchNumber();
 
   for (let attempt = 0; attempt < 3; attempt++) {
     const { data, error } = await supabase
       .from('dispatch_plans')
-      .upsert(payload, { onConflict: 'order_item_id' })
+      .insert([payload])
       .select()
       .single();
 
     if (!error) return data;
 
-    if (error.code === PG_UNIQUE_VIOLATION && !existing?.dispatch_number) {
-      dispatch_number = await generateNextDispatchNumber();
-      payload.dispatch_number = dispatch_number;
+    if (error.code === PG_UNIQUE_VIOLATION) {
+      payload.dispatch_number = await generateNextDispatchNumber();
       continue;
     }
 
@@ -360,4 +434,208 @@ export const voidOrder = async (order_id) => {
     .update({ is_void: true })
     .eq('order_id', order_id);
   if (error) throw error;
+};
+
+export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown_id, quantity, dispatch_date, dispatch_number, created_by }) => {
+  const getTodayLocal = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const todayLocal = getTodayLocal();
+  if (dispatch_date > todayLocal) {
+    throw new Error('Dispatch date cannot be in the future.');
+  }
+
+  const { data: product } = await supabase
+    .from('products')
+    .select('product_id, allow_negative_stock')
+    .eq('product_id', product_id)
+    .single();
+
+  const { data: stockRow } = await supabase
+    .from('godown_stock')
+    .select('current_stock')
+    .eq('product_id', product_id)
+    .eq('godown_id', godown_id)
+    .maybeSingle();
+
+  const available = stockRow?.current_stock ?? 0;
+  if (available < Number(quantity) && !product.allow_negative_stock) {
+    throw new Error(`Insufficient stock at selected godown. Available: ${available}, Required: ${quantity}.`);
+  }
+
+  const back_dated = new Date(dispatch_date) < new Date(new Date().toDateString());
+
+  const { data: txn, error: txnErr } = await supabase
+    .from('transactions')
+    .insert([{
+      product_id,
+      godown_id,
+      txn_date: dispatch_date,
+      txn_type: 'OUT_GODOWN',
+      qty: Number(quantity),
+      is_void: false,
+      created_by,
+      back_dated,
+      dispatch_plan_id: plan_id,
+      dispatch_number,
+    }])
+    .select()
+    .single();
+  if (txnErr) throw txnErr;
+
+  const { data: planRow } = await supabase
+    .from('dispatch_plans')
+    .select('quantity')
+    .eq('plan_id', plan_id)
+    .single();
+
+  const { data: dispatchTxns } = await supabase
+    .from('transactions')
+    .select('qty')
+    .eq('dispatch_plan_id', plan_id)
+    .eq('is_void', false);
+  const totalDispatched = (dispatchTxns || []).reduce((s, t) => s + Number(t.qty), 0);
+  
+  // Always close the plan at the actual dispatched amount
+  const updateFields = {
+    dispatch_status: 'Dispatch Done',
+    quantity: totalDispatched,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error: planErr } = await supabase
+    .from('dispatch_plans')
+    .update(updateFields)
+    .eq('plan_id', plan_id);
+  if (planErr) throw planErr;
+
+  return { transaction: txn, plan_id };
+};
+
+export const isOrderLocked = async (order_id) => {
+  const { data: items, error: itemsErr } = await supabase
+    .from('sales_order_items')
+    .select('item_id')
+    .eq('order_id', order_id);
+  if (itemsErr) throw itemsErr;
+  if (!items || items.length === 0) return false;
+
+  const itemIds = items.map(i => i.item_id);
+  const { data: plans, error: plansErr } = await supabase
+    .from('dispatch_plans')
+    .select('plan_id')
+    .in('order_item_id', itemIds)
+    .eq('dispatch_status', 'Dispatch Done')
+    .limit(1);
+  if (plansErr) throw plansErr;
+
+  return (plans || []).length > 0;
+};
+
+export const cancelOrderItems = async (order_id, items, reason, user_id) => {
+  if (!items || items.length === 0) throw new Error('No items selected for cancellation.');
+  if (!reason || !reason.trim()) throw new Error('A reason is required for cancellation.');
+
+  const results = [];
+  for (const { item_id, cancel_qty } of items) {
+    if (!cancel_qty || Number(cancel_qty) <= 0) continue;
+    let remainingToCancel = Number(cancel_qty);
+
+    const { data: itemRow } = await supabase
+      .from('sales_order_items')
+      .select('quantity, cancelled_quantity')
+      .eq('item_id', item_id)
+      .single();
+    if (!itemRow) throw new Error(`Item ${item_id} not found.`);
+
+    const { data: itemPlans } = await supabase
+      .from('dispatch_plans')
+      .select('*')
+      .eq('order_item_id', item_id)
+      .neq('dispatch_status', 'Cancelled');
+    const itemPlansArr = itemPlans || [];
+
+    const undispatchedPlans = itemPlansArr.filter(p => p.dispatch_status === 'Pending' || p.dispatch_status === 'Planned');
+    const dispatchedPlans = itemPlansArr.filter(p => p.dispatch_status === 'Dispatch Done' || p.dispatch_status === 'Partially Dispatched');
+
+    for (const plan of undispatchedPlans) {
+      if (remainingToCancel <= 0) break;
+      const planQty = Number(plan.quantity);
+      const toCancel = Math.min(remainingToCancel, planQty);
+      remainingToCancel -= toCancel;
+
+      await supabase
+        .from('dispatch_plans')
+        .update({
+          dispatch_status: 'Cancelled',
+          cancelled_at: new Date().toISOString(),
+          cancelled_reason: reason.trim(),
+          cancelled_by: user_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('plan_id', plan.plan_id);
+    }
+
+    for (const plan of dispatchedPlans) {
+      if (remainingToCancel <= 0) break;
+      const planQty = Number(plan.quantity);
+      const toCancel = Math.min(remainingToCancel, planQty);
+      remainingToCancel -= toCancel;
+
+      const { data: txns } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('dispatch_plan_id', plan.plan_id)
+        .eq('is_void', false);
+
+      for (const txn of txns || []) {
+        try {
+          await stockVoidTransaction(txn.txn_id, reason.trim(), user_id);
+        } catch (err) {
+          throw new Error(`Cannot cancel dispatched plan ${plan.dispatch_number || plan.plan_id}: ${err.message}`);
+        }
+      }
+
+      await supabase
+        .from('dispatch_plans')
+        .update({
+          dispatch_status: 'Cancelled',
+          cancelled_at: new Date().toISOString(),
+          cancelled_reason: reason.trim(),
+          cancelled_by: user_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('plan_id', plan.plan_id);
+    }
+
+    const newCancelled = Number(itemRow.cancelled_quantity || 0) + Number(cancel_qty);
+    await supabase
+      .from('sales_order_items')
+      .update({ cancelled_quantity: newCancelled })
+      .eq('item_id', item_id);
+
+    results.push({ item_id, cancelled: Number(cancel_qty) });
+  }
+
+  if (results.length > 0) {
+    const { data: itemIds } = await supabase
+      .from('sales_order_items')
+      .select('item_id, quantity, cancelled_quantity')
+      .eq('order_id', order_id);
+
+    const allFullyCancelled = (itemIds || []).every(
+      i => Number(i.cancelled_quantity || 0) >= Number(i.quantity)
+    );
+
+    if (allFullyCancelled) {
+      await supabase
+        .from('sales_orders')
+        .update({ is_void: true })
+        .eq('order_id', order_id);
+    }
+  }
+
+  return results;
 };

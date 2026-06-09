@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, X, Plus, Truck, ArrowRightCircle } from 'lucide-react';
+import { ShoppingCart, X, Plus, Truck, ArrowRightCircle, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createOrder, updateOrder, generateNextOrderNumber } from '../../../services/salesService';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,19 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
   const [submitting, setSubmitting] = useState(false);
 
   const isEditing = !!editingOrder;
+
+  const lockedItemIds = useMemo(() => {
+    if (!editingOrder) return new Set();
+    return new Set(
+      (editingOrder.sales_order_items || [])
+        .filter(item => (item.dispatch_plans || []).some(plan => plan.dispatch_status === 'Dispatch Done'))
+        .map(item => item.item_id)
+    );
+  }, [editingOrder]);
+
+  const anyItemLocked = lockedItemIds.size > 0;
+
+  const isItemLocked = (itemId) => itemId && lockedItemIds.has(itemId);
 
   useEffect(() => {
     if (!isOpen) {
@@ -127,6 +140,11 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
               </div>
               <h2 className="text-xl font-bold text-slate-800">
                 {isEditing ? 'Edit Order' : 'Create Order'}
+                {anyItemLocked && (
+                  <span className="ml-2 inline-flex items-center gap-1 text-sm font-normal text-amber-600">
+                    <Lock size={14} /> Some items locked
+                  </span>
+                )}
               </h2>
             </div>
             <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
@@ -134,8 +152,9 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                 { id: 'order_process', label: 'Order Process' },
                 { id: 'skip_delivered', label: 'Skip Delivered' },
               ].map(t => (
-                <button key={t.id} type="button" onClick={() => setForm({ ...form, process_type: t.id })}
+                <button key={t.id} type="button" onClick={() => !anyItemLocked && setForm({ ...form, process_type: t.id })}
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                    anyItemLocked ? 'cursor-not-allowed opacity-60' :
                     form.process_type === t.id
                       ? 'bg-white text-slate-800 shadow-sm'
                       : 'text-slate-500 hover:text-slate-700'
@@ -152,18 +171,18 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Order Date <span className="text-red-500">*</span></label>
-                <DatePicker value={form.order_date} onChange={(e) => setForm({ ...form, order_date: e.target.value })} />
+                <DatePicker value={form.order_date} onChange={(e) => setForm({ ...form, order_date: e.target.value })} disabled={anyItemLocked} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Order Number <span className="text-red-500">*</span></label>
-                <Input value={form.order_number} onChange={(e) => setForm({ ...form, order_number: e.target.value })} placeholder="e.g. VPR/OR-001" />
+                <Input value={form.order_number} onChange={(e) => setForm({ ...form, order_number: e.target.value })} placeholder="e.g. VPR/OR-001" disabled={anyItemLocked} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Customer <span className="text-red-500">*</span></label>
                 <Dropdown value={form.customer_id} onValueChange={(v) => setForm({ ...form, customer_id: v })}
                   options={customers.map(c => ({ value: c.customer_id, label: c.name }))}
                   placeholder="Select customer..." searchPlaceholder="Search customers..."
-                  align="start" />
+                  align="start" disabled={anyItemLocked} />
               </div>
             </div>
 
@@ -175,39 +194,42 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                 <p className="text-xs text-slate-400 italic mb-2">No products added yet.</p>
               )}
               <div className="space-y-3">
-                {form.items.map((item, i) => (
+                {form.items.map((item, i) => {
+                  const itemLocked = isItemLocked(item.item_id);
+                  return (
                   <div key={i} className="grid grid-cols-12 gap-2 items-end">
                     <div className="col-span-4">
                       <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
                       <Dropdown value={item.product_id} onValueChange={(v) => updateItem(i, 'product_id', v)}
                         options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
-                        align="start" />
+                        align="start" disabled={itemLocked} />
                     </div>
                     <div className="col-span-3">
                       <label className="block text-xs font-medium text-slate-500 mb-1">Godown <span className="text-red-500">*</span></label>
                       <Dropdown value={item.godown_id} onValueChange={(v) => updateItem(i, 'godown_id', v)}
                         options={activeGodowns.map(g => ({ value: g.godown_id, label: g.name }))}
                         placeholder="Select godown..." searchPlaceholder="Search godowns..."
-                        align="start" />
+                        align="start" disabled={itemLocked} />
                     </div>
                     <div className="col-span-2">
                       <label className="block text-xs font-medium text-slate-500 mb-1">Unit Price</label>
                       <Input type="number" step="0.01" min="0" placeholder="0.00"
-                        value={item.unit_price} onChange={(e) => updateItem(i, 'unit_price', e.target.value)} />
+                        value={item.unit_price} onChange={(e) => updateItem(i, 'unit_price', e.target.value)} disabled={itemLocked} />
                     </div>
                     <div className="col-span-2">
                       <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
                       <Input type="number" step="1" min="1" placeholder="1"
-                        value={item.quantity} onChange={(e) => updateItem(i, 'quantity', e.target.value.replace(/\D/g, ''))} />
+                        value={item.quantity} onChange={(e) => updateItem(i, 'quantity', e.target.value.replace(/\D/g, ''))} disabled={itemLocked} />
                     </div>
                     <div className="col-span-1 flex items-end pb-0.5">
-                      <button type="button" onClick={() => removeItem(i)}
-                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-all">
+                      <button type="button" onClick={() => !itemLocked && removeItem(i)}
+                        className={`p-1.5 rounded transition-all ${itemLocked ? 'text-slate-200 cursor-not-allowed' : 'text-red-400 hover:text-red-600 hover:bg-red-50'}`}>
                         <X size={18} />
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <Button type="button" variant="outline" size="sm" onClick={addItem}
                 className="mt-2 gap-1.5 text-xs font-medium">

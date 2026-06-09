@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { CheckCircle, Square, CheckSquare, Save } from 'lucide-react';
-import { format } from 'date-fns';
+import { CheckCircle, Square, CheckSquare, Save, Lock, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getAllDispatchPlans, updateDispatchPlan, updateOrderItemProduct } from '../../../services/salesService';
+import { getAllDispatchPlans, completeDispatchWithStockOut } from '../../../services/salesService';
+import { getAllProductStock } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
@@ -18,14 +18,27 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
   const [checkedRows, setCheckedRows] = useState(() => new Set());
   const [editValues, setEditValues] = useState({});
   const [isSaving, setIsSaving] = useState(false);
+  const [stockMap, setStockMap] = useState({});
 
   useEffect(() => {
     loadPlans();
+    loadStock();
   }, []);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, completeFilter]);
+
+  const loadStock = async () => {
+    try {
+      const data = await getAllProductStock();
+      const map = {};
+      (data || []).forEach(s => {
+        map[`${s.product_id}|${s.godown_id}`] = s.current_stock;
+      });
+      setStockMap(map);
+    } catch {}
+  };
 
   const loadPlans = async () => {
     setLoading(true);
@@ -36,7 +49,6 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
       data.forEach(plan => {
         initial[plan.plan_id] = {
           dispatch_date: plan.dispatch_date || '',
-          product_id: plan.sales_order_items?.product_id || '',
           godown_id: plan.godown_id || '',
           quantity: plan.quantity ? String(plan.quantity) : '',
         };
@@ -49,9 +61,17 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
     setLoading(false);
   };
 
+  const getCurrentStock = (productId, godownId) => {
+    if (!productId || !godownId) return 0;
+    return stockMap[`${productId}|${godownId}`] ?? 0;
+  };
+
   const filteredPlans = useMemo(() => {
     let result = plans;
-    result = result.filter(plan => plan.sales_order_items?.sales_orders?.process_type !== 'skip_delivered');
+    result = result.filter(plan => 
+      plan.sales_order_items?.sales_orders?.process_type !== 'skip_delivered' &&
+      plan.inform_before_dispatch === 'Informed'
+    );
     const term = searchTerm?.toLowerCase();
     if (term) {
       result = result.filter(plan =>
@@ -62,7 +82,7 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
       );
     }
     if (completeFilter === 'pending') {
-      result = result.filter(plan => plan.dispatch_status !== 'Dispatch Done');
+      result = result.filter(plan => plan.dispatch_status === 'Pending' || plan.dispatch_status === 'Planned' || plan.dispatch_status === 'Partially Dispatched');
     } else if (completeFilter === 'dispatch-done') {
       result = result.filter(plan => plan.dispatch_status === 'Dispatch Done');
     }
@@ -76,7 +96,8 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
     return filteredPlans.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredPlans, currentPage]);
 
-  const toggleCheck = (planId) => {
+  const toggleCheck = (planId, isDone) => {
+    if (isDone) return;
     setCheckedRows(prev => {
       const next = new Set(prev);
       if (next.has(planId)) next.delete(planId);
@@ -92,42 +113,80 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
     }));
   };
 
+  const isPlanInsufficient = (plan) => {
+    const vals = editValues[plan.plan_id];
+    if (!vals || !vals.godown_id || !vals.quantity || Number(vals.quantity) <= 0) return false;
+    const productId = plan.sales_order_items?.product_id;
+    const available = getCurrentStock(productId, vals.godown_id);
+    return Number(vals.quantity) > available;
+  };
+
+  const hasAnyInsufficient = useMemo(() => {
+    return [...checkedRows].some(pid => {
+      const plan = plans.find(p => p.plan_id === pid);
+      return plan ? isPlanInsufficient(plan) : false;
+    });
+  }, [checkedRows, plans, editValues, stockMap]);
+
+  const getTodayLocal = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const isFutureDate = (dateStr) => {
+    if (!dateStr) return false;
+    return dateStr > getTodayLocal();
+  };
+
   const handleSave = async () => {
     if (checkedRows.size === 0) return;
     setIsSaving(true);
     const errors = [];
+    let savedCount = 0;
     for (const planId of checkedRows) {
       const plan = plans.find(p => p.plan_id === planId);
       if (!plan) continue;
       const vals = editValues[planId];
       if (!vals) continue;
+      if (!vals.godown_id) { errors.push(`${plan.dispatch_number || 'Plan'}: Select a godown.`); continue; }
+      if (!vals.quantity || Number(vals.quantity) <= 0) { errors.push(`${plan.dispatch_number || 'Plan'}: Enter a valid quantity.`); continue; }
+      if (Number(vals.quantity) > Number(plan.sales_order_items?.quantity)) {
+        errors.push(`${plan.dispatch_number || 'Plan'}: Dispatch quantity (${vals.quantity}) cannot exceed total order quantity (${plan.sales_order_items?.quantity}).`);
+        continue;
+      }
+
+      const dispatchDate = vals.dispatch_date || getTodayLocal();
+      if (isFutureDate(dispatchDate)) { errors.push(`${plan.dispatch_number || 'Plan'}: Dispatch date cannot be in the future.`); continue; }
+
+      const productId = plan.sales_order_items?.product_id;
+      const available = getCurrentStock(productId, vals.godown_id);
+      if (Number(vals.quantity) > available) { errors.push(`${plan.dispatch_number || 'Plan'}: Insufficient stock. Available: ${available}, Required: ${vals.quantity}.`); continue; }
+
       try {
-        await updateDispatchPlan(planId, {
-          dispatch_date: vals.dispatch_date,
+        await completeDispatchWithStockOut({
+          plan_id: planId,
+          product_id: productId,
           godown_id: vals.godown_id,
-          quantity: vals.quantity,
-          dispatch_status: 'Dispatch Done',
+          quantity: Number(vals.quantity),
+          dispatch_date: dispatchDate,
+          dispatch_number: plan.dispatch_number,
+          created_by: plan.created_by,
         });
-        if (vals.product_id && vals.product_id !== plan.sales_order_items?.product_id) {
-          await updateOrderItemProduct(plan.sales_order_items?.item_id, vals.product_id);
-        }
+        savedCount++;
       } catch (err) {
-        errors.push(`Plan ${plan.dispatch_number}: ${err.message}`);
+        errors.push(`${plan.dispatch_number || 'Plan'}: ${err.message}`);
       }
     }
-    if (errors.length === 0) {
-      toast.success(`Saved ${checkedRows.size} plan(s)`);
-    } else {
-      toast.error(errors[0]);
-    }
     setCheckedRows(new Set());
+    if (savedCount > 0) {
+      toast.success(`Completed ${savedCount} dispatch(s) with stock out`);
+      onSave?.();
+      await loadStock();
+    }
+    if (errors.length > 0) toast.error(errors[0]);
     await loadPlans();
-    onSave?.();
     setIsSaving(false);
   };
-
-  const activeProducts = products?.filter(p => p.is_active !== false) || [];
-  const productOptions = activeProducts.map(p => ({ value: p.product_id, label: `${p.name} (${p.unit})` }));
 
   const activeGodowns = godowns?.filter(g => g.is_active) || [];
   const godownOptions = activeGodowns.map(g => ({ value: g.godown_id, label: g.name }));
@@ -159,13 +218,20 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
     <div className="bg-white rounded-xl border border-slate-200 flex-col">
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
         <span className="text-sm text-slate-500">
-          {checkedRows.size > 0 ? `${checkedRows.size} row(s) selected` : 'Select rows to edit'}
+          {checkedRows.size > 0 ? `${checkedRows.size} row(s) selected` : 'Select rows to complete dispatch'}
         </span>
-        <Button onClick={handleSave} disabled={checkedRows.size === 0 || isSaving}
-          className="gap-2 px-4 font-medium">
-          <Save size={16} />
-          {isSaving ? 'Saving...' : 'Save Selected'}
-        </Button>
+        <div className="flex items-center gap-3">
+          {hasAnyInsufficient && (
+            <span className="text-xs text-red-600 flex items-center gap-1">
+              <AlertTriangle size={14} /> Some selected rows have insufficient stock
+            </span>
+          )}
+          <Button onClick={handleSave} disabled={checkedRows.size === 0 || isSaving || hasAnyInsufficient}
+            className="gap-2 px-4 font-medium">
+            <Save size={16} />
+            {isSaving ? 'Saving...' : 'Complete Dispatch Out'}
+          </Button>
+        </div>
       </div>
       <div className="overflow-x-auto custom-scrollbar">
         <table className="w-full text-sm whitespace-nowrap min-w-[1550px]">
@@ -180,6 +246,7 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[220px]">Godown Name</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[90px]">Order Qty</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[110px]">Dispatch Qty</th>
+              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[120px]">Available Stock</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[130px]">Dispatch Status</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px]">Person Name</th>
             </tr>
@@ -187,14 +254,26 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
           <tbody className="divide-y divide-slate-100">
             {currentPlans.map(plan => {
               const vals = editValues[plan.plan_id] || {};
+              const isDone = plan.dispatch_status === 'Dispatch Done' || plan.dispatch_status === 'Cancelled';
+              const isPartiallyDone = plan.dispatch_status === 'Partially Dispatched';
               const isChecked = checkedRows.has(plan.plan_id);
+              const productId = plan.sales_order_items?.product_id;
+              const selectedGodownId = vals.godown_id || plan.godown_id;
+              const currentStock = getCurrentStock(productId, selectedGodownId);
+              const qtyEntered = Number(vals.quantity || 0);
+              const insufficient = isChecked && qtyEntered > 0 && qtyEntered > currentStock;
+              const noStock = isChecked && currentStock === 0;
               return (
-                <tr key={plan.plan_id} className="hover:bg-slate-50 transition-colors group">
+                <tr key={plan.plan_id} className={`hover:bg-slate-50 transition-colors group ${isDone ? 'opacity-70' : insufficient ? 'bg-red-50/40' : ''}`}>
                   <td className="px-2 py-3 text-center">
-                    <button type="button" onClick={() => toggleCheck(plan.plan_id)}
-                      className="inline-flex items-center justify-center text-slate-400 hover:text-primary transition-colors">
-                      {isChecked ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
-                    </button>
+                    {isDone ? (
+                      <Lock size={16} className="text-slate-300 mx-auto" />
+                    ) : (
+                      <button type="button" onClick={() => toggleCheck(plan.plan_id, isDone)}
+                        className="inline-flex items-center justify-center text-slate-400 hover:text-primary transition-colors">
+                        {isChecked ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
+                      </button>
+                    )}
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-800 w-[120px]">
                     {plan.dispatch_number || '—'}
@@ -205,7 +284,7 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
                       onChange={(e) => updateEditValue(plan.plan_id, 'dispatch_date', e.target.value)}
                       name="dispatch_date"
                       placeholder="Select dispatch date..."
-                      disabled={!isChecked} />
+                      disabled={!isChecked || isDone} />
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-800 w-[130px]">
                     {plan.sales_order_items?.sales_orders?.order_number || '—'}
@@ -213,34 +292,67 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
                   <td className="px-4 py-3 text-slate-600 w-[150px]">
                     {plan.sales_order_items?.sales_orders?.customers?.name || '—'}
                   </td>
-                  <td className="px-4 py-3 w-[260px]">
-                    <Dropdown value={vals.product_id || ''}
-                      onValueChange={(v) => updateEditValue(plan.plan_id, 'product_id', v)}
-                      options={productOptions}
-                      placeholder="Select product..." searchPlaceholder="Search products..."
-                      disabled={!isChecked} align="start" />
+                  <td className="px-4 py-3 text-slate-700 w-[260px]">
+                    {plan.sales_order_items?.products?.name
+                      ? `${plan.sales_order_items.products.name} (${plan.sales_order_items.products.unit})`
+                      : '—'}
                   </td>
                   <td className="px-4 py-3 w-[220px]">
                     <Dropdown value={vals.godown_id || ''}
                       onValueChange={(v) => updateEditValue(plan.plan_id, 'godown_id', v)}
                       options={godownOptions}
                       placeholder="Select godown..." searchPlaceholder="Search godowns..."
-                      disabled={!isChecked} align="start" />
+                      disabled={!isChecked || isDone} align="start" />
                   </td>
                   <td className="px-4 py-3 text-center font-medium text-slate-700 w-[90px]">
                     {plan.sales_order_items?.quantity}
                   </td>
-                  <td className="px-4 py-3 w-[110px]">
-                    <Input type="number" step="1" min="0" placeholder="0"
-                      className="w-20 h-8 text-sm text-center mx-auto"
-                      value={vals.quantity || ''}
-                      onChange={(e) => updateEditValue(plan.plan_id, 'quantity', e.target.value.replace(/\D/g, ''))}
-                      disabled={!isChecked} />
+                  <td className="px-4 py-3 w-[120px]">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <Input type="number" step="1" min="0" placeholder="0"
+                        className={`w-20 h-8 text-sm text-center mx-auto ${
+                          insufficient ? 'border-red-400 ring-1 ring-red-200' : ''
+                        }`}
+                        value={vals.quantity || ''}
+                        onChange={(e) => updateEditValue(plan.plan_id, 'quantity', e.target.value.replace(/\D/g, ''))}
+                        disabled={!isChecked || isDone} />
+                      {insufficient && (
+                        <span className="text-[10px] text-red-600 font-medium whitespace-nowrap">
+                          Exceeds stock by {qtyEntered - currentStock}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-center w-[120px]">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        insufficient || noStock
+                          ? 'bg-red-50 text-red-600 border border-red-200'
+                          : Number(currentStock) > 0
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                          : 'bg-slate-100 text-slate-400 border border-slate-200'
+                      }`}>
+                        {currentStock}
+                      </span>
+                      {insufficient && (
+                        <span className="text-[10px] text-red-500 flex items-center gap-0.5">
+                          <AlertTriangle size={10} /> Short by {qtyEntered - currentStock}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-center w-[130px]">
                     {plan.dispatch_status === 'Dispatch Done' ? (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
                         Dispatch Done
+                      </span>
+                    ) : plan.dispatch_status === 'Partially Dispatched' ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">
+                        Partially Dispatched
+                      </span>
+                    ) : plan.dispatch_status === 'Cancelled' ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600 border border-red-100">
+                        Cancelled
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500 border border-slate-200">

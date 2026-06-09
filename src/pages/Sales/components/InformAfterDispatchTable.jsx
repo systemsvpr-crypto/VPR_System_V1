@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Mail, Square, CheckSquare, Send } from 'lucide-react';
+import { Mail, Square, CheckSquare, Send, Lock } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAllDispatchPlans, batchUpdateInformAfterDispatch } from '../../../services/salesService';
@@ -27,7 +27,7 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
     setLoading(true);
     try {
       const data = await getAllDispatchPlans();
-      const done = data.filter(plan => plan.dispatch_status === 'Dispatch Done');
+      const done = data.filter(plan => plan.dispatch_status === 'Dispatch Done' || plan.dispatch_status === 'Partially Dispatched');
       setPlans(done);
     } catch (err) {
       toast.error('Failed to load dispatch plans');
@@ -146,13 +146,19 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {currentPlans.map(plan => (
-              <tr key={plan.plan_id} className="hover:bg-slate-50 transition-colors group">
+            {currentPlans.map(plan => {
+              const isInformed = plan.inform_after_dispatch === 'Informed';
+              return (
+              <tr key={plan.plan_id} className={`hover:bg-slate-50 transition-colors group ${isInformed ? 'opacity-70' : ''}`}>
                 <td className="px-2 py-3 text-center">
-                  <button type="button" onClick={() => toggleCheck(plan.plan_id)}
-                    className="inline-flex items-center justify-center text-slate-400 hover:text-primary transition-colors">
-                    {checkedRows.has(plan.plan_id) ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
-                  </button>
+                  {isInformed ? (
+                    <Lock size={16} className="text-slate-300 mx-auto" />
+                  ) : (
+                    <button type="button" onClick={() => toggleCheck(plan.plan_id)}
+                      className="inline-flex items-center justify-center text-slate-400 hover:text-primary transition-colors">
+                      {checkedRows.has(plan.plan_id) ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
+                    </button>
+                  )}
                 </td>
                 <td className="px-4 py-3 font-medium text-slate-800">
                   {plan.dispatch_number || '—'}
@@ -186,7 +192,7 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
-                  {plan.inform_after_dispatch === 'Informed' ? (
+                  {isInformed ? (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
                       Informed
                     </span>
@@ -197,7 +203,8 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
                   )}
                 </td>
               </tr>
-            ))}
+            );
+            })}
           </tbody>
         </table>
       </div>

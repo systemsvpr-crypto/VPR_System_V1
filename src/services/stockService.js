@@ -1,5 +1,10 @@
 import { supabase } from '../supabase';
 
+const getTodayLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 export const getStockBalanceBeforeTxn = async (productId, godownId, txnId, txnDate) => {
   const { data, error } = await supabase
     .from('transactions')
@@ -55,7 +60,7 @@ export const getGodown = async (godownId) => {
 export const addFactoryStock = async ({ product_id, godown_id, qty, txn_date, created_by }) => {
   if (!qty || Number(qty) <= 0) throw new Error('Quantity must be greater than zero.');
   if (!Number.isInteger(Number(qty))) throw new Error('Quantity must be a whole number.');
-  if (new Date(txn_date) > new Date(new Date().toDateString())) throw new Error('Transaction date cannot be in the future.');
+  if (txn_date > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
 
   const { data: product, error: prodErr } = await supabase
     .from('products')
@@ -72,7 +77,7 @@ export const addFactoryStock = async ({ product_id, godown_id, qty, txn_date, cr
   if (godErr) throw new Error('Godown not found.');
   if (!godown.is_active) throw new Error('Godown is inactive.');
 
-  const back_dated = new Date(txn_date) < new Date(new Date().toDateString());
+  const back_dated = txn_date < getTodayLocal();
 
   const { data, error } = await supabase
     .from('transactions')
@@ -89,7 +94,7 @@ export const addFactoryStock = async ({ product_id, godown_id, qty, txn_date, cr
 export const transferStock = async ({ product_id, from_godown_id, to_godown_id, qty, txn_date, created_by }) => {
   if (!qty || Number(qty) <= 0) throw new Error('Quantity must be greater than zero.');
   if (!Number.isInteger(Number(qty))) throw new Error('Quantity must be a whole number.');
-  if (new Date(txn_date) > new Date(new Date().toDateString())) throw new Error('Transaction date cannot be in the future.');
+  if (txn_date > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
   if (from_godown_id === to_godown_id) throw new Error('Source and destination godowns must be different.');
 
   const available = await getStockBalance(product_id, from_godown_id);
@@ -103,7 +108,7 @@ export const transferStock = async ({ product_id, from_godown_id, to_godown_id, 
   if (!destGodown?.is_active) throw new Error('Destination godown is inactive.');
 
   const pair_id = crypto.randomUUID();
-  const back_dated = new Date(txn_date) < new Date(new Date().toDateString());
+  const back_dated = txn_date < getTodayLocal();
 
   const { data, error } = await supabase
     .from('transactions')
@@ -124,10 +129,10 @@ export const transferStock = async ({ product_id, from_godown_id, to_godown_id, 
   return data;
 };
 
-export const dispatchStock = async ({ product_id, godown_id, qty, txn_date, created_by }) => {
+export const dispatchStock = async ({ product_id, godown_id, qty, txn_date, created_by, dispatch_plan_id, dispatch_number }) => {
   if (!qty || Number(qty) <= 0) throw new Error('Quantity must be greater than zero.');
   if (!Number.isInteger(Number(qty))) throw new Error('Quantity must be a whole number.');
-  if (new Date(txn_date) > new Date(new Date().toDateString())) throw new Error('Transaction date cannot be in the future.');
+  if (txn_date > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
 
   const product = await getProduct(product_id);
   const available = await getStockBalance(product_id, godown_id);
@@ -136,14 +141,18 @@ export const dispatchStock = async ({ product_id, godown_id, qty, txn_date, crea
     throw new Error(`Insufficient stock. Available: ${available}, Requested: ${qty}. Entry blocked.`);
   }
 
-  const back_dated = new Date(txn_date) < new Date(new Date().toDateString());
+  const back_dated = txn_date < getTodayLocal();
+
+  const insertPayload = {
+    product_id, godown_id, txn_date, txn_type: 'OUT_GODOWN',
+    qty: Number(qty), is_void: false, created_by, back_dated,
+  };
+  if (dispatch_plan_id) insertPayload.dispatch_plan_id = dispatch_plan_id;
+  if (dispatch_number) insertPayload.dispatch_number = dispatch_number;
 
   const { data, error } = await supabase
     .from('transactions')
-    .insert([{
-      product_id, godown_id, txn_date, txn_type: 'OUT_GODOWN',
-      qty: Number(qty), is_void: false, created_by, back_dated,
-    }])
+    .insert([insertPayload])
     .select()
     .single();
   if (error) throw error;
@@ -292,7 +301,7 @@ export const editTransaction = async (txnId, updates, created_by) => {
   if (!Number.isInteger(qty)) throw new Error('Quantity must be a whole number.');
 
   const txnDate = updates.txn_date || original.txn_date;
-  if (new Date(txnDate) > new Date(new Date().toDateString())) throw new Error('Transaction date cannot be in the future.');
+  if (txnDate > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
   if (updates.product_id && updates.product_id !== original.product_id) throw new Error('Product cannot be changed. Void this transaction and create a new one.');
 
   const godownId = updates.godown_id || original.godown_id;
@@ -324,7 +333,7 @@ export const editTransaction = async (txnId, updates, created_by) => {
   }
 
   const voidReason = updates.void_reason || 'Edited via correction';
-  const back_dated = new Date(txnDate) < new Date(new Date().toDateString());
+  const back_dated = txnDate < getTodayLocal();
 
   const { error: voidErr } = await supabase
     .from('transactions')
@@ -332,22 +341,37 @@ export const editTransaction = async (txnId, updates, created_by) => {
     .eq('txn_id', txnId);
   if (voidErr) throw voidErr;
 
+  const newTxnPayload = {
+    product_id: original.product_id,
+    godown_id: godownId,
+    txn_date: txnDate,
+    txn_type: original.txn_type,
+    qty,
+    is_void: false,
+    ref_txn_id: txnId,
+    created_by,
+    back_dated,
+  };
+  if (original.dispatch_plan_id) newTxnPayload.dispatch_plan_id = original.dispatch_plan_id;
+  if (original.dispatch_number) newTxnPayload.dispatch_number = original.dispatch_number;
+
   const { data: newTxn, error: insertErr } = await supabase
     .from('transactions')
-    .insert([{
-      product_id: original.product_id,
-      godown_id: godownId,
-      txn_date: txnDate,
-      txn_type: original.txn_type,
-      qty,
-      is_void: false,
-      ref_txn_id: txnId,
-      created_by,
-      back_dated,
-    }])
+    .insert([newTxnPayload])
     .select()
     .single();
   if (insertErr) throw insertErr;
+
+  if (original.dispatch_plan_id && (godownId !== original.godown_id || qty !== Number(original.qty))) {
+    const planUpdate = {};
+    if (godownId !== original.godown_id) planUpdate.godown_id = godownId;
+    if (qty !== Number(original.qty)) planUpdate.quantity = qty;
+    planUpdate.updated_at = new Date().toISOString();
+    await supabase
+      .from('dispatch_plans')
+      .update(planUpdate)
+      .eq('plan_id', original.dispatch_plan_id);
+  }
 
   return newTxn;
 };
@@ -370,7 +394,7 @@ export const editTransfer = async (pairId, updates, created_by) => {
   if (!Number.isInteger(qty)) throw new Error('Quantity must be a whole number.');
 
   const txnDate = updates.txn_date || outLeg.txn_date;
-  if (new Date(txnDate) > new Date(new Date().toDateString())) throw new Error('Transaction date cannot be in the future.');
+  if (txnDate > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
   if (updates.product_id && updates.product_id !== outLeg.product_id) throw new Error('Product cannot be changed.');
 
   const fromGodownId = updates.from_godown_id || outLeg.godown_id;
@@ -429,7 +453,7 @@ export const editTransfer = async (pairId, updates, created_by) => {
   }
 
   const voidReason = updates.void_reason || 'Transfer edited via correction';
-  const back_dated = new Date(txnDate) < new Date(new Date().toDateString());
+  const back_dated = txnDate < getTodayLocal();
   const newPairId = crypto.randomUUID();
 
   const { error: voidErr } = await supabase
@@ -507,6 +531,13 @@ export const voidTransaction = async (txnId, reason, created_by) => {
       .in('txn_id', bothIds);
     if (voidErr) throw voidErr;
 
+    if (original.dispatch_plan_id) {
+      await supabase
+        .from('dispatch_plans')
+        .update({ dispatch_status: 'Cancelled', cancelled_at: new Date().toISOString(), cancelled_reason: reason.trim(), updated_at: new Date().toISOString() })
+        .eq('plan_id', original.dispatch_plan_id);
+    }
+
     return { voided: bothIds };
   }
 
@@ -518,6 +549,13 @@ export const voidTransaction = async (txnId, reason, created_by) => {
     .update({ is_void: true, void_reason: reason.trim() })
     .eq('txn_id', txnId);
   if (voidErr) throw voidErr;
+
+  if (original.dispatch_plan_id) {
+    await supabase
+      .from('dispatch_plans')
+      .update({ dispatch_status: 'Cancelled', cancelled_at: new Date().toISOString(), cancelled_reason: reason.trim(), updated_at: new Date().toISOString() })
+      .eq('plan_id', original.dispatch_plan_id);
+  }
 
   return { voided: [txnId] };
 };

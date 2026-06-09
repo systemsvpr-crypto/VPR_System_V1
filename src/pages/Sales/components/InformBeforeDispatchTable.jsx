@@ -18,9 +18,10 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
     (orders || []).forEach(order => {
       if (order.process_type === 'skip_delivered') return;
       (order.sales_order_items || []).forEach(item => {
-        const plan = item.dispatch_plans?.[0];
-        if (!plan) return;
-        result.push({ order, item, plan });
+        (item.dispatch_plans || []).forEach(plan => {
+          if (plan.dispatch_status === 'Cancelled') return;
+          result.push({ order, item, plan });
+        });
       });
     });
     return result;
@@ -61,12 +62,11 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
     setCurrentPage(1);
   }, [searchTerm, informFilter]);
 
-  const toggleCheck = (orderId, itemId) => {
-    const key = `${orderId}-${itemId}`;
+  const toggleCheck = (planId) => {
     setCheckedRows(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(planId)) next.delete(planId);
+      else next.add(planId);
       return next;
     });
   };
@@ -74,12 +74,7 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
   const handleConfirmNotify = async () => {
     if (checkedRows.size === 0) return;
     setIsNotifying(true);
-    const planIds = [];
-    for (const { order, item, plan } of currentItems) {
-      const key = `${order.order_id}-${item.item_id}`;
-      if (!checkedRows.has(key)) continue;
-      planIds.push(plan.plan_id);
-    }
+    const planIds = Array.from(checkedRows);
     try {
       await batchUpdateInformBeforeDispatch(planIds, 'Informed');
       setCheckedRows(new Set());
@@ -133,6 +128,7 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
               <th className="w-10 px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center"></th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Order No.</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatch No.</th>
+              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatch Status</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Inform Status</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Client Name</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Item Name</th>
@@ -144,11 +140,11 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
           </thead>
           <tbody className="divide-y divide-slate-100">
             {currentItems.map(({ order, item, plan }) => {
-              const rowKey = `${order.order_id}-${item.item_id}`;
+              const rowKey = plan.plan_id;
               return (
-                <tr key={rowKey} className="hover:bg-slate-50 transition-colors group">
+                  <tr key={rowKey} className={`hover:bg-slate-50 transition-colors group ${plan.dispatch_status === 'Dispatch Done' ? 'opacity-60' : ''}`}>
                   <td className="px-2 py-3 text-center">
-                    <button type="button" onClick={() => toggleCheck(order.order_id, item.item_id)}
+                    <button type="button" onClick={() => toggleCheck(plan.plan_id)}
                       className="inline-flex items-center justify-center text-slate-400 hover:text-primary transition-colors">
                       {checkedRows.has(rowKey) ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
                     </button>
@@ -158,6 +154,21 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-800">
                     {plan.dispatch_number || '—'}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {plan.dispatch_status === 'Dispatch Done' ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
+                        Dispatch Done
+                      </span>
+                    ) : plan.dispatch_status === 'Partially Dispatched' ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">
+                        Partial
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                        Planned
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-center">
                     {plan.inform_before_dispatch === 'Informed' ? (
