@@ -49,6 +49,12 @@ const Sales = () => {
   const [afterFilter, setAfterFilter] = useState('pending');
   const [skipFilter, setSkipFilter] = useState('pending');
 
+  const visibleTabs = useMemo(() => {
+    const allowedTabs = user?.tab_access?.sales;
+    if (!allowedTabs || allowedTabs.length === 0) return [];
+    return TABS.filter(tab => allowedTabs.includes(tab.id));
+  }, [user]);
+
   const filteredOrders = useMemo(() => {
     const term = searchTerm.toLowerCase();
     return orders.filter(o =>
@@ -66,6 +72,12 @@ const Sales = () => {
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, informFilter, completeFilter, afterFilter, skipFilter]);
+
+  useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === activeTab)) {
+      setActiveTab(visibleTabs[0].id);
+    }
+  }, [visibleTabs, activeTab]);
 
   const loadData = async () => {
     setLoading(true);
@@ -108,7 +120,7 @@ const Sales = () => {
       </div>
 
       <div className="flex items-center gap-6 border-b border-slate-200">
-        {TABS.map(tab => (
+        {visibleTabs.map((tab) => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             className={`pb-3 text-sm font-medium transition-all flex items-center gap-2 ${
               activeTab === tab.id
@@ -120,6 +132,16 @@ const Sales = () => {
         ))}
       </div>
 
+      {visibleTabs.length === 0 ? (
+        <div className="p-12 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+            <ShoppingCart size={32} className="text-slate-300" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-600 mb-1">No Tabs Available</h3>
+          <p className="text-sm text-slate-400">You don't have access to any Sales tabs. Contact your administrator.</p>
+        </div>
+      ) : (
+      <div className="flex flex-col gap-4">
       {activeTab === 'orders' && (
         <div className="flex flex-col gap-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
@@ -290,6 +312,7 @@ const Sales = () => {
               <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
                 {[
                   { id: 'pending', label: 'Pending' },
+                  { id: 'partial', label: 'Partial' },
                   { id: 'skip-done', label: 'Skip Done' },
                   { id: 'all', label: 'All' },
                 ].map(f => (
@@ -307,6 +330,8 @@ const Sales = () => {
           </div>
           <SkipDeliveredTable searchTerm={searchTerm} skipFilter={skipFilter} onSave={loadData} products={products} godowns={godowns} user={user} customers={customers} />
         </div>
+      )}
+      </div>
       )}
     </div>
   );

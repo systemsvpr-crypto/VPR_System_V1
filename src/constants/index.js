@@ -30,5 +30,6 @@ export const PAGE_TABS = {
     { id: 'inform-before-dispatch', label: 'Inform Before Dispatch' },
     { id: 'dispatch-completed', label: 'Dispatch Completed' },
     { id: 'inform-after-dispatch', label: 'Inform After Dispatch' },
+    { id: 'skip-delivered', label: 'Skip Delivered' },
   ],
 };
