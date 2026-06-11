@@ -24,7 +24,7 @@ CREATE TABLE public.products (
   product_id uuid NOT NULL DEFAULT gen_random_uuid(),
   name character varying NOT NULL,
   unit character varying NOT NULL,
-  allow_negative_stock boolean DEFAULT false,
+  allow_negative_stock boolean DEFAULT true,
   created_at timestamp with time zone DEFAULT now(),
   product_type character varying DEFAULT ''::character varying,
   CONSTRAINT products_pkey PRIMARY KEY (product_id)

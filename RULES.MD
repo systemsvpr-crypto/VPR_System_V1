@@ -92,7 +92,7 @@ could reduce stock: OUT entries, TRANSFER_OUT entries, and edits that reduce qty
 | product_id | UUID / INT PK | Immutable after creation |
 | name | VARCHAR | Required |
 | unit | VARCHAR | e.g. kg, pcs, ltr |
-| allow_negative_stock | BOOLEAN | Default FALSE |
+| allow_negative_stock | BOOLEAN | Default TRUE |
 | created_at | TIMESTAMP | Set on insert, never changed |
 
 ### 2.2 `godowns` table

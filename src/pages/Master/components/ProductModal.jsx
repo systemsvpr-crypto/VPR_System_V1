@@ -12,7 +12,7 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/comp
 
 const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduct }) => {
   const [form, setForm] = useState({
-    name: '', unit: 'pcs', product_type: '', allow_negative_stock: false,
+    name: '', unit: 'pcs', product_type: '', allow_negative_stock: true,
     as_of_date: new Date().toISOString().split('T')[0], entries: [],
   });
   const [submitting, setSubmitting] = useState(false);
@@ -21,7 +21,7 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
 
   useEffect(() => {
     if (!isOpen) {
-      setForm({ name: '', unit: 'pcs', product_type: '', allow_negative_stock: false, as_of_date: new Date().toISOString().split('T')[0], entries: [] });
+      setForm({ name: '', unit: 'pcs', product_type: '', allow_negative_stock: true, as_of_date: new Date().toISOString().split('T')[0], entries: [] });
     } else if (editingProduct) {
       setForm({
         name: editingProduct.name,
@@ -116,15 +116,7 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
                 </div>
               )}
             </div>
-            <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200 cursor-pointer">
-              <div className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" id="allow_negative" checked={form.allow_negative_stock}
-                  onChange={(e) => setForm({ ...form, allow_negative_stock: e.target.checked })}
-                  className="sr-only peer" />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-              </div>
-              <span className="text-sm text-slate-700 font-medium">Allow Negative Stock</span>
-            </label>
+
             {!isEditing && (
               <div>
                 <div className="flex justify-between items-center mb-2">

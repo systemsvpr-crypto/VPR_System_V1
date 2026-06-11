@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { getStockBalance } from '../../../services/stockService';
 
 /* ─── status badge ───────────────────────────────────────── */
 const StatusBadge = ({ status }) => {
@@ -58,6 +59,8 @@ const SkipDeliverModal = ({ isOpen, onClose, item, customers, products, godowns,
     unit_price: '',
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [godownStockMap, setGodownStockMap] = useState({});
+  const [godownStockLoading, setGodownStockLoading] = useState(false);
 
   const orderedQty = Number(item?.quantity || 0);
   const cancelledQty = Number(item?.cancelled_quantity || 0);
@@ -72,8 +75,12 @@ const SkipDeliverModal = ({ isOpen, onClose, item, customers, products, godowns,
   const remaining = effectiveQty - alreadyDispatched;
 
   const activeGodownOptions = useMemo(() =>
-    godowns.filter(g => g.is_active).map(g => ({ value: g.godown_id, label: g.name })),
-    [godowns],
+    godowns.filter(g => g.is_active).map(g => ({
+      value: g.godown_id,
+      label: g.name,
+      stock: godownStockMap[g.godown_id],
+    })),
+    [godowns, godownStockMap],
   );
 
   const customerOptions = useMemo(() =>
@@ -100,7 +107,28 @@ const SkipDeliverModal = ({ isOpen, onClose, item, customers, products, godowns,
     }
   }, [isOpen, item?.item_id]); // eslint-disable-line
 
+  useEffect(() => {
+    if (form.product_id) {
+      setGodownStockLoading(true);
+      const activeIds = godowns.filter(g => g.is_active).map(g => g.godown_id);
+      Promise.all(activeIds.map(id =>
+        getStockBalance(form.product_id, id).catch(() => null)
+      )).then(results => {
+        const map = {};
+        activeIds.forEach((id, i) => { map[id] = results[i]; });
+        setGodownStockMap(map);
+      }).finally(() => setGodownStockLoading(false));
+    } else {
+      setGodownStockMap({});
+    }
+  }, [form.product_id, godowns]);
+
   const fullyDispatched = remaining <= 0;
+
+  const selectedProduct = useMemo(() =>
+    products.find(p => p.product_id === form.product_id),
+    [products, form.product_id],
+  );
 
   /* ── save ───────────────────────────────────────────────── */
   const handleSave = async () => {
@@ -109,6 +137,12 @@ const SkipDeliverModal = ({ isOpen, onClose, item, customers, products, godowns,
     if (qty > remaining) { toast.error(`Quantity (${qty}) exceeds remaining (${remaining}).`); return; }
     if (!form.godown_id) { toast.error('Please select a godown.'); return; }
     if (!form.dispatch_date) { toast.error('Please select a dispatch date.'); return; }
+
+    const selectedGodownStock = form.godown_id ? godownStockMap[form.godown_id] : null;
+    if (selectedGodownStock !== null && selectedGodownStock !== undefined && Number(form.quantity) > selectedGodownStock && !selectedProduct?.allow_negative_stock) {
+      toast.error(`Insufficient stock at ${godowns.find(g => g.godown_id === form.godown_id)?.name || 'selected godown'}. Available: ${selectedGodownStock}. Enable negative stock for "${selectedProduct?.name}" in Master > Products to proceed.`);
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -297,7 +331,36 @@ const SkipDeliverModal = ({ isOpen, onClose, item, customers, products, godowns,
                         onValueChange={v => setForm(f => ({ ...f, godown_id: v }))}
                         options={activeGodownOptions}
                         placeholder="Select godown..." searchPlaceholder="Search godowns..."
-                        align="start" />
+                        align="start"
+                        renderOption={(opt) => (
+                          <span className="flex items-center justify-between w-full gap-3">
+                            <span className="truncate">{opt.label}</span>
+                            {opt.stock !== undefined && opt.stock !== null ? (
+                              <span className={`text-[11px] font-medium shrink-0 ${opt.stock > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                Available: {opt.stock} unit{opt.stock !== 1 ? 's' : ''}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-slate-300 shrink-0">—</span>
+                            )}
+                          </span>
+                        )}>
+                        {(() => {
+                          const g = godowns.find(g => g.godown_id === form.godown_id);
+                          const s = form.godown_id ? godownStockMap[form.godown_id] : null;
+                          return g ? (
+                            <span className="flex items-center justify-between w-full gap-2">
+                              <span className="truncate">{g.name}</span>
+                              {s !== undefined && s !== null ? (
+                                <span className={`text-[11px] font-medium shrink-0 ${s > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                  Available: {s} unit{s !== 1 ? 's' : ''}
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">Select godown...</span>
+                          );
+                        })()}
+                      </Dropdown>
                     </div>
                   </div>
                 )}
@@ -398,7 +461,7 @@ const SkipDeliverModal = ({ isOpen, onClose, item, customers, products, godowns,
           <Button variant="outline" size="sm" type="button" onClick={onClose}>Close</Button>
           {!fullyDispatched && (
             <Button size="sm" type="button" onClick={handleSave}
-              disabled={isSaving || !form.quantity || Number(form.quantity) > remaining}
+              disabled={isSaving || !form.quantity || Number(form.quantity) > remaining || (form.godown_id && godownStockMap[form.godown_id] !== undefined && godownStockMap[form.godown_id] !== null && Number(form.quantity) > godownStockMap[form.godown_id] && !selectedProduct?.allow_negative_stock)}
               className="gap-1.5">
               <Save size={13} />
               {isSaving ? 'Dispatching...' : 'Dispatch Now'}

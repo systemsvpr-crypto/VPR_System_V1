@@ -47,7 +47,7 @@ export const getAllProducts = async () => {
 export const createProduct = async ({ name, unit, allow_negative_stock, product_type, openingEntries, as_of_date, created_by }) => {
   const { data: product, error: productError } = await supabase
     .from('products')
-    .insert([{ name, unit, allow_negative_stock, product_type: product_type || '' }])
+    .insert([{ name, unit, allow_negative_stock: true, product_type: product_type || '' }])
     .select()
     .single();
   if (productError) throw productError;
@@ -162,7 +162,7 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
     if (!productMap[key]) {
       const { data: created, error: createErr } = await supabase
         .from('products')
-        .insert([{ name, unit: 'kg', allow_negative_stock: false, product_type }])
+        .insert([{ name, unit: 'kg', allow_negative_stock: true, product_type }])
         .select()
         .single();
       if (createErr) {

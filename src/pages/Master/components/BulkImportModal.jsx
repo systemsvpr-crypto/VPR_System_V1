@@ -191,7 +191,7 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
                 <AlertCircle size={14} className="mt-0.5 shrink-0" />
                 <span>
                   Your file must have columns named <strong>Product Name</strong>, <strong>Godown Name</strong>, and <strong>Quantity</strong>.
-                  Products not found in the system will be auto-created with default settings (unit: kg, negative stock: off).
+                  Products not found in the system will be auto-created with default settings (unit: kg, allow negative stock: yes).
                   Godowns must already exist in the system.
                 </span>
               </div>
