@@ -22,8 +22,8 @@ const TABS = [
   { id: 'dispatch-planning', label: 'Dispatch Planning', icon: ClipboardList },
   { id: 'inform-before-dispatch', label: 'Inform Before Dispatch', icon: Bell },
   { id: 'dispatch-completed', label: 'Dispatch Completed', icon: CheckCircle },
-  { id: 'inform-after-dispatch', label: 'Inform After Dispatch', icon: Mail },
   { id: 'skip-delivered', label: 'Skip Delivered', icon: Truck },
+  { id: 'inform-after-dispatch', label: 'Inform After Dispatch', icon: Mail },
 ];
 
 const ITEMS_PER_PAGE = 10;

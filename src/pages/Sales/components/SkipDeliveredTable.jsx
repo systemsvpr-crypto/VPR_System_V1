@@ -200,7 +200,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
             return (
               <div key={item.item_id} className="group">
 
-                <div className="flex items-start gap-4 px-4 py-4 hover:bg-slate-50 transition-colors">
+                <div className="flex items-start gap-4 px-4 py-4 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => toggleExpand(item.item_id)}>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -249,7 +249,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
                     {done ? (
                       <button
                         type="button"
-                        onClick={() => openDispatch(item)}
+                        onClick={(e) => { e.stopPropagation(); openDispatch(item); }}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100 transition-colors"
                       >
                         <CheckCircle2 size={13} /> Skip Done
@@ -257,7 +257,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
                     ) : (
                       <button
                         type="button"
-                        onClick={() => openDispatch(item)}
+                        onClick={(e) => { e.stopPropagation(); openDispatch(item); }}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-primary text-white hover:bg-primary/90 shadow-sm transition-all hover:shadow-md active:scale-95"
                       >
                         <Plus size={13} />
@@ -271,7 +271,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
                     {hasPlans && (
                       <button
                         type="button"
-                        onClick={() => toggleExpand(item.item_id)}
+                        onClick={(e) => { e.stopPropagation(); toggleExpand(item.item_id); }}
                         className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
                       >
                         {isExpanded ? (
