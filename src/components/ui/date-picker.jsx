@@ -18,7 +18,7 @@ export function DatePicker({ value, onChange, name, placeholder = "Pick a date",
   const date = (value && !isNaN(new Date(value).getTime())) ? new Date(value) : undefined
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={true}>
       <PopoverTrigger asChild>
         <Button
           type="button"
