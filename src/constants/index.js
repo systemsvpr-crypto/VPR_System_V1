@@ -32,4 +32,8 @@ export const PAGE_TABS = {
     { id: 'inform-after-dispatch', label: 'Inform After Dispatch' },
     { id: 'skip-delivered', label: 'Skip Delivered' },
   ],
+  purchase: [
+    { id: 'indent', label: 'Indent' },
+    { id: 'vendor-selection', label: 'Vendor Selection' },
+  ],
 };
