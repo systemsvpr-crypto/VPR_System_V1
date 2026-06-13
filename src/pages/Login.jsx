@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import useAuthStore from '../store/authStore';
 import { loginUser } from '../services/authService';
 import { PAGES, USER_ROLES } from '../constants';
+import vprLogo from '../../assets/vpr_logo.png';
 
 
 const Login = () => {
@@ -56,16 +57,38 @@ const Login = () => {
         <div className="absolute inset-0 z-0 opacity-[0.03]"
           style={{ backgroundImage: 'radial-gradient(var(--primary) 1px, transparent 1px)', backgroundSize: '32px 32px' }}
         />
-        <div className="relative z-10 w-full max-w-lg aspect-square" />
+        <div className="relative z-10 flex items-center justify-center w-full max-w-sm">
+          <img 
+            src={vprLogo} 
+            alt="VPR Logo" 
+            draggable="false"
+            className="w-full h-auto max-h-[400px] object-contain select-none pointer-events-none" 
+          />
+        </div>
       </div>
 
       {/* Right Side - Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white">
         <div className="max-w-[420px] w-full space-y-8">
-          <div className="text-center">
-            <div className="h-20 w-full mb-6" />
-            <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Welcome back</h2>
-            <p className="text-sm text-slate-500 mt-2">Please enter your details to sign in.</p>
+          <div className="flex flex-col items-center justify-center text-center">
+            <div className="flex items-center gap-4 bg-primary/10 px-5 py-3.5 rounded-2xl border border-primary/20 mb-6">
+              <div className="rounded-lg border border-primary/20 p-1 bg-white shadow-sm flex items-center justify-center">
+                <img 
+                  src={vprLogo} 
+                  alt="VPR Logo" 
+                  draggable="false"
+                  className="h-12 w-12 rounded-md object-contain select-none pointer-events-none" 
+                />
+              </div>
+              <div className="flex flex-col text-left">
+                <span className="text-xl xl:text-2xl font-extrabold tracking-tight uppercase whitespace-nowrap">
+                  <span className="text-slate-900">VPR</span>{' '}
+                  <span className="text-blue-600">Systems</span>
+                </span>
+                <span className="text-[10px] font-semibold text-slate-400 tracking-[0.2em] uppercase">Enterprise Suite</span>
+              </div>
+            </div>
+            <p className="text-sm text-slate-500">Please enter your details to sign in.</p>
           </div>
 
           <form className="space-y-6" onSubmit={handleSubmit}>
