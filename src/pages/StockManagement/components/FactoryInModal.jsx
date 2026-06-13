@@ -22,6 +22,7 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
   const [impactStatus, setImpactStatus] = useState('idle');
 
   const isEditing = !!editingTransaction;
+  const isPurchaseIn = editingTransaction?.txn_type === 'PURCHASE_IN';
 
   useEffect(() => {
     if (!isOpen) {
@@ -127,7 +128,8 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
     setSubmitting(true);
     try {
       if (editingTransaction) {
-        await editTransaction(editingTransaction.txn_id, { ...form, created_by: user?.user_id });
+        const payload = { ...form, created_by: user?.user_id };
+        await editTransaction(editingTransaction.txn_id, payload);
         toast.success('Stock entry updated');
       } else {
         await addFactoryStock({ ...form, created_by: user?.user_id });
@@ -141,6 +143,7 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
 
   const editTitle = editingTransaction?.txn_type === 'OPEN_STOCK' ? 'Edit Opening Stock'
     : editingTransaction?.txn_type === 'ADJUSTMENT_IN' ? 'Edit Adjustment In'
+    : editingTransaction?.txn_type === 'PURCHASE_IN' ? 'Edit Purchase In'
     : 'Edit Factory Stock In';
   const activeGodowns = godowns.filter(g => g.is_active);
   const selectedProduct = products.find(p => p.product_id === form.product_id);
@@ -176,6 +179,13 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
           <ModalTitle asChild>
             <h2 className="text-xl font-bold text-slate-800">{isEditing ? editTitle : 'Factory Stock In'}</h2>
           </ModalTitle>
+          {isEditing && (editingTransaction?.lifting_number || editingTransaction?.dispatch_number) && (
+            <div className="flex items-center gap-2 pt-1">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200 text-xs font-bold text-teal-700">
+                {editingTransaction.lifting_number || editingTransaction.dispatch_number}
+              </span>
+            </div>
+          )}
           <ModalDescription className="sr-only">{isEditing ? `Editing ${editTitle}` : 'Add factory stock'}</ModalDescription>
         </ModalHeader>
         <form onSubmit={handleSubmit}>

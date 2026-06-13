@@ -19,6 +19,7 @@ const LiveStockDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const abortRef = useRef(null);
 
@@ -41,6 +42,7 @@ const LiveStockDashboard = () => {
           setSummaryData(summary);
           setData(dashboard.data);
           setHasMore(dashboard.hasMore && !trimmed);
+          setTotalCount(dashboard.total);
           setLoading(false);
         }
       })
@@ -200,7 +202,7 @@ const LiveStockDashboard = () => {
                 ) : (
                   <Package size={16} />
                 )}
-                {loadingMore ? 'Loading...' : 'Load More Products'}
+                {loadingMore ? 'Loading...' : `Load More Products (${totalCount - data.length} remaining)`}
               </button>
             </div>
           )}

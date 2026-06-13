@@ -51,6 +51,9 @@ CREATE TABLE public.transactions (
   back_dated boolean DEFAULT false,
   dispatch_plan_id uuid,
   dispatch_number text,
+  lr_number text,
+  vehicle_number text,
+  lifting_number text,
   CONSTRAINT transactions_pkey PRIMARY KEY (txn_id),
   CONSTRAINT transactions_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(product_id),
   CONSTRAINT transactions_godown_id_fkey FOREIGN KEY (godown_id) REFERENCES public.godowns(godown_id),
@@ -165,4 +168,68 @@ CREATE TABLE public.dispatch_plans (
   CONSTRAINT dispatch_plans_godown_id_fkey FOREIGN KEY (godown_id) REFERENCES public.godowns(godown_id),
   CONSTRAINT dispatch_plans_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id),
   CONSTRAINT dispatch_plans_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.users(user_id)
+);
+CREATE TABLE public.purchase_indents (
+  indent_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  indent_date date NOT NULL,
+  indent_number text NOT NULL UNIQUE,
+  godown_id uuid NOT NULL,
+  vendor_id uuid NOT NULL,
+  remarks text,
+  total_amount numeric DEFAULT 0,
+  is_void boolean DEFAULT false,
+  created_by uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT purchase_indents_pkey PRIMARY KEY (indent_id),
+  CONSTRAINT purchase_indents_godown_id_fkey FOREIGN KEY (godown_id) REFERENCES public.godowns(godown_id),
+  CONSTRAINT purchase_indents_vendor_id_fkey FOREIGN KEY (vendor_id) REFERENCES public.vendors(vendor_id),
+  CONSTRAINT purchase_indents_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id)
+);
+CREATE TABLE public.purchase_indent_items (
+  item_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  indent_id uuid NOT NULL,
+  product_id uuid NOT NULL,
+  quantity numeric NOT NULL CHECK (quantity > 0::numeric),
+  rate numeric NOT NULL DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  planning_date date,
+  vendor_remarks text,
+  vendor_id uuid,
+  planning_status text DEFAULT 'Pending'::text,
+  approval_status text DEFAULT 'Pending'::text,
+  approved_godown_id uuid,
+  CONSTRAINT purchase_indent_items_pkey PRIMARY KEY (item_id),
+  CONSTRAINT purchase_indent_items_indent_id_fkey FOREIGN KEY (indent_id) REFERENCES public.purchase_indents(indent_id),
+  CONSTRAINT purchase_indent_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(product_id),
+  CONSTRAINT purchase_indent_items_vendor_id_fkey FOREIGN KEY (vendor_id) REFERENCES public.vendors(vendor_id),
+  CONSTRAINT purchase_indent_items_approved_godown_id_fkey FOREIGN KEY (approved_godown_id) REFERENCES public.godowns(godown_id)
+);
+CREATE TABLE public.purchase_deliveries (
+  delivery_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  item_id uuid NOT NULL,
+  indent_id uuid NOT NULL,
+  delivery_date date NOT NULL,
+  received_quantity numeric NOT NULL CHECK (received_quantity > 0::numeric),
+  transporter_id uuid,
+  lr_number text,
+  vehicle_number text,
+  remarks text,
+  created_by uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  lifting_number text,
+  status text NOT NULL DEFAULT 'Received'::text,
+  CONSTRAINT purchase_deliveries_pkey PRIMARY KEY (delivery_id),
+  CONSTRAINT purchase_deliveries_indent_id_fkey FOREIGN KEY (indent_id) REFERENCES public.purchase_indents(indent_id),
+  CONSTRAINT purchase_deliveries_item_id_fkey FOREIGN KEY (item_id) REFERENCES public.purchase_indent_items(item_id),
+  CONSTRAINT purchase_deliveries_transporter_id_fkey FOREIGN KEY (transporter_id) REFERENCES public.transporters(transporter_id),
+  CONSTRAINT purchase_deliveries_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id)
+);
+CREATE TABLE public.purchase_delivery_godowns (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  delivery_id uuid NOT NULL,
+  godown_id uuid NOT NULL,
+  qty numeric NOT NULL CHECK (qty > 0::numeric),
+  CONSTRAINT purchase_delivery_godowns_pkey PRIMARY KEY (id),
+  CONSTRAINT purchase_delivery_godowns_delivery_id_fkey FOREIGN KEY (delivery_id) REFERENCES public.purchase_deliveries(delivery_id),
+  CONSTRAINT purchase_delivery_godowns_godown_id_fkey FOREIGN KEY (godown_id) REFERENCES public.godowns(godown_id)
 );

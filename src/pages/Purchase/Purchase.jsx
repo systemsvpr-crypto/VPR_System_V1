@@ -1,21 +1,26 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, FileText, Users } from 'lucide-react';
+import { Search, ShoppingCart, Plus, FileText, Users, BadgeCheck, Truck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllIndents } from '../../services/purchaseService';
 import { getAllProducts, getAllGodowns } from '../../services/masterService';
 import { getAllVendors } from '../../services/vendorService';
+import { getAllTransporters } from '../../services/transporterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import Pagination from '@/components/ui/pagination';
 import IndentTable from './components/IndentTable';
 import IndentModal from './components/IndentModal';
 import VendorSelectionTable from './components/VendorSelectionTable';
+import VendorApprovalTable from './components/VendorApprovalTable';
+import DeliveryTable from './components/DeliveryTable';
 
 const TABS = [
   { id: 'indent', label: 'Indent', icon: FileText },
   { id: 'vendor-selection', label: 'Vendor Selection', icon: Users },
+  { id: 'vendor-approval', label: 'Vendor Approval', icon: BadgeCheck },
+  { id: 'delivery', label: 'Delivery', icon: Truck },
 ];
 
 const ITEMS_PER_PAGE = 10;
@@ -30,6 +35,7 @@ const Purchase = () => {
   const [products, setProducts] = useState([]);
   const [godowns, setGodowns] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [transporters, setTransporters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingIndent, setEditingIndent] = useState(null);
@@ -69,10 +75,10 @@ const Purchase = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [p, g, v] = await Promise.all([
-        getAllProducts(), getAllGodowns(), getAllVendors(),
+      const [p, g, v, t] = await Promise.all([
+        getAllProducts(), getAllGodowns(), getAllVendors(), getAllTransporters(),
       ]);
-      setProducts(p); setGodowns(g); setVendors(v);
+      setProducts(p); setGodowns(g); setVendors(v); setTransporters(t);
     } catch (err) { toast.error('Failed to load reference data'); }
     try {
       const ind = await getAllIndents();
@@ -100,6 +106,8 @@ const Purchase = () => {
         <p className="text-slate-500 mt-1 text-sm">
           {activeTab === 'indent' ? 'Manage purchase indents.'
             : activeTab === 'vendor-selection' ? 'Assign vendors and finalize rates for indent items.'
+            : activeTab === 'vendor-approval' ? 'Approve vendor assignments and finalize indent items.'
+            : activeTab === 'delivery' ? 'Record deliveries and track received quantities against approved indents.'
             : ''}
         </p>
       </div>
@@ -163,6 +171,14 @@ const Purchase = () => {
 
       {activeTab === 'vendor-selection' && (
         <VendorSelectionTable vendors={vendors} />
+      )}
+
+      {activeTab === 'vendor-approval' && (
+        <VendorApprovalTable vendors={vendors} godowns={godowns} />
+      )}
+
+      {activeTab === 'delivery' && (
+        <DeliveryTable transporters={transporters} user={user} godowns={godowns} />
       )}
       </div>
       )}

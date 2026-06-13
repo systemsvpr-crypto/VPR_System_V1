@@ -35,5 +35,7 @@ export const PAGE_TABS = {
   purchase: [
     { id: 'indent', label: 'Indent' },
     { id: 'vendor-selection', label: 'Vendor Selection' },
+    { id: 'vendor-approval', label: 'Vendor Approval' },
+    { id: 'delivery', label: 'Delivery' },
   ],
 };

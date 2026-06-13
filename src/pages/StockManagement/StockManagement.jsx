@@ -100,7 +100,7 @@ const StockManagement = () => {
       editTxn.pair = pair;
     }
     setEditingTransaction(editTxn);
-    if (txn.txn_type === 'IN_FACTORY' || txn.txn_type === 'ADJUSTMENT_IN' || txn.txn_type === 'OPEN_STOCK') setActiveModal('factory-in');
+    if (txn.txn_type === 'IN_FACTORY' || txn.txn_type === 'ADJUSTMENT_IN' || txn.txn_type === 'OPEN_STOCK' || txn.txn_type === 'PURCHASE_IN') setActiveModal('factory-in');
     else if (txn.pair_id) setActiveModal('transfer');
     else if (txn.txn_type === 'OUT_GODOWN' || txn.txn_type === 'ADJUSTMENT_OUT') setActiveModal('dispatch');
   };
@@ -172,7 +172,7 @@ const StockManagement = () => {
 
       <FactoryInModal isOpen={activeModal === 'factory-in'} onClose={handleCloseModal}
         products={products} godowns={godowns} productStockMap={productStockMap} user={user} onSuccess={handleSuccess}
-        editingTransaction={['IN_FACTORY', 'ADJUSTMENT_IN', 'OPEN_STOCK'].includes(editingTransaction?.txn_type) ? editingTransaction : null} />
+        editingTransaction={['IN_FACTORY', 'ADJUSTMENT_IN', 'OPEN_STOCK', 'PURCHASE_IN'].includes(editingTransaction?.txn_type) ? editingTransaction : null} />
       <TransferModal isOpen={activeModal === 'transfer'} onClose={handleCloseModal}
         products={products} godowns={godowns} productStockMap={productStockMap} user={user} onSuccess={handleSuccess}
         editingTransaction={editingTransaction?.pair_id ? editingTransaction : null} />
