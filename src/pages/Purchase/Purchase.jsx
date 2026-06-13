@@ -102,7 +102,7 @@ const Purchase = () => {
   return (
     <div className="flex flex-col gap-6">
       <div className="shrink-0">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Purchase</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Purchase / Procurement</h1>
         <p className="text-slate-500 mt-1 text-sm">
           {activeTab === 'indent' ? 'Manage purchase indents.'
             : activeTab === 'vendor-selection' ? 'Assign vendors and finalize rates for indent items.'

@@ -109,7 +109,7 @@ const Sales = () => {
   return (
     <div className="flex flex-col gap-6">
       <div className="shrink-0">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Sales</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Sales / Dispatch</h1>
         <p className="text-slate-500 mt-1 text-sm">
           {activeTab === 'orders' ? 'Manage sales orders.'
             : activeTab === 'dispatch-completed' ? 'View completed and pending dispatches.'
