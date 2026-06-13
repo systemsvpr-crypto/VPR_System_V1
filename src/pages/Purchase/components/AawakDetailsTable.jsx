@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Search, ShoppingCart, ChevronDown, ChevronUp, Truck,
-  Package, CheckCircle2, AlertCircle, Hash, Timer, MapPin, Flag,
+  Package, CheckCircle2, AlertCircle, Hash, Zap, Timer, MapPin, Flag,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getApprovedItemsForDelivery, getDeliveriesForItem, updateDeliveryStatus } from '../../../services/purchaseService';
+import { getDirectItemsForAawak, getDeliveriesForItem, updateDeliveryStatus } from '../../../services/purchaseService';
 import { Button } from '@/components/ui/button';
 import Pagination from '@/components/ui/pagination';
 import ReceiveModal from './ReceiveModal';
@@ -13,7 +13,6 @@ import ArriveConfirmModal from './ArriveConfirmModal';
 
 const ITEMS_PER_PAGE = 10;
 
-/* ─── status badge ──────────────────────────────────────────── */
 const StatusBadge = ({ status }) => {
   const map = {
     Pending:   'bg-slate-100 text-slate-500 border-slate-200',
@@ -27,7 +26,6 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-/* ─── quantity pill ────────────────────────────────────────── */
 const QtyPill = ({ value, color, label }) => {
   const colors = {
     blue:    'bg-blue-50 text-blue-700 border-blue-100',
@@ -43,24 +41,17 @@ const QtyPill = ({ value, color, label }) => {
   );
 };
 
-/* ─── progress bar ─────────────────────────────────────────── */
 const ProgressBar = ({ ordered, received }) => {
   if (!ordered) return null;
-  const receivedPct = Math.min((received / ordered) * 100, 100);
+  const pct = Math.min((received / ordered) * 100, 100);
   return (
     <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden mt-2">
-      <div
-        className="h-full bg-emerald-400 float-left rounded-l-full"
-        style={{ width: `${receivedPct}%` }}
-      />
+      <div className="h-full bg-emerald-400 float-left rounded-l-full" style={{ width: `${pct}%` }} />
     </div>
   );
 };
 
-/* ────────────────────────────────────────────────────────────
-   Main component
-───────────────────────────────────────────────────────────── */
-const DeliveryTable = ({ transporters, user, godowns }) => {
+const AawakDetailsTable = ({ transporters, user, godowns }) => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -89,10 +80,10 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await getApprovedItemsForDelivery();
+      const data = await getDirectItemsForAawak();
       setItems(data);
     } catch {
-      toast.error('Failed to load approved items');
+      toast.error('Failed to load aawak items');
       setItems([]);
     }
     setLoading(false);
@@ -201,7 +192,7 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3" />
-        <p className="text-sm text-slate-400">Loading delivery items...</p>
+        <p className="text-sm text-slate-400">Loading direct receipt items...</p>
       </div>
     );
   }
@@ -212,11 +203,11 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
         <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
           <ShoppingCart size={32} className="text-slate-300" />
         </div>
-        <h3 className="text-base font-semibold text-slate-600 mb-1">No Deliveries Pending</h3>
+        <h3 className="text-base font-semibold text-slate-600 mb-1">No Direct Receipt Items</h3>
         <p className="text-sm text-slate-400">
           {searchTerm
             ? 'No items match your search criteria.'
-            : 'No approved items found. Approve items in Vendor Approval to see them here.'}
+            : 'Create a Direct-type indent to see items here for receiving.'}
         </p>
       </div>
     );
@@ -236,7 +227,6 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        {/* ── legend ── */}
         <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-400">
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-300 inline-block" />Ordered</span>
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-300 inline-block" />Allocated</span>
@@ -247,7 +237,6 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
           </span>
         </div>
 
-        {/* ── item cards ── */}
         <div className="divide-y divide-slate-100">
           {currentItems.map(item => {
             const indent = item.purchase_indents || {};
@@ -259,17 +248,16 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
 
             return (
               <div key={item.item_id} className="group">
-
-                {/* ─ main row ─ */}
                 <div
                   className={`flex items-start gap-4 px-4 py-4 hover:bg-slate-50 transition-colors cursor-pointer ${isCompleted ? 'bg-green-50/30' : ''}`}
                   onClick={() => toggleExpand(item.item_id)}
                 >
-
-                  {/* Left: indent + product info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <StatusBadge status={item.delivery_status} />
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-100">
+                        <Zap size={10} /> Direct
+                      </span>
                       <span className="font-semibold text-slate-800 text-sm">
                         {indent.indent_number || '—'}
                       </span>
@@ -281,7 +269,7 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
                     </div>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <span className="text-xs text-slate-500">
-                        {item.item_vendor?.name || indent.vendors?.name || '—'}
+                        {indent.vendors?.name || '—'}
                       </span>
                       {indent.godowns?.name && (
                         <>
@@ -290,12 +278,9 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
                         </>
                       )}
                     </div>
-
-                    {/* Progress bar */}
                     <ProgressBar ordered={item.quantity} received={item.received_qty} />
                   </div>
 
-                  {/* Centre: quantity pills */}
                   <div className="flex items-center gap-2 shrink-0">
                     <QtyPill value={item.quantity}      color="blue"    label="Ordered" />
                     <QtyPill value={item.allocated_qty} color="amber"   label="Allocated" />
@@ -303,7 +288,6 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
                     <QtyPill value={item.remaining_qty} color="slate"   label="Remaining" />
                   </div>
 
-                  {/* Right: actions */}
                   <div className="flex flex-col items-end gap-2 shrink-0">
                     {!isCompleted ? (
                       <Button size="sm" onClick={(e) => { e.stopPropagation(); setReceiveItem(item); }}
@@ -323,22 +307,16 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
                         Loading lifts...
                       </div>
                     ) : (
-                      <button
-                        type="button"
+                      <button type="button"
                         onClick={(e) => { e.stopPropagation(); toggleExpand(item.item_id); }}
                         className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
                       >
-                        {isExpanded ? (
-                          <><ChevronUp size={12} /> Lifts</>
-                        ) : (
-                          <><ChevronDown size={12} /> Lifts</>
-                        )}
+                        {isExpanded ? <><ChevronUp size={12} /> Lifts</> : <><ChevronDown size={12} /> Lifts</>}
                       </button>
                     )}
                   </div>
                 </div>
 
-                {/* ─ expanded: delivery history sub-table ─ */}
                 {isExpanded && hasHistory && (
                   <div className="bg-slate-50 border-t border-slate-100 px-4 pb-3">
                     {isLoadingHistory ? (
@@ -458,7 +436,7 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
                                               } ${sColors[s] || ''}`}>
                                               {s === 'In Transit' && <Timer size={11} />}
                                               {s === 'In Transport Godown' && <MapPin size={11} />}
-                                              {s === 'Arrived' && <CheckCircle2 size={11} />}
+                                              {s === 'Arrived' && <Flag size={11} />}
                                               {s}
                                             </button>
                                           );
@@ -520,4 +498,4 @@ const DeliveryTable = ({ transporters, user, godowns }) => {
   );
 };
 
-export default DeliveryTable;
+export default AawakDetailsTable;

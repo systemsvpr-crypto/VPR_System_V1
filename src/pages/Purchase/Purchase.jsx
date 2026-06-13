@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, FileText, Users, BadgeCheck, Truck } from 'lucide-react';
+import { Search, ShoppingCart, Plus, FileText, Users, BadgeCheck, Truck, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllIndents } from '../../services/purchaseService';
@@ -15,12 +15,14 @@ import IndentModal from './components/IndentModal';
 import VendorSelectionTable from './components/VendorSelectionTable';
 import VendorApprovalTable from './components/VendorApprovalTable';
 import DeliveryTable from './components/DeliveryTable';
+import AawakDetailsTable from './components/AawakDetailsTable';
 
 const TABS = [
   { id: 'indent', label: 'Indent', icon: FileText },
   { id: 'vendor-selection', label: 'Vendor Selection', icon: Users },
   { id: 'vendor-approval', label: 'Vendor Approval', icon: BadgeCheck },
   { id: 'delivery', label: 'Delivery', icon: Truck },
+  { id: 'aawak-details', label: 'Aawak Details', icon: Zap },
 ];
 
 const ITEMS_PER_PAGE = 10;
@@ -108,6 +110,7 @@ const Purchase = () => {
             : activeTab === 'vendor-selection' ? 'Assign vendors and finalize rates for indent items.'
             : activeTab === 'vendor-approval' ? 'Approve vendor assignments and finalize indent items.'
             : activeTab === 'delivery' ? 'Record deliveries and track received quantities against approved indents.'
+            : activeTab === 'aawak-details' ? 'Receive goods against Direct-type indents without vendor workflow.'
             : ''}
         </p>
       </div>
@@ -179,6 +182,10 @@ const Purchase = () => {
 
       {activeTab === 'delivery' && (
         <DeliveryTable transporters={transporters} user={user} godowns={godowns} />
+      )}
+
+      {activeTab === 'aawak-details' && (
+        <AawakDetailsTable transporters={transporters} user={user} godowns={godowns} />
       )}
       </div>
       )}

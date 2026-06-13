@@ -40,10 +40,23 @@ export const getAllOrders = async () => {
     .in('order_item_id', itemIds);
   if (plansErr) throw plansErr;
 
+  const planIds = (plans || []).map(p => p.plan_id).filter(Boolean);
+  const dispatchedMap = {};
+  if (planIds.length > 0) {
+    const { data: txns } = await supabase
+      .from('transactions')
+      .select('dispatch_plan_id, qty')
+      .in('dispatch_plan_id', planIds)
+      .eq('is_void', false);
+    (txns || []).forEach(t => {
+      dispatchedMap[t.dispatch_plan_id] = (dispatchedMap[t.dispatch_plan_id] || 0) + Number(t.qty);
+    });
+  }
+
   const planMap = {};
   (plans || []).forEach(p => {
     if (!planMap[p.order_item_id]) planMap[p.order_item_id] = [];
-    planMap[p.order_item_id].push(p);
+    planMap[p.order_item_id].push({ ...p, already_dispatched: dispatchedMap[p.plan_id] || 0 });
   });
 
   return orders.map(o => ({

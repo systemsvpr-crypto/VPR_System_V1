@@ -37,5 +37,6 @@ export const PAGE_TABS = {
     { id: 'vendor-selection', label: 'Vendor Selection' },
     { id: 'vendor-approval', label: 'Vendor Approval' },
     { id: 'delivery', label: 'Delivery' },
+    { id: 'aawak-details', label: 'Aawak Details' },
   ],
 };

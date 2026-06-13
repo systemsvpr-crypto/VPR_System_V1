@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShoppingCart, Edit2, ChevronDown } from 'lucide-react';
+import { ShoppingCart, Edit2, ChevronDown, Zap, ArrowRightLeft } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 
@@ -49,6 +49,7 @@ const IndentTable = ({ indents, totalItems, loading, onEdit, searchTerm }) => {
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Vendor</th>
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Godown</th>
             <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Items</th>
+            <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[80px]">Type</th>
             <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Amount</th>
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Created</th>
             <th className="w-16 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Actions</th>
@@ -76,6 +77,17 @@ const IndentTable = ({ indents, totalItems, loading, onEdit, searchTerm }) => {
                     {items.length}
                   </span>
                 </td>
+                <td className="px-4 py-3 text-center">
+                  {o.process_type === 'direct' ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">
+                      <Zap size={11} /> Direct
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                      <ArrowRightLeft size={11} /> Process
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right font-medium text-slate-800">
                   ₹{Number(o.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </td>
@@ -91,13 +103,15 @@ const IndentTable = ({ indents, totalItems, loading, onEdit, searchTerm }) => {
             if (isExpanded && items.length > 0) {
               rows.push(
                 <tr key={`${o.indent_id}-details`}>
-                  <td colSpan={9} className="px-0 py-0">
+                  <td colSpan={10} className="px-0 py-0">
                     <div className="bg-slate-50 border-t border-slate-100">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-slate-200">
                             <th className="text-left px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Product</th>
                             <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Qty</th>
+                            <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Received</th>
+                            <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Remaining</th>
                             <th className="text-right px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Rate</th>
                             <th className="text-right px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Amount</th>
                           </tr>
@@ -112,6 +126,26 @@ const IndentTable = ({ indents, totalItems, loading, onEdit, searchTerm }) => {
                               <td className="px-4 py-2.5 text-center">
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
                                   {item.quantity}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-center">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                  item.received_qty > 0
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                    : 'bg-slate-100 text-slate-400 border border-slate-200'
+                                }`}>
+                                  {item.received_qty || 0}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-center">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                  item.remaining_qty > 0
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-100'
+                                    : item.remaining_qty === 0 && item.received_qty > 0
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                    : 'bg-slate-100 text-slate-400 border border-slate-200'
+                                }`}>
+                                  {item.remaining_qty}
                                 </span>
                               </td>
                               <td className="px-4 py-2.5 text-right text-slate-600">

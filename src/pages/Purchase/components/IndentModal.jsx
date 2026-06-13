@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, X, Plus } from 'lucide-react';
+import { ShoppingCart, X, Plus, ArrowRightLeft, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createIndent, updateIndent, generateNextIndentNumber } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     vendor_id: '',
     remarks: '',
     items: [],
+    process_type: 'process',
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -31,6 +32,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         vendor_id: '',
         remarks: '',
         items: [],
+        process_type: 'process',
       });
     } else if (editingIndent) {
       setForm({
@@ -39,6 +41,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         godown_id: editingIndent.godown_id || '',
         vendor_id: editingIndent.vendor_id || '',
         remarks: editingIndent.remarks || '',
+        process_type: editingIndent.process_type || 'process',
         items: (editingIndent.purchase_indent_items || []).map(item => ({
           item_id: item.item_id,
           product_id: item.product_id,
@@ -88,6 +91,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
           remarks: form.remarks.trim(),
           items: form.items,
           created_by: user?.user_id,
+          process_type: form.process_type,
         });
         toast.success('Indent created successfully');
       }
@@ -133,6 +137,21 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
               <h2 className="text-xl font-bold text-slate-800">
                 {isEditing ? 'Edit Indent' : 'Create Indent'}
               </h2>
+            </div>
+            <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 shrink-0">
+              {[
+                { id: 'process', label: 'Process', icon: ArrowRightLeft },
+                { id: 'direct', label: 'Direct', icon: Zap },
+              ].map(t => (
+                <button key={t.id} type="button" onClick={() => setForm({ ...form, process_type: t.id })}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
+                    form.process_type === t.id
+                      ? 'bg-white text-slate-800 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}>
+                  <t.icon size={13} />{t.label}
+                </button>
+              ))}
             </div>
           </div>
         </ModalHeader>

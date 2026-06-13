@@ -13,7 +13,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 
-export function DatePicker({ value, onChange, name, placeholder = "Pick a date", className, disabled }) {
+export function DatePicker({ value, onChange, name, placeholder = "Pick a date", className, disabled, calendarProps }) {
   const [open, setOpen] = React.useState(false)
   const date = (value && !isNaN(new Date(value).getTime())) ? new Date(value) : undefined
 
@@ -47,6 +47,7 @@ export function DatePicker({ value, onChange, name, placeholder = "Pick a date",
             captionLayout="dropdown"
             fromYear={1900}
             toYear={2050}
+            {...calendarProps}
           />
         </PopoverContent>
       )}
