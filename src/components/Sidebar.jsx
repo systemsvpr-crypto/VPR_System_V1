@@ -19,6 +19,7 @@ import {
   DollarSign,
   ShoppingCart,
 } from 'lucide-react';
+import vprLogo from '../../assets/vpr_logo.png';
 
 const Sidebar = ({ onClose }) => {
   const navigate = useNavigate();
@@ -201,10 +202,17 @@ const SidebarContent = ({ menuItems, onClose, isCollapsed = false, user, handleL
     {/* Header */}
     <div className="flex items-center justify-center px-6 py-8">
       {!isCollapsed && (
-        <div className="bg-primary/10 px-4 py-2 rounded-xl border border-primary/20">
-          <span className="text-xl font-extrabold text-primary tracking-tight">
-            VPR Systems
-          </span>
+        <div className="flex items-center gap-4 bg-primary/10 px-4 py-3 rounded-xl border border-primary/20">
+          <div className="rounded-lg border border-primary/20 p-1 bg-white shadow-sm">
+            <img src={vprLogo} alt="VPR Logo" className="h-12 w-12 rounded-md object-contain" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-lg xl:text-xl font-extrabold tracking-tight uppercase whitespace-nowrap">
+              <span className="text-slate-900">VPR</span>{' '}
+              <span className="text-blue-600">Systems</span>
+            </span>
+            <span className="text-[10px] font-semibold text-slate-400 tracking-[0.2em] uppercase">Enterprise Suite</span>
+          </div>
         </div>
       )}
       {onClose && (
