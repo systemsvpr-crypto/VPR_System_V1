@@ -28,9 +28,14 @@ const Layout = () => {
 
             <div className="flex items-center justify-center gap-1.5 text-sm font-medium text-slate-500">
               <span>Powered by</span>
-              <span className="text-primary font-bold tracking-tight">
+              <a 
+                href="https://www.botivate.in" 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-primary font-bold tracking-tight hover:underline"
+              >
                 Botivate
-              </span>
+              </a>
             </div>
 
             <div className="text-center md:text-right text-xs text-slate-400 font-medium opacity-80">

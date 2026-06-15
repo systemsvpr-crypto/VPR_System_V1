@@ -51,75 +51,100 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex bg-white">
-      {/* Left Side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-slate-50 items-center justify-center relative overflow-hidden p-12">
-        <div className="absolute inset-0 z-0 opacity-[0.03]"
-          style={{ backgroundImage: 'radial-gradient(var(--primary) 1px, transparent 1px)', backgroundSize: '32px 32px' }}
-        />
-        <div className="relative z-10 flex items-center justify-center w-full max-w-sm">
-          <img 
-            src={vprLogo} 
-            alt="VPR Logo" 
-            draggable="false"
-            className="w-full h-auto max-h-[400px] object-contain select-none pointer-events-none" 
+    <div className="min-h-screen flex flex-col bg-white">
+      <div className="flex-1 flex">
+        {/* Left Side - Branding */}
+        <div className="hidden lg:flex lg:w-1/2 bg-slate-50 items-center justify-center relative overflow-hidden p-12">
+          <div className="absolute inset-0 z-0 opacity-[0.03]"
+            style={{ backgroundImage: 'radial-gradient(var(--primary) 1px, transparent 1px)', backgroundSize: '32px 32px' }}
           />
+          <div className="relative z-10 flex items-center justify-center w-full max-w-sm">
+            <img 
+              src={vprLogo} 
+              alt="VPR Logo" 
+              draggable="false"
+              className="w-full h-auto max-h-[400px] object-contain select-none pointer-events-none" 
+            />
+          </div>
+        </div>
+
+        {/* Right Side - Form */}
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white">
+          <div className="max-w-[420px] w-full space-y-8">
+            <div className="flex flex-col items-center justify-center text-center">
+              <div className="flex items-center gap-4 bg-primary/10 px-5 py-3.5 rounded-2xl border border-primary/20 mb-6">
+                <div className="rounded-lg border border-primary/20 p-1 bg-white shadow-sm flex items-center justify-center">
+                  <img 
+                    src={vprLogo} 
+                    alt="VPR Logo" 
+                    draggable="false"
+                    className="h-12 w-12 rounded-md object-contain select-none pointer-events-none" 
+                  />
+                </div>
+                <div className="flex flex-col text-left">
+                  <span className="text-xl xl:text-2xl font-extrabold tracking-tight uppercase whitespace-nowrap">
+                    <span className="text-slate-900">VPR</span>{' '}
+                    <span className="text-blue-600">Systems</span>
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-400 tracking-[0.2em] uppercase">Enterprise Suite</span>
+                </div>
+              </div>
+              <p className="text-sm text-slate-500">Please enter your details to sign in.</p>
+            </div>
+
+            <form className="space-y-6" onSubmit={handleSubmit}>
+              <InputField
+                id="username" label="Username" type="text"
+                value={username} onChange={e => setUsername(e.target.value)}
+                icon={User} placeholder="Enter your username"
+              />
+              <InputField
+                id="password" label="Password" type={showPassword ? "text" : "password"}
+                value={password} onChange={e => setPassword(e.target.value)}
+                icon={Lock} placeholder="••••••••"
+                rightIcon={showPassword ? EyeOff : Eye}
+                onRightIconClick={() => setShowPassword(!showPassword)}
+              />
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className={`w-full flex justify-center py-3.5 px-4 rounded-xl shadow-lg shadow-primary/20 text-sm font-semibold text-white bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all duration-200 transform hover:-translate-y-0.5 ${submitting ? 'opacity-70 cursor-not-allowed hover:bg-primary/80 hover:translate-y-0' : ''}`}
+              >
+                {submitting ? (
+                  <div className="flex items-center space-x-2">
+                    <Loader2 className="animate-spin h-4 w-4" />
+                    <span>Signing in...</span>
+                  </div>
+                ) : 'Sign in'}
+              </button>
+            </form>
+          </div>
         </div>
       </div>
 
-      {/* Right Side - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white">
-        <div className="max-w-[420px] w-full space-y-8">
-          <div className="flex flex-col items-center justify-center text-center">
-            <div className="flex items-center gap-4 bg-primary/10 px-5 py-3.5 rounded-2xl border border-primary/20 mb-6">
-              <div className="rounded-lg border border-primary/20 p-1 bg-white shadow-sm flex items-center justify-center">
-                <img 
-                  src={vprLogo} 
-                  alt="VPR Logo" 
-                  draggable="false"
-                  className="h-12 w-12 rounded-md object-contain select-none pointer-events-none" 
-                />
-              </div>
-              <div className="flex flex-col text-left">
-                <span className="text-xl xl:text-2xl font-extrabold tracking-tight uppercase whitespace-nowrap">
-                  <span className="text-slate-900">VPR</span>{' '}
-                  <span className="text-blue-600">Systems</span>
-                </span>
-                <span className="text-[10px] font-semibold text-slate-400 tracking-[0.2em] uppercase">Enterprise Suite</span>
-              </div>
-            </div>
-            <p className="text-sm text-slate-500">Please enter your details to sign in.</p>
+      {/* Footer */}
+      <footer className="py-3 px-6 border-t border-slate-100 w-full bg-white shrink-0 z-10">
+        <div className="max-w-7xl mx-auto w-full grid grid-cols-1 md:grid-cols-3 items-center gap-2 md:gap-0">
+          <div className="hidden md:block"></div>
+
+          <div className="flex items-center justify-center gap-1.5 text-sm font-medium text-slate-500">
+            <span>Powered by</span>
+            <a 
+              href="https://www.botivate.in" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-primary font-bold tracking-tight hover:underline"
+            >
+              Botivate
+            </a>
           </div>
 
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            <InputField
-              id="username" label="Username" type="text"
-              value={username} onChange={e => setUsername(e.target.value)}
-              icon={User} placeholder="Enter your username"
-            />
-            <InputField
-              id="password" label="Password" type={showPassword ? "text" : "password"}
-              value={password} onChange={e => setPassword(e.target.value)}
-              icon={Lock} placeholder="••••••••"
-              rightIcon={showPassword ? EyeOff : Eye}
-              onRightIconClick={() => setShowPassword(!showPassword)}
-            />
-
-            <button
-              type="submit"
-              disabled={submitting}
-              className={`w-full flex justify-center py-3.5 px-4 rounded-xl shadow-lg shadow-primary/20 text-sm font-semibold text-white bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all duration-200 transform hover:-translate-y-0.5 ${submitting ? 'opacity-70 cursor-not-allowed hover:bg-primary/80 hover:translate-y-0' : ''}`}
-            >
-              {submitting ? (
-                <div className="flex items-center space-x-2">
-                  <Loader2 className="animate-spin h-4 w-4" />
-                  <span>Signing in...</span>
-                </div>
-              ) : 'Sign in'}
-            </button>
-          </form>
+          <div className="text-center md:text-right text-xs text-slate-400 font-medium opacity-80">
+            &copy; 2026 Botivate Services LLP. All rights reserved.
+          </div>
         </div>
-      </div>
+      </footer>
     </div>
   );
 };
