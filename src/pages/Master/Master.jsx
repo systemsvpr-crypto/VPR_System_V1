@@ -327,12 +327,12 @@ const Master = () => {
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             {!loading && (
               <>
-                {activeTab === 'products' && (
+                {/* activeTab === 'products' && (
                   <Button onClick={() => setImportModalOpen(true)} variant="outline"
                     className="gap-2 px-4 font-medium">
                     <FileSpreadsheet size={20} /><span>Import</span>
                   </Button>
-                )}
+                ) */}
                 <Button onClick={() => {
                   if (activeTab === 'products') { setEditingProduct(null); setProductModalOpen(true); }
                   else if (activeTab === 'godowns') setGodownModalOpen(true);
