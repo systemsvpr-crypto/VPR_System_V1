@@ -4,6 +4,7 @@ import {
   Edit2, Save, Camera, Lock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import useAuthStore from '../../store/authStore';
 import { fetchProfile, updateProfile } from '../../services/myprofileService';
 import { uploadProfilePicture } from '../../services/storageService';
 import { GENDERS } from '../../constants';
@@ -57,6 +58,14 @@ const MyProfile = () => {
       if (!isEditing && profileData) {
         await updateProfile(profileData.user_id, { profile_picture: publicUrl });
         setProfileData(prev => ({ ...prev, profile_picture: publicUrl }));
+        
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser && (currentUser.user_id === profileData.user_id || currentUser.username === profileData.username)) {
+          const updatedUser = { ...currentUser, profile_picture: publicUrl };
+          useAuthStore.getState().login(updatedUser);
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+        }
+
         toast.success('Profile picture updated');
       }
     } catch (error) {
@@ -77,6 +86,19 @@ const MyProfile = () => {
       setProfileData({ ...formData, password: '' });
       setFormData(prev => ({ ...prev, password: '' }));
       setIsEditing(false);
+
+      const currentUser = useAuthStore.getState().user;
+      if (currentUser && (currentUser.user_id === profileData.user_id || currentUser.username === profileData.username)) {
+        const updatedUser = { 
+          ...currentUser, 
+          ...cleanUpdates, 
+          Name: cleanUpdates.full_name 
+        };
+        delete updatedUser.password;
+        useAuthStore.getState().login(updatedUser);
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+      }
+
       toast.success("Profile updated successfully!");
     } catch (error) {
       toast.error("Failed to update profile");

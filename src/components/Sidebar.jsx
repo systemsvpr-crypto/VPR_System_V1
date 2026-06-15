@@ -296,8 +296,16 @@ const SidebarContent = ({ menuItems, onClose, isCollapsed = false, user, handleL
     {/* Footer - Always visible */}
     <div className="p-4 mt-auto">
       <div className={`flex items-center gap-3 p-3 rounded-2xl ${isCollapsed ? 'justify-center' : 'bg-sidebar-accent/30 border border-sidebar-border/50'}`}>
-        <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 border border-sidebar-border text-sidebar-primary shadow-sm">
-          <User size={20} />
+        <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 border border-sidebar-border text-sidebar-primary shadow-sm overflow-hidden">
+          {user?.profile_picture ? (
+            <img
+              src={user.profile_picture}
+              alt="Profile"
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <User size={20} />
+          )}
         </div>
         {!isCollapsed && (
           <div className="flex-1 min-w-0">
