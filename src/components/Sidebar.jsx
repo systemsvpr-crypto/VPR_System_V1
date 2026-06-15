@@ -84,7 +84,6 @@ const Sidebar = ({ onClose }) => {
 
   const iconMap = {
     'live-stock-dashboard': BarChart3,
-    'stock-list': ClipboardList,
     'stock-management': ArrowLeftRight,
     'master': Package,
     'sales': DollarSign,
