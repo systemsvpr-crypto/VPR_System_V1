@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Truck } from 'lucide-react';
+import { Truck, FileSpreadsheet } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { dispatchStock, editTransaction, getStockBalance, getStockBalanceBeforeTxn, getAffectedTransactionsImpact } from '../../../services/stockService';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
 import ImpactPreview from './ImpactPreview';
 
-const DispatchModal = ({ isOpen, onClose, products, godowns, productStockMap = {}, user, onSuccess, editingTransaction }) => {
+const DispatchModal = ({ isOpen, onClose, onBulkClick, products, godowns, productStockMap = {}, user, onSuccess, editingTransaction }) => {
   const [form, setForm] = useState({
     product_id: '', godown_id: '', qty: '', txn_date: new Date().toISOString().split('T')[0],
   });
@@ -235,6 +235,12 @@ const DispatchModal = ({ isOpen, onClose, products, godowns, productStockMap = {
             </div>
           </ModalBody>
           <ModalFooter>
+            {!isEditing && onBulkClick && (
+              <Button type="button" variant="outline" onClick={onBulkClick} className="mr-auto text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700">
+                <FileSpreadsheet size={16} className="mr-2 inline" />
+                Import Excel (Bulk)
+              </Button>
+            )}
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : (isEditing ? 'Update Dispatch' : 'Dispatch Out')}</Button>
           </ModalFooter>

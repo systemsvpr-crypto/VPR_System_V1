@@ -587,3 +587,122 @@ export const getAllTransactions = async ({ product_id, godown_id, txn_type, from
   if (error) throw error;
   return data || [];
 };
+
+export const bulkDispatchStock = async ({ rows, created_by }) => {
+  const { data: allGodowns, error: godownErr } = await supabase
+    .from('godowns')
+    .select('godown_id, name, is_active');
+  if (godownErr) throw godownErr;
+
+  const godownMap = {};
+  for (const g of allGodowns || []) {
+    if (g.is_active) {
+      godownMap[g.name.toLowerCase().trim()] = g.godown_id;
+    }
+  }
+
+  const { data: allProducts, error: prodErr } = await supabase
+    .from('products')
+    .select('product_id, name, allow_negative_stock');
+  if (prodErr) throw prodErr;
+
+  const productMap = {};
+  const productInfoMap = {};
+  for (const p of allProducts || []) {
+    productMap[p.name.toLowerCase().trim()] = p.product_id;
+    productInfoMap[p.product_id] = p;
+  }
+
+  const { data: allStock, error: stockErr } = await supabase
+    .from('godown_stock')
+    .select('product_id, godown_id, current_stock');
+  if (stockErr) throw stockErr;
+
+  const stockMap = {};
+  for (const s of allStock || []) {
+    stockMap[`${s.product_id}_${s.godown_id}`] = Number(s.current_stock) || 0;
+  }
+
+  const errors = [];
+  const validEntries = [];
+  const tempDispatchedMap = {};
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const productKey = row.productName?.trim().toLowerCase();
+    const godownKey = row.godownName?.trim().toLowerCase();
+    const qty = Number(row.qty);
+    const txnDate = row.date || getTodayLocal();
+
+    if (!productKey || !row.productName?.trim()) {
+      errors.push({ row: `Row ${i + 1}`, message: 'Product name is empty' });
+      continue;
+    }
+    if (!godownKey || !row.godownName?.trim()) {
+      errors.push({ row: `Row ${i + 1}: ${row.productName}`, message: 'Godown name is empty' });
+      continue;
+    }
+    if (isNaN(qty) || qty <= 0 || !Number.isInteger(qty)) {
+      errors.push({ row: `Row ${i + 1}: ${row.productName} → ${row.godownName}`, message: 'Quantity must be a valid positive whole number' });
+      continue;
+    }
+    if (txnDate > getTodayLocal()) {
+      errors.push({ row: `Row ${i + 1}: ${row.productName} → ${row.godownName}`, message: 'Transaction date cannot be in the future' });
+      continue;
+    }
+
+    const productId = productMap[productKey];
+    if (!productId) {
+      errors.push({ row: `Row ${i + 1}: ${row.productName}`, message: 'Product not found' });
+      continue;
+    }
+
+    const godownId = godownMap[godownKey];
+    if (!godownId) {
+      errors.push({ row: `Row ${i + 1}: ${row.productName} → ${row.godownName}`, message: `Active Godown "${row.godownName}" not found` });
+      continue;
+    }
+
+    const stockKey = `${productId}_${godownId}`;
+    const available = stockMap[stockKey] || 0;
+    const previouslyDispatched = tempDispatchedMap[stockKey] || 0;
+    const remaining = available - previouslyDispatched;
+
+    const product = productInfoMap[productId];
+
+    if (remaining < qty && !product.allow_negative_stock) {
+      errors.push({ row: `Row ${i + 1}: ${row.productName} → ${row.godownName}`, message: `Insufficient stock. Available: ${remaining}, Requested: ${qty}` });
+      continue;
+    }
+
+    tempDispatchedMap[stockKey] = previouslyDispatched + qty;
+
+    validEntries.push({
+      product_id: productId,
+      godown_id: godownId,
+      txn_date: txnDate,
+      txn_type: 'OUT_GODOWN',
+      qty,
+      is_void: false,
+      created_by,
+      back_dated: txnDate < getTodayLocal(),
+    });
+  }
+
+  let successCount = 0;
+  if (validEntries.length > 0) {
+    const CHUNK_SIZE = 1000;
+    for (let i = 0; i < validEntries.length; i += CHUNK_SIZE) {
+      const chunk = validEntries.slice(i, i + CHUNK_SIZE);
+      const { error: txnError } = await supabase.from('transactions').insert(chunk);
+      if (txnError) throw txnError;
+      successCount += chunk.length;
+    }
+  }
+
+  return {
+    successCount,
+    errorCount: errors.length,
+    errors,
+  };
+};

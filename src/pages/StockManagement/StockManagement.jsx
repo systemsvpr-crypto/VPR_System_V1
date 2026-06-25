@@ -21,6 +21,7 @@ const GODOWN_COLORS = [
 import FactoryInModal from './components/FactoryInModal';
 import TransferModal from './components/TransferModal';
 import DispatchModal from './components/DispatchModal';
+import BulkDispatchModal from './components/BulkDispatchModal';
 import VoidConfirmModal from './components/VoidConfirmModal';
 import { TransactionFilters, TransactionTable } from './components/TransactionTable';
 
@@ -177,8 +178,11 @@ const StockManagement = () => {
         products={products} godowns={godowns} productStockMap={productStockMap} user={user} onSuccess={handleSuccess}
         editingTransaction={editingTransaction?.pair_id ? editingTransaction : null} />
       <DispatchModal isOpen={activeModal === 'dispatch'} onClose={handleCloseModal}
+        onBulkClick={() => setActiveModal('bulk-dispatch')}
         products={products} godowns={godowns} productStockMap={productStockMap} user={user} onSuccess={handleSuccess}
         editingTransaction={['OUT_GODOWN', 'ADJUSTMENT_OUT'].includes(editingTransaction?.txn_type) ? editingTransaction : null} />
+      <BulkDispatchModal isOpen={activeModal === 'bulk-dispatch'} onClose={handleCloseModal}
+        user={user} onSuccess={handleSuccess} />
 
       <VoidConfirmModal isOpen={!!voidingTransaction} onClose={() => setVoidingTransaction(null)}
         transaction={voidingTransaction} onConfirm={handleVoidConfirm} loading={voidLoading}
