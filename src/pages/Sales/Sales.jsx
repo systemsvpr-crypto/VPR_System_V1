@@ -108,16 +108,7 @@ const Sales = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="shrink-0">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Sales / Dispatch</h1>
-        <p className="text-slate-500 mt-1 text-sm">
-          {activeTab === 'orders' ? 'Manage sales orders.'
-            : activeTab === 'dispatch-completed' ? 'View completed and pending dispatches.'
-            : activeTab === 'skip-delivered' ? 'Manage skip delivered dispatches.'
-            : activeTab === 'inform-after-dispatch' ? 'Inform customers about completed dispatches.'
-            : 'Plan product dispatches from orders.'}
-        </p>
-      </div>
+
 
       <div className="flex items-center gap-6 border-b border-slate-200">
         {visibleTabs.map((tab) => (

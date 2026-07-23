@@ -137,14 +137,7 @@ const StockManagement = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-        <div className="shrink-0">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Stock Management</h1>
-          <p className="text-slate-500 mt-1 text-sm">Add factory stock, transfer between godowns, and dispatch products.</p>
-        </div>
-      </div>
 
-      <div className="border-b border-slate-200" />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {ACTIONS.map(action => (

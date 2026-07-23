@@ -268,12 +268,7 @@ const Master = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-        <div className="shrink-0">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Master</h1>
-          <p className="text-slate-500 mt-1 text-sm">Manage products and godowns.</p>
-        </div>
-      </div>
+
 
       <div className="flex items-center gap-6 border-b border-slate-200">
         {visibleTabs.map((tab) => (

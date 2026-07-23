@@ -103,7 +103,7 @@ export const getProductStockByDate = async (date) => {
   const balanceMap = {};
   for (const txn of transactions || []) {
     const key = `${txn.product_id}|${txn.godown_id}`;
-    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN'].includes(txn.txn_type)) {
+    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'].includes(txn.txn_type)) {
       balanceMap[key] = (balanceMap[key] || 0) + Number(txn.qty);
     } else {
       balanceMap[key] = (balanceMap[key] || 0) - Number(txn.qty);

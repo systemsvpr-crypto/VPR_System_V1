@@ -152,7 +152,7 @@ SELECT
     godown_id,
     SUM(
         CASE
-            WHEN txn_type IN ('OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN')
+            WHEN txn_type IN ('OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN')
             THEN qty
             ELSE -qty
         END
@@ -161,6 +161,7 @@ FROM transactions
 WHERE is_void = FALSE
 GROUP BY product_id, godown_id;
 ```
+
 
 ---
 

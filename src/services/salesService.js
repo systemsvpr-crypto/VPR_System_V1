@@ -355,14 +355,36 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
     created_by,
   };
 
+  const { data: item } = await supabase.from('sales_order_items').select('product_id').eq('item_id', order_item_id).single();
+  if (!item) throw new Error('Order item not found.');
+  const product_id = item.product_id;
+
+  const { data: product } = await supabase.from('products').select('allow_negative_stock').eq('product_id', product_id).single();
+
+  const getTodayLocal = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const back_dated = new Date(dispatch_date) < new Date(getTodayLocal());
+
   if (plan_id) {
-    const { data: existing } = await supabase
-      .from('dispatch_plans')
-      .select('dispatch_number')
-      .eq('plan_id', plan_id)
-      .single();
+    const { data: existing } = await supabase.from('dispatch_plans').select('dispatch_number, quantity, godown_id').eq('plan_id', plan_id).single();
     payload.dispatch_number = existing?.dispatch_number;
     if (existing) payload.created_by = created_by;
+
+    const { data: stockRow } = await supabase.from('godown_stock').select('current_stock').eq('product_id', product_id).eq('godown_id', godown_id).maybeSingle();
+    const available = stockRow?.current_stock ?? 0;
+    
+    const { data: existingTxn } = await supabase.from('transactions').select('txn_id, qty, godown_id').eq('dispatch_plan_id', plan_id).eq('is_void', false).maybeSingle();
+    
+    let diff = payload.quantity;
+    if (existingTxn && existingTxn.godown_id === godown_id) {
+       diff = payload.quantity - existingTxn.qty;
+    }
+    
+    if (diff > 0 && available < diff && !product?.allow_negative_stock) {
+      throw new Error(`Insufficient stock. Available: ${available}, Required diff: ${diff}.`);
+    }
 
     const { data, error } = await supabase
       .from('dispatch_plans')
@@ -371,10 +393,40 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
       .select()
       .single();
     if (error) throw error;
+    
+    if (existingTxn) {
+      await supabase.from('transactions').update({
+        qty: payload.quantity,
+        godown_id: payload.godown_id,
+        txn_date: dispatch_date,
+        back_dated
+      }).eq('txn_id', existingTxn.txn_id);
+    } else {
+       await supabase.from('transactions').insert([{
+         product_id,
+         godown_id,
+         txn_date: dispatch_date,
+         txn_type: 'OUT_GODOWN',
+         qty: payload.quantity,
+         is_void: false,
+         created_by,
+         back_dated,
+         dispatch_plan_id: plan_id,
+         dispatch_number: payload.dispatch_number,
+       }]);
+    }
+
     return data;
   }
 
+  const { data: stockRow } = await supabase.from('godown_stock').select('current_stock').eq('product_id', product_id).eq('godown_id', godown_id).maybeSingle();
+  const available = stockRow?.current_stock ?? 0;
+  if (available < payload.quantity && !product?.allow_negative_stock) {
+    throw new Error(`Insufficient stock. Available: ${available}, Required: ${payload.quantity}.`);
+  }
+
   payload.dispatch_number = await generateNextDispatchNumber();
+  let planData = null;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     const { data, error } = await supabase
@@ -383,17 +435,36 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
       .select()
       .single();
 
-    if (!error) return data;
+    if (!error) {
+       planData = data;
+       break;
+    }
 
     if (error.code === PG_UNIQUE_VIOLATION) {
       payload.dispatch_number = await generateNextDispatchNumber();
       continue;
     }
-
     throw error;
   }
 
-  throw new Error('Failed to save dispatch plan after multiple attempts');
+  if (!planData) {
+    throw new Error('Failed to save dispatch plan after multiple attempts');
+  }
+
+  await supabase.from('transactions').insert([{
+    product_id,
+    godown_id,
+    txn_date: dispatch_date,
+    txn_type: 'OUT_GODOWN',
+    qty: payload.quantity,
+    is_void: false,
+    created_by,
+    back_dated,
+    dispatch_plan_id: planData.plan_id,
+    dispatch_number: payload.dispatch_number,
+  }]);
+
+  return planData;
 };
 
 export const batchUpdateInformBeforeDispatch = async (planIds, inform_before_dispatch) => {
@@ -468,61 +539,39 @@ export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown
     throw new Error('Dispatch date cannot be in the future.');
   }
 
-  const { data: product } = await supabase
-    .from('products')
-    .select('product_id, allow_negative_stock')
-    .eq('product_id', product_id)
-    .single();
-
-  const { data: stockRow } = await supabase
-    .from('godown_stock')
-    .select('current_stock')
-    .eq('product_id', product_id)
-    .eq('godown_id', godown_id)
+  // Stock deduction is now handled in saveDispatchPlan during planning.
+  // Here we only need to adjust the existing transaction if the actual dispatched quantity is different.
+  const { data: existingTxn } = await supabase
+    .from('transactions')
+    .select('txn_id, qty')
+    .eq('dispatch_plan_id', plan_id)
+    .eq('is_void', false)
     .maybeSingle();
 
-  const available = stockRow?.current_stock ?? 0;
-  if (available < Number(quantity) && !product.allow_negative_stock) {
-    throw new Error(`Insufficient stock at selected godown. Available: ${available}, Required: ${quantity}.`);
+  if (existingTxn && existingTxn.qty !== Number(quantity)) {
+     await supabase.from('transactions').update({
+        qty: Number(quantity),
+        txn_date: dispatch_date
+     }).eq('txn_id', existingTxn.txn_id);
+  } else if (!existingTxn) {
+     // Fallback if somehow there is no transaction (e.g. legacy plan)
+     await supabase.from('transactions').insert([{
+       product_id,
+       godown_id,
+       txn_date: dispatch_date,
+       txn_type: 'OUT_GODOWN',
+       qty: Number(quantity),
+       is_void: false,
+       created_by,
+       back_dated: new Date(dispatch_date) < new Date(new Date().toDateString()),
+       dispatch_plan_id: plan_id,
+       dispatch_number,
+     }]);
   }
 
-  const back_dated = new Date(dispatch_date) < new Date(new Date().toDateString());
-
-  const { data: txn, error: txnErr } = await supabase
-    .from('transactions')
-    .insert([{
-      product_id,
-      godown_id,
-      txn_date: dispatch_date,
-      txn_type: 'OUT_GODOWN',
-      qty: Number(quantity),
-      is_void: false,
-      created_by,
-      back_dated,
-      dispatch_plan_id: plan_id,
-      dispatch_number,
-    }])
-    .select()
-    .single();
-  if (txnErr) throw txnErr;
-
-  const { data: planRow } = await supabase
-    .from('dispatch_plans')
-    .select('quantity')
-    .eq('plan_id', plan_id)
-    .single();
-
-  const { data: dispatchTxns } = await supabase
-    .from('transactions')
-    .select('qty')
-    .eq('dispatch_plan_id', plan_id)
-    .eq('is_void', false);
-  const totalDispatched = (dispatchTxns || []).reduce((s, t) => s + Number(t.qty), 0);
-  
-  // Always close the plan at the actual dispatched amount
   const updateFields = {
     dispatch_status: 'Dispatch Done',
-    quantity: totalDispatched,
+    quantity: Number(quantity),
     updated_at: new Date().toISOString(),
   };
 
@@ -532,7 +581,7 @@ export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown
     .eq('plan_id', plan_id);
   if (planErr) throw planErr;
 
-  return { transaction: txn, plan_id };
+  return { transaction: existingTxn, plan_id };
 };
 
 export const isOrderLocked = async (order_id) => {
@@ -586,6 +635,21 @@ export const cancelOrderItems = async (order_id, items, reason, user_id) => {
       const planQty = Number(plan.quantity);
       const toCancel = Math.min(remainingToCancel, planQty);
       remainingToCancel -= toCancel;
+
+      // Void the planned transaction to restore stock
+      const { data: txns } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('dispatch_plan_id', plan.plan_id)
+        .eq('is_void', false);
+
+      for (const txn of txns || []) {
+        try {
+          await stockVoidTransaction(txn.txn_id, reason.trim(), user_id);
+        } catch (err) {
+          throw new Error(`Cannot cancel planned dispatch ${plan.dispatch_number || plan.plan_id}: ${err.message}`);
+        }
+      }
 
       await supabase
         .from('dispatch_plans')

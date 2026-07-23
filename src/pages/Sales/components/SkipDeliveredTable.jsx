@@ -184,7 +184,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
         <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-400">
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-200 inline-block" />Ordered</span>
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-300 inline-block" />Dispatched</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-300 inline-block" />Remaining</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-300 inline-block" />Remaining/Pending</span>
           <span className="ml-auto font-medium text-slate-500">
             {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
           </span>
@@ -241,7 +241,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
                     <QtyPill
                       value={item.remaining}
                       color={item.remaining > 0 ? 'amber' : 'slate'}
-                      label="Remaining"
+                      label="Remaining/Pending"
                     />
                   </div>
 

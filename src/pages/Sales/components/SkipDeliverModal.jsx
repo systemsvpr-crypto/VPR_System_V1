@@ -225,7 +225,7 @@ const SkipDeliverModal = ({ isOpen, onClose, item, customers, products, godowns,
             <QtyCard label="Dispatched" value={alreadyDispatched} color="violet" icon={Truck}
               sub={activePlans.length > 0 ? `${activePlans.length} plan(s)` : undefined} />
             <QtyCard
-              label="Remaining"
+              label="Remaining/Pending"
               value={remaining}
               color={remaining > 0 ? 'amber' : 'slate'}
               icon={remaining > 0 ? AlertCircle : CheckCircle2}

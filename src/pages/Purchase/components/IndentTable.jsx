@@ -111,7 +111,7 @@ const IndentTable = ({ indents, totalItems, loading, onEdit, searchTerm }) => {
                             <th className="text-left px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Product</th>
                             <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Qty</th>
                             <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Received</th>
-                            <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Remaining</th>
+                            <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Remaining/Pending</th>
                             <th className="text-right px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Rate</th>
                             <th className="text-right px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Amount</th>
                           </tr>

@@ -56,10 +56,7 @@ const Settings = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Settings</h1>
-        <p className="text-slate-500 mt-1 text-sm">Manage system users, teams, and access permissions.</p>
-      </div>
+
 
       <div className="flex items-center gap-6 border-b border-slate-200">
         <button className={`pb-3 text-sm font-medium transition-all ${activeTab === 'Manage Users' ? 'text-primary border-b-2 border-primary translate-y-[1px]' : 'text-slate-500 hover:text-slate-700'}`}>

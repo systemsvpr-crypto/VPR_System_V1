@@ -28,7 +28,7 @@ export const getGodownSummary = async (date, signal) => {
       .select('godown_id, qty')
       .eq('is_void', false)
       .eq('txn_date', date)
-      .in('txn_type', ['IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN'])
+      .in('txn_type', ['IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'])
       .abortSignal(signal),
     supabase
       .from('transactions')
@@ -49,7 +49,7 @@ export const getGodownSummary = async (date, signal) => {
   const openingMap = {};
   for (const txn of balances || []) {
     const gid = txn.godown_id;
-    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN'].includes(txn.txn_type)) {
+    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'].includes(txn.txn_type)) {
       openingMap[gid] = (openingMap[gid] || 0) + Number(txn.qty);
     } else {
       openingMap[gid] = (openingMap[gid] || 0) - Number(txn.qty);
@@ -139,7 +139,7 @@ export const getDashboardData = async (date, signal, options = {}) => {
       .select('product_id, godown_id, qty')
       .eq('is_void', false)
       .eq('txn_date', date)
-      .in('txn_type', ['IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN'])
+      .in('txn_type', ['IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'])
       .in('product_id', productIds)
       .abortSignal(signal),
     supabase
@@ -170,7 +170,7 @@ export const getDashboardData = async (date, signal, options = {}) => {
   const balanceMap = {};
   for (const txn of allBalances || []) {
     const key = `${txn.product_id}|${txn.godown_id}`;
-    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN'].includes(txn.txn_type)) {
+    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'].includes(txn.txn_type)) {
       balanceMap[key] = (balanceMap[key] || 0) + Number(txn.qty);
     } else {
       balanceMap[key] = (balanceMap[key] || 0) - Number(txn.qty);
@@ -185,7 +185,7 @@ export const getDashboardData = async (date, signal, options = {}) => {
   const currentBalanceMap = {};
   for (const txn of currentBalances || []) {
     const key = `${txn.product_id}|${txn.godown_id}`;
-    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN'].includes(txn.txn_type)) {
+    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'].includes(txn.txn_type)) {
       currentBalanceMap[key] = (currentBalanceMap[key] || 0) + Number(txn.qty);
     } else {
       currentBalanceMap[key] = (currentBalanceMap[key] || 0) - Number(txn.qty);

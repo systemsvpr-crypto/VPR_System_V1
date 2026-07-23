@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Plus, Package, Truck, CheckCircle2,
-  AlertCircle, ChevronDown, ChevronUp,
+  AlertCircle, ChevronDown, ChevronUp, Download
 } from 'lucide-react';
 import { format } from 'date-fns';
+import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { getAllOrderItemsForDispatch } from '../../../services/salesService';
 import Pagination from '@/components/ui/pagination';
@@ -123,8 +124,8 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
         );
       })
       .filter(item => {
-        if (dispatchFilter === 'pending')  return item.activePlans.length === 0;
-        if (dispatchFilter === 'history')  return item.activePlans.length > 0;
+        if (dispatchFilter === 'pending')  return item.remaining > 0;          // stay in Pending until fully planned
+        if (dispatchFilter === 'history')  return item.activePlans.length > 0; // show all items that have any plan
         return true;
       });
   }, [withQty, searchTerm, dispatchFilter]);
@@ -145,6 +146,32 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
     loadItems();
     onSave?.();
     closeModal();
+  };
+
+  const handleExportExcel = () => {
+    const exportData = filteredItems.map(item => {
+      const orderDate = item.sales_orders?.order_date ? format(new Date(item.sales_orders.order_date), 'dd MMM yyyy') : '';
+      const godownsList = item.activePlans.length > 0 
+        ? [...new Set(item.activePlans.map(p => godowns.find(g => g.godown_id === p.godown_id)?.name).filter(Boolean))].join(', ')
+        : 'Not Planned';
+        
+      return {
+        'Order Date': orderDate,
+        'Order No.': item.sales_orders?.order_number || '',
+        'Customer': item.sales_orders?.customers?.name || '',
+        'Type': item.sales_orders?.process_type || '',
+        'Godown': godownsList,
+        'Items': item.products?.name || '',
+        'Total Qty': item.effectiveQty,
+        'Pending Qty': item.remaining,
+        'Dispatch Qty': item.totalDispatched
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Pending_Dispatches");
+    XLSX.writeFile(wb, "Pending_Dispatches.xlsx");
   };
 
   /* ── loading ──────────────────────────────────────────── */
@@ -168,7 +195,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
           {searchTerm
             ? 'No items match your search.'
             : dispatchFilter === 'pending'
-            ? 'All items have been planned.'
+            ? 'All orders are fully planned.'
             : dispatchFilter === 'history'
             ? 'No planned dispatches yet.'
             : 'Create an order to start planning dispatches.'}
@@ -186,10 +213,23 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-200 inline-block" />Ordered</span>
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-300 inline-block" />Planned</span>
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-300 inline-block" />Dispatched</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-300 inline-block" />Remaining</span>
-          <span className="ml-auto font-medium text-slate-500">
-            {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
-          </span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-300 inline-block" />Remaining/Pending</span>
+          
+          <div className="ml-auto flex items-center gap-4">
+            {dispatchFilter === 'pending' && filteredItems.length > 0 && (
+              <button 
+                onClick={handleExportExcel}
+                className="flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-200 rounded-md text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                title="Export Pending Details to Excel"
+              >
+                <Download size={14} />
+                <span className="font-medium">Export Excel</span>
+              </button>
+            )}
+            <span className="font-medium text-slate-500">
+              {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
+            </span>
+          </div>
         </div>
 
         {/* ── item cards ── */}
@@ -252,7 +292,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSave, us
                     <QtyPill
                       value={item.remaining}
                       color={item.remaining > 0 ? 'amber' : 'slate'}
-                      label="Remaining"
+                      label="Remaining/Pending"
                     />
                   </div>
 

@@ -231,7 +231,7 @@ const AawakDetailsTable = ({ transporters, user, godowns }) => {
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-300 inline-block" />Ordered</span>
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-300 inline-block" />Allocated</span>
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-300 inline-block" />Received</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block" />Remaining</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block" />Remaining/Pending</span>
           <span className="ml-auto font-medium text-slate-500">
             {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
           </span>
@@ -285,7 +285,7 @@ const AawakDetailsTable = ({ transporters, user, godowns }) => {
                     <QtyPill value={item.quantity}      color="blue"    label="Ordered" />
                     <QtyPill value={item.allocated_qty} color="amber"   label="Allocated" />
                     <QtyPill value={item.received_qty}  color="emerald" label="Received" />
-                    <QtyPill value={item.remaining_qty} color="slate"   label="Remaining" />
+                    <QtyPill value={item.remaining_qty} color="slate"   label="Remaining/Pending" />
                   </div>
 
                   <div className="flex flex-col items-end gap-2 shrink-0">

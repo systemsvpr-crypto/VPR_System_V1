@@ -103,17 +103,7 @@ const Purchase = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="shrink-0">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Purchase / Procurement</h1>
-        <p className="text-slate-500 mt-1 text-sm">
-          {activeTab === 'indent' ? 'Manage purchase indents.'
-            : activeTab === 'vendor-selection' ? 'Assign vendors and finalize rates for indent items.'
-            : activeTab === 'vendor-approval' ? 'Approve vendor assignments and finalize indent items.'
-            : activeTab === 'delivery' ? 'Record deliveries and track received quantities against approved indents.'
-            : activeTab === 'aawak-details' ? 'Receive goods against Direct-type indents without vendor workflow.'
-            : ''}
-        </p>
-      </div>
+
 
       <div className="flex items-center gap-6 border-b border-slate-200">
         {visibleTabs.map((tab) => (

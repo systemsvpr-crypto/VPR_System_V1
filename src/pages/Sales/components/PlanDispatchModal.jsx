@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Plus, Edit2, X, Save, Package,
-  Truck, CheckCircle2, AlertCircle,
+  Truck, CheckCircle2, AlertCircle, Warehouse,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { saveDispatchPlan } from '../../../services/salesService';
+import { getStockBalance } from '../../../services/stockService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
@@ -39,11 +40,11 @@ const QtyCard = ({ label, value, color, icon: Icon, sub }) => {
   };
   const c = colors[color] || colors.slate;
   return (
-    <div className={`flex flex-col items-center justify-center rounded-xl border px-4 py-3 gap-0.5 ${c.bg} ${c.border}`}>
-      {Icon && <Icon size={15} className={`mb-0.5 ${c.icon}`} />}
-      <span className={`text-2xl font-bold tabular-nums ${c.text}`}>{value}</span>
-      <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">{label}</span>
-      {sub && <span className="text-[10px] text-slate-400 mt-0.5">{sub}</span>}
+    <div className={`flex flex-col items-center justify-center rounded-lg border px-3 py-2 gap-0 ${c.bg} ${c.border}`}>
+      {Icon && <Icon size={13} className={`mb-0.5 ${c.icon}`} />}
+      <span className={`text-xl font-bold tabular-nums leading-tight ${c.text}`}>{value}</span>
+      <span className="text-[9px] font-medium text-slate-500 uppercase tracking-wide leading-tight">{label}</span>
+      {sub && <span className="text-[9px] text-slate-400 mt-0.5">{sub}</span>}
     </div>
   );
 };
@@ -62,6 +63,8 @@ const PlanDispatchModal = ({ isOpen, onClose, item, godowns, user, onSave }) => 
   const [unitPrice, setUnitPrice] = useState(''); // shared across all plans for this item
   const [editingPlanId, setEditingPlanId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [stockMap, setStockMap] = useState({});   // { godown_id: current_stock }
+  const [stockLoading, setStockLoading] = useState(false);
 
   /* ── derived quantities ─────────────────────────────────── */
   const orderedQty = Number(item?.quantity || 0);
@@ -100,6 +103,27 @@ const PlanDispatchModal = ({ isOpen, onClose, item, godowns, user, onSave }) => 
         : String(item.unit_price || '');
       setUnitPrice(latestPrice);
       setForm({ ...EMPTY_FORM, godown_id: item.godown_id || '' });
+      // fetch current stock for this product across all active godowns
+      const fetchStock = async () => {
+        if (!item.product_id) return;
+        setStockLoading(true);
+        try {
+          const activeGds = godowns.filter(g => g.is_active);
+          const results = await Promise.all(
+            activeGds.map(g => getStockBalance(item.product_id, g.godown_id)
+              .then(stock => ({ godown_id: g.godown_id, stock }))
+              .catch(() => ({ godown_id: g.godown_id, stock: 0 }))
+            )
+          );
+          const map = {};
+          results.forEach(r => { map[r.godown_id] = r.stock; });
+          setStockMap(map);
+        } catch {
+          setStockMap({});
+        }
+        setStockLoading(false);
+      };
+      fetchStock();
     }
   }, [isOpen, item?.item_id]); // eslint-disable-line
 
@@ -163,28 +187,68 @@ const PlanDispatchModal = ({ isOpen, onClose, item, godowns, user, onSave }) => 
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       {/* wider modal so left+right columns sit comfortably */}
-      <ModalContent className="max-w-6xl">
+      <ModalContent className="max-w-4xl w-[95%]">
 
         {/* ── Header ── */}
         <ModalHeader>
-          <div className="flex items-center gap-3 w-full pr-10">
-            <div className="bg-primary/10 p-2 rounded-lg shrink-0">
-              <ClipboardList size={20} className="text-primary" />
+          <div className="flex items-start justify-between w-full pr-8">
+            {/* Left side: Title */}
+            <div className="flex items-center gap-3">
+              <div className="bg-primary/10 p-2 rounded-lg shrink-0">
+                <ClipboardList size={20} className="text-primary" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-slate-800 leading-tight">Plan Dispatch</h2>
+                <p className="text-xs text-slate-500 mt-0.5 truncate">
+                  {item.sales_orders?.order_number} &nbsp;·&nbsp;
+                  {item.sales_orders?.customers?.name} &nbsp;·&nbsp;
+                  <span className="font-medium text-slate-700">
+                    {item.products?.name} ({item.products?.unit})
+                  </span>
+                </p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <h2 className="text-lg font-bold text-slate-800 leading-tight">Plan Dispatch</h2>
-              <p className="text-xs text-slate-500 mt-0.5 truncate">
-                {item.sales_orders?.order_number} &nbsp;·&nbsp;
-                {item.sales_orders?.customers?.name} &nbsp;·&nbsp;
-                <span className="font-medium text-slate-700">
-                  {item.products?.name} ({item.products?.unit})
+
+            {/* Right side: Current Stock Mini-Display */}
+            <div className="shrink-0 w-72 rounded-lg border border-slate-200 bg-slate-50 overflow-hidden shadow-sm">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-slate-200 bg-white">
+                <Warehouse size={12} className="text-slate-400" />
+                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                  Current Stock
                 </span>
-              </p>
+                {stockLoading && (
+                  <span className="ml-auto text-[10px] text-slate-400 animate-pulse">Loading...</span>
+                )}
+              </div>
+              
+              {/* Selected godown highlighted stock */}
+              {form.godown_id && !stockLoading && (() => {
+                const selGodownName = godowns.find(g => g.godown_id === form.godown_id)?.name || '—';
+                const selStock = stockMap[form.godown_id] ?? 0;
+                const qty = Number(form.quantity) || 0;
+                const isEnough = selStock >= qty && qty > 0;
+                const isInsufficient = qty > 0 && selStock < qty;
+                return (
+                  <div className={`flex items-center justify-between px-3 py-1.5 border-b border-slate-100 ${
+                    isInsufficient ? 'bg-red-50' : isEnough ? 'bg-emerald-50' : 'bg-blue-50'
+                  }`}>
+                    <span className="text-[11px] font-medium text-slate-600">
+                      📍 {selGodownName} <span className="text-slate-400 font-normal">(selected)</span>
+                    </span>
+                    <span className={`text-xs font-bold tabular-nums ${
+                      isInsufficient ? 'text-red-600' : isEnough ? 'text-emerald-700' : 'text-blue-700'
+                    }`}>
+                      {selStock} <span className="text-[9px] font-medium uppercase">{item?.products?.unit}</span>
+                    </span>
+                  </div>
+                );
+              })()}
+
             </div>
           </div>
         </ModalHeader>
 
-        <ModalBody className="flex flex-col gap-5">
+        <ModalBody className="flex flex-col gap-5 p-4">
 
           {/* ── Quantity summary strip (full width) ── */}
           <div className="grid grid-cols-4 gap-3">
@@ -193,7 +257,7 @@ const PlanDispatchModal = ({ isOpen, onClose, item, godowns, user, onSave }) => 
               sub={activePlans.length > 0 ? `${activePlans.length} plan(s)` : undefined} />
             <QtyCard label="Dispatched" value={totalDispatched} color="violet" icon={Truck} />
             <QtyCard
-              label="Remaining"
+              label="Remaining/Pending"
               value={effectiveQty - totalPlanned}
               color={effectiveQty - totalPlanned > 0 ? 'amber' : 'slate'}
               icon={effectiveQty - totalPlanned > 0 ? AlertCircle : CheckCircle2}
@@ -343,6 +407,7 @@ const PlanDispatchModal = ({ isOpen, onClose, item, godowns, user, onSave }) => 
                         searchPlaceholder="Search godowns..."
                         align="start"
                       />
+
                     </div>
                   </div>
                 )}
@@ -370,7 +435,7 @@ const PlanDispatchModal = ({ isOpen, onClose, item, godowns, user, onSave }) => 
                   <div className="flex items-center gap-4 mt-1.5 text-[10px] text-slate-400">
                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-violet-400 inline-block" />Dispatched</span>
                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-400 inline-block" />Planned</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-slate-200 inline-block" />Remaining</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-slate-200 inline-block" />Remaining/Pending</span>
                   </div>
                 </div>
               )}

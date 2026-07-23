@@ -101,14 +101,8 @@ const LiveStockDashboard = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Live Stock Dashboard</h1>
-          <p className="text-slate-500 mt-1 text-sm">View real-time stock levels across all godowns.</p>
-        </div>
-      </div>
 
-      <div className="border-b border-slate-200" />
+
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-2">
@@ -157,11 +151,11 @@ const LiveStockDashboard = () => {
           <GodownSummaryTable godowns={summaryData.godowns} totals={summaryData.totals} />
 
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-center gap-3">
               <div className="bg-primary/10 p-2 rounded-lg">
                 <Package size={18} className="text-primary" />
               </div>
-              <h3 className="font-semibold text-slate-800">Product-wise Breakdown</h3>
+              <h3 className="font-semibold text-slate-800 text-lg">Product-wise Breakdown</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

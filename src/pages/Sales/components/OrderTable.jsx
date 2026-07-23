@@ -112,7 +112,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, searchTerm }) => {
                             <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Ordered</th>
                             <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Planned</th>
                             <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Dispatched</th>
-                            <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Remaining</th>
+                            <th className="text-center px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Remaining/Pending</th>
                             <th className="text-left px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Progress</th>
                           </tr>
                         </thead>
