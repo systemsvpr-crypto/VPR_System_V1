@@ -180,7 +180,6 @@ const Sales = () => {
                 {[
                   { id: 'pending', label: 'Pending' },
                   { id: 'history', label: 'History' },
-                  { id: 'all', label: 'All' },
                 ].map(f => (
                   <button key={f.id} onClick={() => setDispatchFilter(f.id)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
@@ -211,7 +210,6 @@ const Sales = () => {
                 {[
                   { id: 'pending', label: 'Pending' },
                   { id: 'informed', label: 'Informed' },
-                  { id: 'all', label: 'All' },
                 ].map(f => (
                   <button key={f.id} onClick={() => setInformFilter(f.id)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
@@ -242,7 +240,6 @@ const Sales = () => {
                 {[
                   { id: 'pending', label: 'Pending' },
                   { id: 'dispatch-done', label: 'Dispatch Done' },
-                  { id: 'all', label: 'All' },
                 ].map(f => (
                   <button key={f.id} onClick={() => setCompleteFilter(f.id)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
@@ -273,7 +270,6 @@ const Sales = () => {
                 {[
                   { id: 'pending', label: 'Pending' },
                   { id: 'informed', label: 'Informed' },
-                  { id: 'all', label: 'All' },
                 ].map(f => (
                   <button key={f.id} onClick={() => setAfterFilter(f.id)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
@@ -305,7 +301,6 @@ const Sales = () => {
                   { id: 'pending', label: 'Pending' },
                   { id: 'partial', label: 'Partial' },
                   { id: 'skip-done', label: 'Skip Done' },
-                  { id: 'all', label: 'All' },
                 ].map(f => (
                   <button key={f.id} onClick={() => setSkipFilter(f.id)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${

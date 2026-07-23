@@ -204,15 +204,7 @@ export const getAllOrderItemsForDispatch = async () => {
     .map(item => ({
       ...item,
       dispatch_plans: planMap[item.item_id] || [],
-    }))
-    .filter(item => {
-      const allPlans = item.dispatch_plans || [];
-      const totalClaimed = allPlans
-        .filter(p => p.dispatch_status !== 'Cancelled')
-        .reduce((sum, p) => sum + Number(p.already_dispatched || 0), 0);
-      const cancelled = Number(item.cancelled_quantity || 0);
-      return Number(item.quantity) - totalClaimed - cancelled > 0;
-    });
+    }));
 };
 
 export const getSkipDeliveredItems = async () => {

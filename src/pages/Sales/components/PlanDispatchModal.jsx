@@ -147,11 +147,19 @@ const PlanDispatchModal = ({ isOpen, onClose, item, godowns, user, onSave }) => 
     setForm({ ...EMPTY_FORM, godown_id: item?.godown_id || '' });
   };
 
+  /* ── max allowed quantity ──────────────────────────────── */
+  const originalPlan = activePlans.find(p => p.plan_id === editingPlanId);
+  const effectiveStock = form.godown_id
+    ? (stockMap[form.godown_id] ?? 0) + (originalPlan && originalPlan.godown_id === form.godown_id ? Number(originalPlan.quantity) : 0)
+    : 0;
+  const maxAllowed = form.godown_id ? Math.min(remainingQty, effectiveStock) : remainingQty;
+
   /* ── save ───────────────────────────────────────────────── */
   const handleSave = async () => {
     const qty = Number(form.quantity);
     if (!qty || qty <= 0) { toast.error('Enter a valid dispatch quantity.'); return; }
     if (qty > remainingQty) { toast.error(`Quantity (${qty}) exceeds remaining (${remainingQty}).`); return; }
+    if (form.godown_id && qty > effectiveStock) { toast.error(`Quantity (${qty}) exceeds available stock (${effectiveStock}) in selected godown.`); return; }
     if (!form.godown_id) { toast.error('Please select a godown.'); return; }
     if (!form.dispatch_date) { toast.error('Please select a dispatch date.'); return; }
     if (!unitPrice || Number(unitPrice) <= 0) { toast.error('Enter a valid unit price.'); return; }
@@ -372,11 +380,19 @@ const PlanDispatchModal = ({ isOpen, onClose, item, godowns, user, onSave }) => 
                         max={remainingQty}
                         placeholder={`1 – ${remainingQty}`}
                         value={form.quantity}
-                        onChange={e => setForm(f => ({ ...f, quantity: e.target.value.replace(/\D/g, '') }))}
+                        onChange={e => {
+                          const val = e.target.value.replace(/\D/g, '');
+                          if (val && Number(val) > maxAllowed) {
+                            if (form.godown_id && Number(val) > effectiveStock) {
+                              toast.error(`Cannot exceed godown stock (${effectiveStock}).`);
+                            } else {
+                              toast.error(`Cannot exceed remaining order qty (${remainingQty}).`);
+                            }
+                            return;
+                          }
+                          setForm(f => ({ ...f, quantity: val }));
+                        }}
                       />
-                      {form.quantity && Number(form.quantity) > remainingQty && (
-                        <p className="text-xs text-red-500 mt-1">Exceeds remaining ({remainingQty})</p>
-                      )}
                     </div>
 
 
@@ -572,7 +588,7 @@ const PlanDispatchModal = ({ isOpen, onClose, item, godowns, user, onSave }) => 
             <Button
               type="button"
               onClick={handleSave}
-              disabled={isSaving || !form.quantity || Number(form.quantity) > remainingQty}
+              disabled={isSaving || !form.quantity || Number(form.quantity) > remainingQty || (!!form.godown_id && Number(form.quantity) > effectiveStock)}
               className="gap-2"
             >
               <Save size={15} />

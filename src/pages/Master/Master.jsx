@@ -267,10 +267,10 @@ const Master = () => {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
 
 
-      <div className="flex items-center gap-6 border-b border-slate-200">
+      <div className="flex items-center gap-6 border-b border-slate-200 px-4 sm:px-6 pt-2 bg-slate-50/50">
         {visibleTabs.map((tab) => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             className={`pb-3 text-sm font-medium transition-all flex items-center gap-2 ${
@@ -292,7 +292,7 @@ const Master = () => {
           <p className="text-sm text-slate-400">You don't have access to any Master tabs. Contact your administrator.</p>
         </div>
       ) : (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 p-4 sm:p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
             <div className="relative w-full md:w-72">
@@ -345,7 +345,7 @@ const Master = () => {
 
         <div className="space-y-6">
           {activeTab === 'products' && (
-            <div className="bg-white rounded-xl border border-slate-200 flex-col">
+            <div className="flex flex-col">
               <ProductTable products={currentProducts} totalItems={filteredProducts.length} loading={loading} onEdit={handleEditProduct} searchTerm={searchTerm} stockMap={stockMap} />
               {!loading && filteredProducts.length > 0 && (
                 <Pagination currentPage={currentPage} totalPages={totalProductPages} totalItems={filteredProducts.length}
@@ -355,7 +355,7 @@ const Master = () => {
             </div>
           )}
           {activeTab === 'godowns' && (
-            <div className="bg-white rounded-xl border border-slate-200 flex-col">
+            <div className="flex flex-col">
               <GodownTable godowns={currentGodowns} totalItems={filteredGodowns.length} loading={loading} onToggle={handleToggleGodown} searchTerm={searchTerm} />
               {!loading && filteredGodowns.length > 0 && (
                 <Pagination currentPage={currentPage} totalPages={totalGodownPages} totalItems={filteredGodowns.length}
@@ -365,7 +365,7 @@ const Master = () => {
             </div>
           )}
           {activeTab === 'customers' && (
-            <div className="bg-white rounded-xl border border-slate-200 flex-col">
+            <div className="flex flex-col">
               <CustomerTable customers={currentCustomers} totalItems={filteredCustomers.length} loading={loading} onEdit={handleEditCustomer} searchTerm={searchTerm} />
               {!loading && filteredCustomers.length > 0 && (
                 <Pagination currentPage={currentPage} totalPages={totalCustomerPages} totalItems={filteredCustomers.length}
@@ -375,7 +375,7 @@ const Master = () => {
             </div>
           )}
           {activeTab === 'vendors' && (
-            <div className="bg-white rounded-xl border border-slate-200 flex-col">
+            <div className="flex flex-col">
               <VendorTable vendors={currentVendors} totalItems={filteredVendors.length} loading={loading} onEdit={handleEditVendor} searchTerm={searchTerm} />
               {!loading && filteredVendors.length > 0 && (
                 <Pagination currentPage={currentPage} totalPages={totalVendorPages} totalItems={filteredVendors.length}
@@ -385,7 +385,7 @@ const Master = () => {
             </div>
           )}
           {activeTab === 'transporters' && (
-            <div className="bg-white rounded-xl border border-slate-200 flex-col">
+            <div className="flex flex-col">
               <TransporterTable transporters={currentTransporters} totalItems={filteredTransporters.length} loading={loading} onEdit={handleEditTransporter} searchTerm={searchTerm} />
               {!loading && filteredTransporters.length > 0 && (
                 <Pagination currentPage={currentPage} totalPages={totalTransporterPages} totalItems={filteredTransporters.length}
@@ -395,7 +395,7 @@ const Master = () => {
             </div>
           )}
           {activeTab === 'product-grouping' && (
-            <div className="bg-white rounded-xl border border-slate-200 flex-col">
+            <div className="flex flex-col">
               <GroupTable groups={currentGroups} loading={loading} onEdit={handleEditGroup} onDelete={handleDeleteGroup} />
               {!loading && filteredGroups.length > 0 && (
                 <Pagination currentPage={currentPage} totalPages={totalGroupPages} totalItems={filteredGroups.length}

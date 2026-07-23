@@ -144,10 +144,12 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
               return (
                   <tr key={rowKey} className={`hover:bg-slate-50 transition-colors group ${plan.dispatch_status === 'Dispatch Done' ? 'opacity-60' : ''}`}>
                   <td className="px-2 py-3 text-center">
-                    <button type="button" onClick={() => toggleCheck(plan.plan_id)}
-                      className="inline-flex items-center justify-center text-slate-400 hover:text-primary transition-colors">
-                      {checkedRows.has(rowKey) ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
-                    </button>
+                    {plan.inform_before_dispatch !== 'Informed' && (
+                      <button type="button" onClick={() => toggleCheck(plan.plan_id)}
+                        className="inline-flex items-center justify-center text-slate-400 hover:text-primary transition-colors">
+                        {checkedRows.has(rowKey) ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} />}
+                      </button>
+                    )}
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-800">
                     {order.order_number || '—'}

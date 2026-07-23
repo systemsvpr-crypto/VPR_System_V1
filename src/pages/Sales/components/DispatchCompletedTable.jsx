@@ -113,21 +113,6 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
     }));
   };
 
-  const isPlanInsufficient = (plan) => {
-    const vals = editValues[plan.plan_id];
-    if (!vals || !vals.godown_id || !vals.quantity || Number(vals.quantity) <= 0) return false;
-    const productId = plan.sales_order_items?.product_id;
-    const available = getCurrentStock(productId, vals.godown_id);
-    return Number(vals.quantity) > available;
-  };
-
-  const hasAnyInsufficient = useMemo(() => {
-    return [...checkedRows].some(pid => {
-      const plan = plans.find(p => p.plan_id === pid);
-      return plan ? isPlanInsufficient(plan) : false;
-    });
-  }, [checkedRows, plans, editValues, stockMap]);
-
   const getTodayLocal = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -159,8 +144,6 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
       if (isFutureDate(dispatchDate)) { errors.push(`${plan.dispatch_number || 'Plan'}: Dispatch date cannot be in the future.`); continue; }
 
       const productId = plan.sales_order_items?.product_id;
-      const available = getCurrentStock(productId, vals.godown_id);
-      if (Number(vals.quantity) > available) { errors.push(`${plan.dispatch_number || 'Plan'}: Insufficient stock. Available: ${available}, Required: ${vals.quantity}.`); continue; }
 
       try {
         await completeDispatchWithStockOut({
@@ -221,12 +204,7 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
           {checkedRows.size > 0 ? `${checkedRows.size} row(s) selected` : 'Select rows to complete dispatch'}
         </span>
         <div className="flex items-center gap-3">
-          {hasAnyInsufficient && (
-            <span className="text-xs text-red-600 flex items-center gap-1">
-              <AlertTriangle size={14} /> Some selected rows have insufficient stock
-            </span>
-          )}
-          <Button onClick={handleSave} disabled={checkedRows.size === 0 || isSaving || hasAnyInsufficient}
+          <Button onClick={handleSave} disabled={checkedRows.size === 0 || isSaving}
             className="gap-2 px-4 font-medium">
             <Save size={16} />
             {isSaving ? 'Saving...' : 'Complete Dispatch Out'}
@@ -246,7 +224,6 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[220px]">Godown Name</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[90px]">Order Qty</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[110px]">Dispatch Qty</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[120px]">Available Stock</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[130px]">Dispatch Status</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px]">Person Name</th>
             </tr>
@@ -257,14 +234,8 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
               const isDone = plan.dispatch_status === 'Dispatch Done' || plan.dispatch_status === 'Cancelled';
               const isPartiallyDone = plan.dispatch_status === 'Partially Dispatched';
               const isChecked = checkedRows.has(plan.plan_id);
-              const productId = plan.sales_order_items?.product_id;
-              const selectedGodownId = vals.godown_id || plan.godown_id;
-              const currentStock = getCurrentStock(productId, selectedGodownId);
-              const qtyEntered = Number(vals.quantity || 0);
-              const insufficient = isChecked && qtyEntered > 0 && qtyEntered > currentStock;
-              const noStock = isChecked && currentStock === 0;
               return (
-                <tr key={plan.plan_id} className={`hover:bg-slate-50 transition-colors group ${isDone ? 'opacity-70' : insufficient ? 'bg-red-50/40' : ''}`}>
+                <tr key={plan.plan_id} className={`hover:bg-slate-50 transition-colors group ${isDone ? 'opacity-70' : ''}`}>
                   <td className="px-2 py-3 text-center">
                     {isDone ? (
                       <Lock size={16} className="text-slate-300 mx-auto" />
@@ -310,35 +281,10 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
                   <td className="px-4 py-3 w-[120px]">
                     <div className="flex flex-col items-center gap-0.5">
                       <Input type="number" step="1" min="0" placeholder="0"
-                        className={`w-20 h-8 text-sm text-center mx-auto ${
-                          insufficient ? 'border-red-400 ring-1 ring-red-200' : ''
-                        }`}
+                        className="w-20 h-8 text-sm text-center mx-auto"
                         value={vals.quantity || ''}
                         onChange={(e) => updateEditValue(plan.plan_id, 'quantity', e.target.value.replace(/\D/g, ''))}
                         disabled={!isChecked || isDone} />
-                      {insufficient && (
-                        <span className="text-[10px] text-red-600 font-medium whitespace-nowrap">
-                          Exceeds stock by {qtyEntered - currentStock}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-center w-[120px]">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        insufficient || noStock
-                          ? 'bg-red-50 text-red-600 border border-red-200'
-                          : Number(currentStock) > 0
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                          : 'bg-slate-100 text-slate-400 border border-slate-200'
-                      }`}>
-                        {currentStock}
-                      </span>
-                      {insufficient && (
-                        <span className="text-[10px] text-red-500 flex items-center gap-0.5">
-                          <AlertTriangle size={10} /> Short by {qtyEntered - currentStock}
-                        </span>
-                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-center w-[130px]">
