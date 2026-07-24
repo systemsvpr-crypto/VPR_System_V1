@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { sendPurchaseDeliveredWhatsapp } from './whatsappService';
 
 const getTodayLocal = () => {
   const d = new Date();
@@ -463,7 +464,68 @@ export const createDelivery = async ({ item_id, indent_id, delivery_date, expect
     if (txnErr) throw txnErr;
   }
 
+  notifyVendorDelivery({
+    item_id, indent_id, transporter_id, lr_number,
+    delivery_date, quantity: totalQty,
+  }).catch(err => {
+    console.error('WhatsApp purchase delivery notification failed:', err.message);
+  });
+
   return { ...delivery, lifting_number };
+};
+
+const notifyVendorDelivery = async ({ item_id, indent_id, transporter_id, lr_number, delivery_date, quantity }) => {
+  const { data: indent } = await supabase
+    .from('purchase_indents')
+    .select('vendors:vendor_id(name, phone_number)')
+    .eq('indent_id', indent_id)
+    .single();
+  const vendor = indent?.vendors;
+  if (!vendor?.phone_number) return;
+
+  let transporterName = '-';
+  if (transporter_id) {
+    const { data: t } = await supabase.from('transporters').select('name').eq('transporter_id', transporter_id).single();
+    transporterName = t?.name || '-';
+  }
+
+  let productLines = [];
+  if (lr_number) {
+    const { data: rows } = await supabase
+      .from('purchase_deliveries')
+      .select('received_quantity, purchase_indent_items:item_id(products:product_id(name, unit))')
+      .eq('lr_number', lr_number);
+    const map = {};
+    (rows || []).forEach(r => {
+      const p = r.purchase_indent_items?.products;
+      const name = p?.name || 'Item';
+      if (!map[name]) map[name] = { qty: 0, unit: p?.unit || '' };
+      map[name].qty += Number(r.received_quantity || 0);
+    });
+    productLines = Object.entries(map).map(([name, v]) => `${name} - ${v.qty}${v.unit ? ' ' + v.unit : ''}`);
+  }
+
+  if (productLines.length === 0) {
+    const { data: item } = await supabase
+      .from('purchase_indent_items')
+      .select('products:product_id(name, unit)')
+      .eq('item_id', item_id)
+      .single();
+    const p = item?.products;
+    productLines = [`${p?.name || 'Item'} - ${Number(quantity)}${p?.unit ? ' ' + p.unit : ''}`];
+  }
+
+  const formattedDate = delivery_date
+    ? new Date(delivery_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : '-';
+
+  await sendPurchaseDeliveredWhatsapp({
+    phone: vendor.phone_number,
+    transporterName,
+    lrNumber: lr_number || '-',
+    date: formattedDate,
+    products: productLines,
+  });
 };
 
 export const updateDelivery = async ({ delivery_id, delivery_date, expected_delivery_date, godown_allocations, transporter_id, lr_number, vehicle_number, remarks, status, user_id }) => {

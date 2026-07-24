@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import { voidTransaction as stockVoidTransaction } from './stockService';
+import { sendOrderConfirmationWhatsapp, sendDispatchPlanWhatsapp, sendDispatchConfirmationWhatsapp } from './whatsappService';
 
 export const generateNextOrderNumber = async () => {
   const { data, error } = await supabase
@@ -92,7 +93,40 @@ export const createOrder = async ({ order_date, order_number, customer_id, items
     if (itemErr) throw itemErr;
   }
 
+  notifyOrderConfirmation(customer_id, items).catch(err => {
+    console.error('WhatsApp order confirmation failed:', err.message);
+  });
+
   return order;
+};
+
+const notifyOrderConfirmation = async (customer_id, items) => {
+  const { data: customer } = await supabase
+    .from('customers')
+    .select('name, phone_number')
+    .eq('customer_id', customer_id)
+    .single();
+  if (!customer?.phone_number) return;
+
+  const productIds = [...new Set(items.map(i => i.product_id))];
+  const { data: productRows } = await supabase
+    .from('products')
+    .select('product_id, name')
+    .in('product_id', productIds);
+  const nameMap = {};
+  (productRows || []).forEach(p => { nameMap[p.product_id] = p.name; });
+
+  const itemDetails = items
+    .map(i => `${nameMap[i.product_id] || 'Item'} x ${Number(i.quantity)}`)
+    .join(', ');
+  const totalQty = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+
+  await sendOrderConfirmationWhatsapp({
+    phone: customer.phone_number,
+    customerName: customer.name,
+    itemDetails,
+    totalQty,
+  });
 };
 
 export const updateOrder = async (order_id, { order_date, order_number, customer_id, items, process_type }) => {
@@ -408,6 +442,10 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
        }]);
     }
 
+    notifyDispatchPlan(order_item_id, payload.quantity).catch(err => {
+      console.error('WhatsApp dispatch plan notification failed:', err.message);
+    });
+
     return data;
   }
 
@@ -456,7 +494,32 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
     dispatch_number: payload.dispatch_number,
   }]);
 
+  notifyDispatchPlan(order_item_id, payload.quantity).catch(err => {
+    console.error('WhatsApp dispatch plan notification failed:', err.message);
+  });
+
   return planData;
+};
+
+const notifyDispatchPlan = async (order_item_id, quantity) => {
+  const { data: item } = await supabase
+    .from('sales_order_items')
+    .select('products:product_id(name, unit), sales_orders:order_id(customers:customer_id(name, phone_number))')
+    .eq('item_id', order_item_id)
+    .single();
+  const customer = item?.sales_orders?.customers;
+  if (!customer?.phone_number) return;
+
+  const productName = item.products?.name || 'Item';
+  const unit = item.products?.unit || '';
+  const itemDetails = `${productName} x ${Number(quantity)}${unit ? ' ' + unit : ''}`;
+
+  await sendDispatchPlanWhatsapp({
+    phone: customer.phone_number,
+    customerName: customer.name,
+    itemDetails,
+    totalQty: Number(quantity),
+  });
 };
 
 export const batchUpdateInformBeforeDispatch = async (planIds, inform_before_dispatch) => {
@@ -520,6 +583,54 @@ export const voidOrder = async (order_id) => {
   if (error) throw error;
 };
 
+// Dev-only hard delete: wipes an order and everything derived from it
+// (dispatch plans, stock transactions, order items) so test data can be cleaned up.
+export const deleteOrder = async (order_id) => {
+  const { data: items, error: itemsErr } = await supabase
+    .from('sales_order_items')
+    .select('item_id')
+    .eq('order_id', order_id);
+  if (itemsErr) throw itemsErr;
+
+  const itemIds = (items || []).map(i => i.item_id);
+
+  if (itemIds.length > 0) {
+    const { data: plans, error: plansErr } = await supabase
+      .from('dispatch_plans')
+      .select('plan_id')
+      .in('order_item_id', itemIds);
+    if (plansErr) throw plansErr;
+
+    const planIds = (plans || []).map(p => p.plan_id);
+
+    if (planIds.length > 0) {
+      const { error: txnErr } = await supabase
+        .from('transactions')
+        .delete()
+        .in('dispatch_plan_id', planIds);
+      if (txnErr) throw txnErr;
+
+      const { error: planDelErr } = await supabase
+        .from('dispatch_plans')
+        .delete()
+        .in('plan_id', planIds);
+      if (planDelErr) throw planDelErr;
+    }
+
+    const { error: itemDelErr } = await supabase
+      .from('sales_order_items')
+      .delete()
+      .in('item_id', itemIds);
+    if (itemDelErr) throw itemDelErr;
+  }
+
+  const { error: orderDelErr } = await supabase
+    .from('sales_orders')
+    .delete()
+    .eq('order_id', order_id);
+  if (orderDelErr) throw orderDelErr;
+};
+
 export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown_id, quantity, dispatch_date, dispatch_number, created_by }) => {
   const getTodayLocal = () => {
     const d = new Date();
@@ -573,7 +684,44 @@ export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown
     .eq('plan_id', plan_id);
   if (planErr) throw planErr;
 
+  notifyDispatchConfirmation(plan_id, quantity, dispatch_date).catch(err => {
+    console.error('WhatsApp dispatch confirmation failed:', err.message);
+  });
+
   return { transaction: existingTxn, plan_id };
+};
+
+const notifyDispatchConfirmation = async (plan_id, quantity, dispatch_date) => {
+  const { data: plan } = await supabase
+    .from('dispatch_plans')
+    .select(`
+      sales_order_items!inner(
+        products:product_id(name, unit),
+        sales_orders!inner(order_number, customers:customer_id(name, phone_number))
+      )
+    `)
+    .eq('plan_id', plan_id)
+    .single();
+
+  const order = plan?.sales_order_items?.sales_orders;
+  const customer = order?.customers;
+  if (!customer?.phone_number) return;
+
+  const product = plan.sales_order_items.products;
+  const unit = product?.unit || '';
+  const productDetails = `${product?.name || 'Item'} x ${Number(quantity)}${unit ? ' ' + unit : ''}`;
+  const formattedDate = dispatch_date
+    ? new Date(dispatch_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : '-';
+
+  await sendDispatchConfirmationWhatsapp({
+    phone: customer.phone_number,
+    customerName: customer.name,
+    orderNumber: order.order_number,
+    productDetails,
+    dispatchDate: formattedDate,
+    totalQty: Number(quantity),
+  });
 };
 
 export const isOrderLocked = async (order_id) => {

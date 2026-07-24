@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Search, ShoppingCart, Plus, ClipboardList, Bell, CheckCircle, Mail, Truck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
-import { getAllOrders } from '../../services/salesService';
+import { getAllOrders, deleteOrder } from '../../services/salesService';
 import { getAllProducts, getAllGodowns } from '../../services/masterService';
 import { getAllCustomers } from '../../services/customerService';
 import { Input } from '@/components/ui/input';
@@ -106,6 +106,15 @@ const Sales = () => {
     setEditingOrder(null);
   };
 
+  const handleDeleteOrder = async (order) => {
+    if (!window.confirm(`Permanently delete order ${order.order_number}? This cannot be undone.`)) return;
+    try {
+      await deleteOrder(order.order_id);
+      toast.success('Order deleted.');
+      loadData();
+    } catch (err) { toast.error(err.message || 'Failed to delete order.'); }
+  };
+
   return (
     <div className="flex flex-col gap-6">
 
@@ -152,7 +161,7 @@ const Sales = () => {
 
           <div className="bg-white rounded-xl border border-slate-200 flex-col">
             <OrderTable orders={currentOrders} totalItems={filteredOrders.length} loading={loading}
-              onEdit={handleEditOrder} searchTerm={searchTerm} />
+              onEdit={handleEditOrder} onDelete={handleDeleteOrder} searchTerm={searchTerm} />
             {!loading && filteredOrders.length > 0 && (
               <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={filteredOrders.length}
                 startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1}
