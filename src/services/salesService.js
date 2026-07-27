@@ -1,6 +1,6 @@
 import { supabase } from '../supabase';
 import { voidTransaction as stockVoidTransaction } from './stockService';
-import { sendOrderConfirmationWhatsapp, sendDispatchPlanWhatsapp, sendDispatchConfirmationWhatsapp } from './whatsappService';
+import { sendOrderConfirmationWhatsapp, sendDispatchConfirmationWhatsapp } from './whatsappService';
 
 export const generateNextOrderNumber = async () => {
   const { data, error } = await supabase
@@ -442,10 +442,6 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
        }]);
     }
 
-    notifyDispatchPlan(order_item_id, payload.quantity).catch(err => {
-      console.error('WhatsApp dispatch plan notification failed:', err.message);
-    });
-
     return data;
   }
 
@@ -494,32 +490,7 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
     dispatch_number: payload.dispatch_number,
   }]);
 
-  notifyDispatchPlan(order_item_id, payload.quantity).catch(err => {
-    console.error('WhatsApp dispatch plan notification failed:', err.message);
-  });
-
   return planData;
-};
-
-const notifyDispatchPlan = async (order_item_id, quantity) => {
-  const { data: item } = await supabase
-    .from('sales_order_items')
-    .select('products:product_id(name, unit), sales_orders:order_id(customers:customer_id(name, phone_number))')
-    .eq('item_id', order_item_id)
-    .single();
-  const customer = item?.sales_orders?.customers;
-  if (!customer?.phone_number) return;
-
-  const productName = item.products?.name || 'Item';
-  const unit = item.products?.unit || '';
-  const itemDetails = `${productName} x ${Number(quantity)}${unit ? ' ' + unit : ''}`;
-
-  await sendDispatchPlanWhatsapp({
-    phone: customer.phone_number,
-    customerName: customer.name,
-    itemDetails,
-    totalQty: Number(quantity),
-  });
 };
 
 export const batchUpdateInformBeforeDispatch = async (planIds, inform_before_dispatch) => {
@@ -541,6 +512,15 @@ export const batchUpdateInformAfterDispatch = async (planIds, inform_after_dispa
     .in('plan_id', planIds)
     .select();
   if (error) throw error;
+
+  if (inform_after_dispatch === 'Informed') {
+    for (const plan_id of planIds) {
+      notifyDispatchConfirmation(plan_id).catch(err => {
+        console.error('WhatsApp dispatch confirmation failed:', err.message);
+      });
+    }
+  }
+
   return data;
 };
 
@@ -684,17 +664,14 @@ export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown
     .eq('plan_id', plan_id);
   if (planErr) throw planErr;
 
-  notifyDispatchConfirmation(plan_id, quantity, dispatch_date).catch(err => {
-    console.error('WhatsApp dispatch confirmation failed:', err.message);
-  });
-
   return { transaction: existingTxn, plan_id };
 };
 
-const notifyDispatchConfirmation = async (plan_id, quantity, dispatch_date) => {
+const notifyDispatchConfirmation = async (plan_id) => {
   const { data: plan } = await supabase
     .from('dispatch_plans')
     .select(`
+      quantity, dispatch_date,
       sales_order_items!inner(
         products:product_id(name, unit),
         sales_orders!inner(order_number, customers:customer_id(name, phone_number))
@@ -709,9 +686,9 @@ const notifyDispatchConfirmation = async (plan_id, quantity, dispatch_date) => {
 
   const product = plan.sales_order_items.products;
   const unit = product?.unit || '';
-  const productDetails = `${product?.name || 'Item'} x ${Number(quantity)}${unit ? ' ' + unit : ''}`;
-  const formattedDate = dispatch_date
-    ? new Date(dispatch_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const productDetails = `${product?.name || 'Item'} x ${Number(plan.quantity)}${unit ? ' ' + unit : ''}`;
+  const formattedDate = plan.dispatch_date
+    ? new Date(plan.dispatch_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : '-';
 
   await sendDispatchConfirmationWhatsapp({
@@ -720,7 +697,7 @@ const notifyDispatchConfirmation = async (plan_id, quantity, dispatch_date) => {
     orderNumber: order.order_number,
     productDetails,
     dispatchDate: formattedDate,
-    totalQty: Number(quantity),
+    totalQty: Number(plan.quantity),
   });
 };
 

@@ -17,15 +17,6 @@ export const sendOrderConfirmationWhatsapp = async ({ phone, customerName, itemD
   });
 };
 
-export const sendDispatchPlanWhatsapp = async ({ phone, customerName, itemDetails, totalQty }) => {
-  await sendWhatsappTemplate({
-    phone,
-    template: 'dispatch_planning',
-    language: 'en_IN',
-    parameters: [customerName || 'Customer', itemDetails || '-', String(totalQty ?? '')],
-  });
-};
-
 export const sendPurchaseDeliveredWhatsapp = async ({ phone, transporterName, lrNumber, date, products }) => {
   const padded = [...(products || []), '-', '-', '-'].slice(0, 3);
   await sendWhatsappTemplate({
