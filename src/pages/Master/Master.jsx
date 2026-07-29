@@ -4,9 +4,9 @@ import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, 
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllGodowns, getAllProducts, getAllProductStock, toggleGodownStatus } from '../../services/masterService';
-import { getAllCustomers } from '../../services/customerService';
-import { getAllVendors } from '../../services/vendorService';
-import { getAllTransporters } from '../../services/transporterService';
+import { getAllCustomers, bulkImportCustomers } from '../../services/customerService';
+import { getAllVendors, bulkImportVendors } from '../../services/vendorService';
+import { getAllTransporters, bulkImportTransporters } from '../../services/transporterService';
 import { getAllGroups, deleteGroup } from '../../services/productGroupingService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ import TransporterTable from './components/TransporterTable';
 import TransporterModal from './components/TransporterModal';
 import GroupTable from './components/ProductGrouping/GroupTable';
 import GroupModal from './components/ProductGrouping/GroupModal';
+import BulkImportEntityModal, { CUSTOMER_CONFIG, VENDOR_CONFIG, TRANSPORTER_CONFIG } from './components/BulkImportEntityModal';
 
 const TABS = [
   { id: 'products', label: 'Products', icon: Package },
@@ -53,6 +54,7 @@ const Master = () => {
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [godownModalOpen, setGodownModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [entityImportType, setEntityImportType] = useState(null);
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [vendorModalOpen, setVendorModalOpen] = useState(false);
   const [transporterModalOpen, setTransporterModalOpen] = useState(false);
@@ -322,9 +324,11 @@ const Master = () => {
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             {!loading && (
               <>
-                {activeTab === 'products' && (
-                  <Button onClick={() => setImportModalOpen(true)} variant="outline"
-                    className="gap-2 px-4 font-medium">
+                {['products', 'customers', 'vendors', 'transporters'].includes(activeTab) && (
+                  <Button onClick={() => {
+                    if (activeTab === 'products') setImportModalOpen(true);
+                    else setEntityImportType(activeTab);
+                  }} variant="outline" className="gap-2 px-4 font-medium">
                     <FileSpreadsheet size={20} /><span>Import</span>
                   </Button>
                 )}
@@ -422,6 +426,23 @@ const Master = () => {
         onSuccess={loadData} editingTransporter={editingTransporter} />
       <GroupModal isOpen={groupModalOpen} onClose={handleCloseGroupModal}
         user={user} onSuccess={loadData} editingGroup={editingGroup} />
+      {entityImportType && (
+        <BulkImportEntityModal
+          isOpen={!!entityImportType}
+          onClose={() => setEntityImportType(null)}
+          onSuccess={loadData}
+          config={
+            entityImportType === 'customers' ? CUSTOMER_CONFIG :
+            entityImportType === 'vendors' ? VENDOR_CONFIG :
+            TRANSPORTER_CONFIG
+          }
+          importFn={
+            entityImportType === 'customers' ? bulkImportCustomers :
+            entityImportType === 'vendors' ? bulkImportVendors :
+            bulkImportTransporters
+          }
+        />
+      )}
     </div>
   );
 };

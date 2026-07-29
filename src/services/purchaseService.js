@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import { sendPurchaseDeliveredWhatsapp } from './whatsappService';
+import { sendPurchaseDeliveredWhatsapp, PREDEFINED_INDENT_PHONE_NUMBER } from './whatsappService';
 
 const getTodayLocal = () => {
   const d = new Date();
@@ -96,8 +96,12 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
     if (itemErr) throw itemErr;
   }
 
+
+
   return indent;
 };
+
+
 
 export const updateIndent = async (indent_id, { indent_date, indent_number, godown_id, vendor_id, remarks, items }) => {
   const total = items.reduce((sum, item) => sum + (Number(item.rate) || 0) * (Number(item.quantity) || 0), 0);
@@ -154,6 +158,58 @@ export const voidIndent = async (indent_id) => {
   const { error } = await supabase
     .from('purchase_indents')
     .update({ is_void: true })
+    .eq('indent_id', indent_id);
+  if (error) throw error;
+};
+
+export const deleteIndent = async (indent_id) => {
+  // 1. Get all item_ids for this indent
+  const { data: items, error: fetchErr } = await supabase
+    .from('purchase_indent_items')
+    .select('item_id')
+    .eq('indent_id', indent_id);
+  if (fetchErr) throw fetchErr;
+
+  const itemIds = (items || []).map(i => i.item_id);
+
+  if (itemIds.length > 0) {
+    // 2. Get all delivery_ids for these items
+    const { data: deliveries, error: delFetchErr } = await supabase
+      .from('purchase_deliveries')
+      .select('delivery_id')
+      .in('item_id', itemIds);
+    if (delFetchErr) throw delFetchErr;
+
+    const deliveryIds = (deliveries || []).map(d => d.delivery_id);
+
+    if (deliveryIds.length > 0) {
+      // 3. Delete godown allocations for those deliveries
+      const { error: gdErr } = await supabase
+        .from('purchase_delivery_godowns')
+        .delete()
+        .in('delivery_id', deliveryIds);
+      if (gdErr) throw gdErr;
+
+      // 4. Delete the deliveries themselves
+      const { error: delErr } = await supabase
+        .from('purchase_deliveries')
+        .delete()
+        .in('delivery_id', deliveryIds);
+      if (delErr) throw delErr;
+    }
+  }
+
+  // 5. Delete indent items
+  const { error: itemErr } = await supabase
+    .from('purchase_indent_items')
+    .delete()
+    .eq('indent_id', indent_id);
+  if (itemErr) throw itemErr;
+
+  // 6. Delete the indent itself
+  const { error } = await supabase
+    .from('purchase_indents')
+    .delete()
     .eq('indent_id', indent_id);
   if (error) throw error;
 };
@@ -475,13 +531,6 @@ export const createDelivery = async ({ item_id, indent_id, delivery_date, expect
 };
 
 const notifyVendorDelivery = async ({ item_id, indent_id, transporter_id, lr_number, delivery_date, quantity }) => {
-  const { data: indent } = await supabase
-    .from('purchase_indents')
-    .select('vendors:vendor_id(name, phone_number)')
-    .eq('indent_id', indent_id)
-    .single();
-  const vendor = indent?.vendors;
-  if (!vendor?.phone_number) return;
 
   let transporterName = '-';
   if (transporter_id) {
@@ -520,7 +569,7 @@ const notifyVendorDelivery = async ({ item_id, indent_id, transporter_id, lr_num
     : '-';
 
   await sendPurchaseDeliveredWhatsapp({
-    phone: vendor.phone_number,
+    phone: PREDEFINED_INDENT_PHONE_NUMBER,
     transporterName,
     lrNumber: lr_number || '-',
     date: formattedDate,
@@ -531,7 +580,7 @@ const notifyVendorDelivery = async ({ item_id, indent_id, transporter_id, lr_num
 export const updateDelivery = async ({ delivery_id, delivery_date, expected_delivery_date, godown_allocations, transporter_id, lr_number, vehicle_number, remarks, status, user_id }) => {
   const { data: delivery, error: fetchErr } = await supabase
     .from('purchase_deliveries')
-    .select(`status, item_id, lifting_number`)
+    .select(`status, item_id, indent_id, lifting_number`)
     .eq('delivery_id', delivery_id)
     .single();
   if (fetchErr) throw new Error('Delivery not found.');
@@ -607,12 +656,23 @@ export const updateDelivery = async ({ delivery_id, delivery_date, expected_deli
       .insert(txnRows);
     if (txnErr) throw txnErr;
   }
+
+  notifyVendorDelivery({
+    item_id: delivery.item_id,
+    indent_id: delivery.indent_id,
+    transporter_id,
+    lr_number,
+    delivery_date,
+    quantity: totalQty,
+  }).catch(err => {
+    console.error('WhatsApp purchase delivery notification failed:', err.message);
+  });
 };
 
 export const updateDeliveryStatus = async ({ delivery_id, status, user_id, received_quantity, delivery_date }) => {
   const { data: delivery, error: fetchErr } = await supabase
     .from('purchase_deliveries')
-    .select(`status, item_id, delivery_date, received_quantity, lr_number, vehicle_number, lifting_number`)
+    .select(`status, item_id, indent_id, delivery_date, received_quantity, lr_number, vehicle_number, lifting_number, transporter_id`)
     .eq('delivery_id', delivery_id)
     .single();
   if (fetchErr) throw new Error('Delivery not found.');
@@ -691,6 +751,17 @@ export const updateDeliveryStatus = async ({ delivery_id, status, user_id, recei
       .insert(txnRows);
     if (txnErr) throw txnErr;
   }
+
+  notifyVendorDelivery({
+    item_id: delivery.item_id,
+    indent_id: delivery.indent_id,
+    transporter_id: delivery.transporter_id,
+    lr_number: delivery.lr_number,
+    delivery_date: targetDate,
+    quantity: targetQty,
+  }).catch(err => {
+    console.error('WhatsApp purchase delivery notification failed:', err.message);
+  });
 };
 
 export const getDeliveriesForItem = async (itemId) => {

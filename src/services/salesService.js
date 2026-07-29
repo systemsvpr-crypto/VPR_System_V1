@@ -69,7 +69,7 @@ export const getAllOrders = async () => {
   }));
 };
 
-export const createOrder = async ({ order_date, order_number, customer_id, items, created_by, process_type }) => {
+export const createOrder = async ({ order_date, order_number, customer_id, items, created_by, process_type, notify_customer = true }) => {
   const total = items.reduce((sum, item) => sum + (Number(item.unit_price) || 0) * (Number(item.quantity) || 0), 0);
 
   const { data: order, error: orderErr } = await supabase
@@ -93,9 +93,11 @@ export const createOrder = async ({ order_date, order_number, customer_id, items
     if (itemErr) throw itemErr;
   }
 
-  notifyOrderConfirmation(customer_id, items).catch(err => {
-    console.error('WhatsApp order confirmation failed:', err.message);
-  });
+  if (notify_customer) {
+    notifyOrderConfirmation(customer_id, items).catch(err => {
+      console.error('WhatsApp order confirmation failed:', err.message);
+    });
+  }
 
   return order;
 };
@@ -129,7 +131,7 @@ const notifyOrderConfirmation = async (customer_id, items) => {
   });
 };
 
-export const updateOrder = async (order_id, { order_date, order_number, customer_id, items, process_type }) => {
+export const updateOrder = async (order_id, { order_date, order_number, customer_id, items, process_type, notify_customer = false }) => {
   const total = items.reduce((sum, item) => sum + (Number(item.unit_price) || 0) * (Number(item.quantity) || 0), 0);
 
   const updateFields = { order_date, order_number, customer_id, total_amount: total };
@@ -190,6 +192,12 @@ export const updateOrder = async (order_id, { order_date, order_number, customer
       .delete()
       .eq('item_id', existing.item_id);
     if (delErr) throw delErr;
+  }
+
+  if (notify_customer) {
+    notifyOrderConfirmation(customer_id, items).catch(err => {
+      console.error('WhatsApp order confirmation failed:', err.message);
+    });
   }
 };
 

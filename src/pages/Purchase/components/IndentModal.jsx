@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, X, Plus, ArrowRightLeft, Zap } from 'lucide-react';
+import { ShoppingCart, X, Plus, ArrowRightLeft, Zap, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createIndent, updateIndent, generateNextIndentNumber } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Textarea } from '@/components/ui/textarea';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import BulkIndentProductsModal from './BulkIndentProductsModal';
 
 const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products, godowns, vendors }) => {
   const [form, setForm] = useState({
@@ -20,6 +21,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     process_type: 'process',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
 
   const isEditing = !!editingIndent;
 
@@ -115,6 +117,15 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     setForm({ ...form, items: form.items.filter((_, i) => i !== index) });
   };
 
+  const handleImportProducts = (newItems, mode) => {
+    if (mode === 'replace') {
+      setForm(prev => ({ ...prev, items: newItems }));
+    } else {
+      const existingFiltered = form.items.filter(item => item.product_id || item.quantity);
+      setForm(prev => ({ ...prev, items: [...existingFiltered, ...newItems] }));
+    }
+  };
+
   const totalAmount = useMemo(() => {
     return form.items.reduce((sum, item) => sum + (Number(item.rate) || 0) * (Number(item.quantity) || 0), 0);
   }, [form.items]);
@@ -126,124 +137,154 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   const activeGodowns = useMemo(() => godowns.filter(g => g.is_active), [godowns]);
 
   return (
-    <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <ModalContent className="max-w-4xl">
-        <ModalHeader>
-          <div className="flex items-center justify-between w-full pr-12">
-            <div className="flex items-center gap-3">
-              <div className="bg-primary/10 p-2 rounded-lg">
-                <ShoppingCart size={20} className="text-primary" />
+    <>
+      <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+        <ModalContent className="max-w-4xl">
+          <ModalHeader>
+            <div className="flex items-center justify-between w-full pr-12">
+              <div className="flex items-center gap-3">
+                <div className="bg-primary/10 p-2 rounded-lg">
+                  <ShoppingCart size={20} className="text-primary" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-800">
+                  {isEditing ? 'Edit Indent' : 'Create Indent'}
+                </h2>
               </div>
-              <h2 className="text-xl font-bold text-slate-800">
-                {isEditing ? 'Edit Indent' : 'Create Indent'}
-              </h2>
-            </div>
-            <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 shrink-0">
-              {[
-                { id: 'process', label: 'Process', icon: ArrowRightLeft },
-                { id: 'direct', label: 'Direct', icon: Zap },
-              ].map(t => (
-                <button key={t.id} type="button" onClick={() => setForm({ ...form, process_type: t.id })}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
-                    form.process_type === t.id
-                      ? 'bg-white text-slate-800 shadow-sm'
-                      : 'text-slate-400 hover:text-slate-600'
-                  }`}>
-                  <t.icon size={13} />{t.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </ModalHeader>
-        <form onSubmit={handleSubmit}>
-          <ModalBody>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Indent Date <span className="text-red-500">*</span></label>
-                <DatePicker value={form.indent_date} onChange={(e) => setForm({ ...form, indent_date: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Indent Number <span className="text-red-500">*</span></label>
-                <Input value={form.indent_number} onChange={(e) => setForm({ ...form, indent_number: e.target.value })} placeholder="e.g. VPR/IN-001" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Godown <span className="text-red-500">*</span></label>
-                <Dropdown value={form.godown_id} onValueChange={(v) => setForm({ ...form, godown_id: v })}
-                  options={activeGodowns.map(g => ({ value: g.godown_id, label: g.name }))}
-                  placeholder="Select godown..." searchPlaceholder="Search godowns..." align="start" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Vendor <span className="text-red-500">*</span></label>
-                <Dropdown value={form.vendor_id} onValueChange={(v) => setForm({ ...form, vendor_id: v })}
-                  options={vendors.map(c => ({ value: c.vendor_id, label: c.name }))}
-                  placeholder="Select vendor..." searchPlaceholder="Search vendors..." align="start" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
-                <Textarea value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })}
-                  placeholder="Optional remarks..." className="min-h-[38px]" />
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-slate-700">Products ({form.items.length})</label>
-              </div>
-              {form.items.length === 0 && (
-                <p className="text-xs text-slate-400 italic mb-2">No products added yet.</p>
-              )}
-              <div className="space-y-3">
-                {form.items.map((item, i) => (
-                  <div key={i} className="grid grid-cols-12 gap-2 items-end">
-                    <div className="col-span-5">
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
-                      <Dropdown value={item.product_id} onValueChange={(v) => updateItem(i, 'product_id', v)}
-                        options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
-                        align="start" />
-                    </div>
-                    <div className="col-span-3">
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Rate</label>
-                      <Input type="number" step="0.01" min="0" placeholder="0.00"
-                        value={item.rate} onChange={(e) => updateItem(i, 'rate', e.target.value)} />
-                    </div>
-                    <div className="col-span-3">
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
-                      <Input type="number" step="1" min="1" placeholder="1"
-                        value={item.quantity} onChange={(e) => updateItem(i, 'quantity', e.target.value.replace(/\D/g, ''))} />
-                    </div>
-                    <div className="col-span-1 flex items-end pb-0.5">
-                      <button type="button" onClick={() => removeItem(i)}
-                        className="p-1.5 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-all">
-                        <X size={18} />
-                      </button>
-                    </div>
-                  </div>
+              <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 shrink-0">
+                {[
+                  { id: 'process', label: 'Process', icon: ArrowRightLeft },
+                  { id: 'direct', label: 'Direct', icon: Zap },
+                ].map(t => (
+                  <button key={t.id} type="button" onClick={() => setForm({ ...form, process_type: t.id })}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
+                      form.process_type === t.id
+                        ? 'bg-white text-slate-800 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-600'
+                    }`}>
+                    <t.icon size={13} />{t.label}
+                  </button>
                 ))}
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={addItem}
-                className="mt-2 gap-1.5 text-xs font-medium">
-                <Plus size={14} /> Add Product
-              </Button>
             </div>
-
-            {totalAmount > 0 && (
-              <div className="mt-3 text-right text-sm font-medium text-slate-700">
-                Total Amount: ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+          </ModalHeader>
+          <form onSubmit={handleSubmit}>
+            <ModalBody>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Indent Date <span className="text-red-500">*</span></label>
+                  <DatePicker value={form.indent_date} onChange={(e) => setForm({ ...form, indent_date: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Indent Number <span className="text-red-500">*</span></label>
+                  <Input value={form.indent_number} onChange={(e) => setForm({ ...form, indent_number: e.target.value })} placeholder="e.g. VPR/IN-001" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Godown <span className="text-red-500">*</span></label>
+                  <Dropdown value={form.godown_id} onValueChange={(v) => setForm({ ...form, godown_id: v })}
+                    options={activeGodowns.map(g => ({ value: g.godown_id, label: g.name }))}
+                    placeholder="Select godown..." searchPlaceholder="Search godowns..." align="start" />
+                </div>
               </div>
-            )}
-          </ModalBody>
-          <ModalFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={submitting}>
-              {submitting ? 'Saving...' : (isEditing ? 'Update Indent' : 'Create Indent')}
-            </Button>
-          </ModalFooter>
-        </form>
-      </ModalContent>
-    </Modal>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Vendor <span className="text-red-500">*</span></label>
+                  <Dropdown value={form.vendor_id} onValueChange={(v) => setForm({ ...form, vendor_id: v })}
+                    options={vendors.map(c => ({ value: c.vendor_id, label: c.name }))}
+                    placeholder="Select vendor..." searchPlaceholder="Search vendors..." align="start" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
+                  <Textarea value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })}
+                    placeholder="Optional remarks..." className="min-h-[38px]" />
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-slate-700">Products ({form.items.length})</label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkModalOpen(true)}
+                    className="gap-1.5 text-xs font-medium text-primary border-primary/30 hover:bg-primary/5 transition-colors"
+                  >
+                    <Upload size={14} /> Upload Products in Bulk
+                  </Button>
+                </div>
+                {form.items.length === 0 && (
+                  <p className="text-xs text-slate-400 italic mb-2">No products added yet.</p>
+                )}
+                <div className="space-y-3">
+                  {form.items.map((item, i) => (
+                    <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                      <div className="col-span-5">
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
+                        <Dropdown value={item.product_id} onValueChange={(v) => updateItem(i, 'product_id', v)}
+                          options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
+                          align="start" />
+                      </div>
+                      <div className="col-span-3">
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Rate</label>
+                        <Input type="number" step="0.01" min="0" placeholder="0.00"
+                          value={item.rate} onChange={(e) => updateItem(i, 'rate', e.target.value)} />
+                      </div>
+                      <div className="col-span-3">
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
+                        <Input type="number" step="1" min="1" placeholder="1"
+                          value={item.quantity} onChange={(e) => updateItem(i, 'quantity', e.target.value.replace(/\D/g, ''))} />
+                      </div>
+                      <div className="col-span-1 flex items-end pb-0.5">
+                        <button type="button" onClick={() => removeItem(i)}
+                          className="p-1.5 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-all">
+                          <X size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 mt-3">
+                  <Button type="button" variant="outline" size="sm" onClick={addItem}
+                    className="mt-2 gap-1.5 text-xs font-medium">
+                    <Plus size={14} /> Add Product
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkModalOpen(true)}
+                    className="mt-2 gap-1.5 text-xs font-medium text-slate-600 hover:text-primary border-slate-200 hover:bg-slate-50"
+                  >
+                    <Upload size={14} /> Bulk Upload Products
+                  </Button>
+                </div>
+              </div>
+
+              {totalAmount > 0 && (
+                <div className="mt-3 text-right text-sm font-medium text-slate-700">
+                  Total Amount: ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+              )}
+            </ModalBody>
+            <ModalFooter>
+              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? 'Saving...' : (isEditing ? 'Update Indent' : 'Create Indent')}
+              </Button>
+            </ModalFooter>
+          </form>
+        </ModalContent>
+      </Modal>
+
+      <BulkIndentProductsModal
+        isOpen={bulkModalOpen}
+        onClose={() => setBulkModalOpen(false)}
+        products={products}
+        onImportProducts={handleImportProducts}
+      />
+    </>
   );
 };
 
 export default IndentModal;
+

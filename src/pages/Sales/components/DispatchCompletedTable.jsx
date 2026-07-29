@@ -69,8 +69,7 @@ const DispatchCompletedTable = ({ searchTerm, completeFilter, onSave, products, 
   const filteredPlans = useMemo(() => {
     let result = plans;
     result = result.filter(plan => 
-      plan.sales_order_items?.sales_orders?.process_type !== 'skip_delivered' &&
-      plan.inform_before_dispatch === 'Informed'
+      plan.sales_order_items?.sales_orders?.process_type !== 'skip_delivered'
     );
     const term = searchTerm?.toLowerCase();
     if (term) {

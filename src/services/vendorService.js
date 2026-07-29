@@ -29,3 +29,31 @@ export const updateVendor = async ({ vendor_id, name, location, phone_number, em
   if (error) throw error;
   return data;
 };
+
+export const bulkImportVendors = async (rows) => {
+  const results = { successCount: 0, errorCount: 0, errors: [] };
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row.name) {
+      results.errorCount++;
+      results.errors.push({ row: i + 2, message: 'Name is required' });
+      continue;
+    }
+    try {
+      const { error } = await supabase.from('vendors').insert([{
+        name: row.name,
+        phone_number: row.phone_number || null,
+        email: row.email || null,
+        location: row.location || null,
+        gst_number: row.gst_number || null,
+      }]);
+      if (error) throw error;
+      results.successCount++;
+    } catch (err) {
+      results.errorCount++;
+      results.errors.push({ row: i + 2, message: err.message });
+    }
+  }
+  return results;
+};
+

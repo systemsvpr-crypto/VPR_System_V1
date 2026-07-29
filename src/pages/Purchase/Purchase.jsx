@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Search, ShoppingCart, Plus, FileText, Users, BadgeCheck, Truck, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
-import { getAllIndents } from '../../services/purchaseService';
+import { getAllIndents, deleteIndent } from '../../services/purchaseService';
 import { getAllProducts, getAllGodowns } from '../../services/masterService';
 import { getAllVendors } from '../../services/vendorService';
 import { getAllTransporters } from '../../services/transporterService';
@@ -96,6 +96,17 @@ const Purchase = () => {
     setModalOpen(true);
   };
 
+  const handleDeleteIndent = async (indent) => {
+    if (!window.confirm(`[DEV] Permanently delete indent "${indent.indent_number}"? This cannot be undone.`)) return;
+    try {
+      await deleteIndent(indent.indent_id);
+      toast.success('Indent deleted');
+      loadData();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
   const handleCloseModal = () => {
     setModalOpen(false);
     setEditingIndent(null);
@@ -147,7 +158,7 @@ const Purchase = () => {
 
           <div className="bg-white rounded-xl border border-slate-200 flex-col">
             <IndentTable indents={currentIndents} totalItems={filteredIndents.length} loading={loading}
-              onEdit={handleEditIndent} searchTerm={searchTerm} />
+              onEdit={handleEditIndent} onDelete={handleDeleteIndent} searchTerm={searchTerm} />
             {!loading && filteredIndents.length > 0 && (
               <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={filteredIndents.length}
                 startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1}

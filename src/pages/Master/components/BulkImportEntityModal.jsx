@@ -2,52 +2,93 @@ import { useState, useRef } from 'react';
 import { Upload, FileSpreadsheet, CheckCircle, XCircle, AlertCircle, ArrowLeft, Loader, Database, Download, FileText } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
-import { bulkImportProducts } from '../../../services/masterService';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { DatePicker } from '@/components/ui/date-picker';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
-const REQUIRED_COLUMNS = ['Product Name', 'Godown Name'];
-
-const COLUMN_ALIASES = {
-  'Product Name': ['product name', 'product', 'productname', 'item name', 'item'],
-  'Godown Name': ['godown name', 'godown', 'godownname', 'warehouse', 'warehouse name'],
-  'Quantity': ['quantity', 'qty', 'qnty', 'stock', 'opening stock', 'opening', 'count'],
-  'Product Type': ['product type', 'producttype', 'type', 'category', 'item type'],
+// ---------------------------------------------------------------------------
+// CONFIGS — define one per entity type
+// ---------------------------------------------------------------------------
+export const CUSTOMER_CONFIG = {
+  label: 'Customers',
+  fileName: 'Customers_Import_Template.xlsx',
+  columns: [
+    { key: 'name',         header: 'Name',         required: true,  aliases: ['name', 'customer name', 'customername', 'customer'] },
+    { key: 'phone_number', header: 'Phone',         required: false, aliases: ['phone', 'phone number', 'phonenumber', 'mobile', 'contact'] },
+    { key: 'email',        header: 'Email',         required: false, aliases: ['email', 'email address', 'emailaddress'] },
+    { key: 'location',     header: 'Location',      required: false, aliases: ['location', 'address', 'city', 'place'] },
+    { key: 'gst_number',   header: 'GST Number',    required: false, aliases: ['gst number', 'gstnumber', 'gst', 'gstin'] },
+  ],
+  templateRows: [
+    { Name: 'Acme Corp', Phone: '9876543210', Email: 'acme@example.com', Location: 'Mumbai', 'GST Number': '27ABCDE1234F1Z5' },
+    { Name: 'Beta Ltd',  Phone: '9123456789', Email: 'beta@example.com', Location: 'Delhi',  'GST Number': '' },
+  ],
 };
 
-const normalizeHeader = (header) => {
-  const h = header.trim().toLowerCase();
-  for (const [standard, aliases] of Object.entries(COLUMN_ALIASES)) {
-    if (aliases.includes(h)) return standard;
+export const VENDOR_CONFIG = {
+  label: 'Vendors',
+  fileName: 'Vendors_Import_Template.xlsx',
+  columns: [
+    { key: 'name',         header: 'Name',         required: true,  aliases: ['name', 'vendor name', 'vendorname', 'vendor', 'supplier'] },
+    { key: 'phone_number', header: 'Phone',         required: false, aliases: ['phone', 'phone number', 'phonenumber', 'mobile', 'contact'] },
+    { key: 'email',        header: 'Email',         required: false, aliases: ['email', 'email address', 'emailaddress'] },
+    { key: 'location',     header: 'Location',      required: false, aliases: ['location', 'address', 'city', 'place'] },
+    { key: 'gst_number',   header: 'GST Number',    required: false, aliases: ['gst number', 'gstnumber', 'gst', 'gstin'] },
+  ],
+  templateRows: [
+    { Name: 'Alpha Suppliers', Phone: '9876543210', Email: 'alpha@example.com', Location: 'Pune',      'GST Number': '27XYZAB1234G1Z3' },
+    { Name: 'Gamma Traders',   Phone: '9001234567', Email: '',                  Location: 'Hyderabad', 'GST Number': '' },
+  ],
+};
+
+export const TRANSPORTER_CONFIG = {
+  label: 'Transporters',
+  fileName: 'Transporters_Import_Template.xlsx',
+  columns: [
+    { key: 'name',                header: 'Name',           required: true,  aliases: ['name', 'transporter name', 'transportername', 'transporter', 'company'] },
+    { key: 'vehicle_number',      header: 'Vehicle Number', required: false, aliases: ['vehicle number', 'vehiclenumber', 'vehicle', 'truck number', 'truck no'] },
+    { key: 'driver_phone_number', header: 'Driver Phone',   required: false, aliases: ['driver phone', 'driver phone number', 'driverphone', 'driver mobile', 'driver contact', 'driver'] },
+  ],
+  templateRows: [
+    { Name: 'Fast Cargo',   'Vehicle Number': 'MH12AB1234', 'Driver Phone': '9876543210' },
+    { Name: 'Quick Movers', 'Vehicle Number': 'DL01CD5678', 'Driver Phone': '9123456789' },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+const normalizeHeader = (raw, columns) => {
+  const h = raw.trim().toLowerCase();
+  for (const col of columns) {
+    if (col.aliases.includes(h)) return col.key;
   }
-  return header.trim();
+  return null;
 };
 
-const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+const BulkImportEntityModal = ({ isOpen, onClose, onSuccess, config, importFn }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [fileName, setFileName] = useState('');
   const [rows, setRows] = useState([]);
-  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState(null);
+
+  const { label, fileName: templateFileName, columns, templateRows } = config;
+  const requiredCols = columns.filter(c => c.required);
 
   const reset = () => {
     setStep('upload');
     setFileName('');
     setRows([]);
-    setAsOfDate(new Date().toISOString().split('T')[0]);
     setSubmitting(false);
     setResults(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleClose = () => {
-    reset();
-    onClose();
-  };
+  const handleClose = () => { reset(); onClose(); };
 
   const handleFile = (file) => {
     if (!file) return;
@@ -56,52 +97,42 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
       toast.error('Please upload a .xlsx, .xls, or .csv file.');
       return;
     }
-
     setFileName(file.name);
-
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const wb = XLSX.read(data, { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
 
-        if (!json || json.length === 0) {
-          toast.error('The file is empty.');
-          return;
+        if (!json || json.length === 0) { toast.error('The file is empty.'); return; }
+
+        // Map raw headers → column keys
+        const rawHeaders = Object.keys(json[0]);
+        const headerMap = {}; // rawHeader → colKey
+        for (const h of rawHeaders) {
+          const key = normalizeHeader(h, columns);
+          if (key) headerMap[h] = key;
         }
 
-        const headers = Object.keys(json[0]);
-        const normalizedMap = {};
-        for (const h of headers) {
-          normalizedMap[h] = normalizeHeader(h);
-        }
-
-        const missing = REQUIRED_COLUMNS.filter(
-          c => !Object.values(normalizedMap).includes(c)
-        );
+        // Check required columns are present
+        const foundKeys = new Set(Object.values(headerMap));
+        const missing = requiredCols.filter(c => !foundKeys.has(c.key)).map(c => c.header);
         if (missing.length > 0) {
-          toast.error(`Missing required columns: ${missing.join(', ')}. Found: ${headers.join(', ')}`);
+          toast.error(`Missing required columns: ${missing.join(', ')}`);
           return;
         }
 
-        const qtyKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Quantity') || 'Quantity';
-        const productKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Product Name');
-        const godownKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Godown Name');
-        const typeKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Product Type');
+        const parsed = json.map(row => {
+          const obj = {};
+          for (const [rawH, key] of Object.entries(headerMap)) {
+            obj[key] = String(row[rawH] || '').trim();
+          }
+          return obj;
+        }).filter(r => Object.values(r).some(v => v));
 
-        const parsed = json.map((row) => ({
-          productName: String(row[productKey] || '').trim(),
-          godownName: String(row[godownKey] || '').trim(),
-          qty: Number(row[qtyKey]) || 0,
-          productType: typeKey ? String(row[typeKey] || '').trim() : '',
-        })).filter(r => r.productName || r.godownName);
-
-        if (parsed.length === 0) {
-          toast.error('No valid data rows found in the file.');
-          return;
-        }
+        if (parsed.length === 0) { toast.error('No valid data rows found.'); return; }
 
         setRows(parsed);
         setStep('preview');
@@ -112,79 +143,44 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
     reader.readAsArrayBuffer(file);
   };
 
-  const handleDrop = (e) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    handleFile(file);
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-  };
+  const handleDrop = (e) => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); };
+  const handleDragOver = (e) => e.preventDefault();
 
   const handleImport = async () => {
     setStep('processing');
     setSubmitting(true);
     try {
-      const result = await bulkImportProducts({
-        rows,
-        as_of_date: asOfDate,
-        created_by: user?.user_id,
-      });
+      const result = await importFn(rows);
       setResults(result);
       setStep('results');
       if (result.successCount > 0) {
-        toast.success(`Imported ${result.successCount} opening stock entr${result.successCount === 1 ? 'y' : 'ies'} successfully`);
+        toast.success(`Imported ${result.successCount} ${label.toLowerCase()} successfully`);
       }
     } catch (err) {
       toast.error(err.message);
       setSubmitting(false);
+      setStep('preview');
     }
   };
 
-  const handleDone = () => {
-    reset();
-    onSuccess();
-    onClose();
-  };
+  const handleDone = () => { reset(); onSuccess(); onClose(); };
 
   const handleDownloadTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([
-      {
-        'Product Name': 'Cement Grade A',
-        'Godown Name': 'Main Godown',
-        'Quantity': 500,
-        'Product Type': '(7*10)'
-      },
-      {
-        'Product Name': 'Steel Rods 10mm',
-        'Godown Name': 'Site B Godown',
-        'Quantity': 1000,
-        'Product Type': '(8*12)'
-      }
-    ]);
+    const ws = XLSX.utils.json_to_sheet(templateRows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Template');
-    XLSX.writeFile(wb, 'Products_Import_Template.xlsx');
+    XLSX.writeFile(wb, templateFileName);
   };
-
-  const summary = rows.reduce((acc, r) => {
-    const key = r.productName;
-    if (!acc[key]) acc[key] = { productName: key, godowns: new Set(), totalQty: 0, count: 0 };
-    acc[key].godowns.add(r.godownName);
-    acc[key].totalQty += Number(r.qty) || 0;
-    acc[key].count += 1;
-    return acc;
-  }, {});
 
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
       <ModalContent className="max-w-2xl">
         <ModalHeader>
           <div className="bg-primary/10 p-2 rounded-lg"><FileSpreadsheet size={20} className="text-primary" /></div>
-          <h2 className="text-xl font-bold text-slate-800">Bulk Import Products</h2>
+          <h2 className="text-xl font-bold text-slate-800">Bulk Import {label}</h2>
         </ModalHeader>
 
+        {/* ── UPLOAD STEP ──────────────────────────────────────────── */}
         {step === 'upload' && (
           <>
             <ModalBody>
@@ -199,15 +195,10 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
                 </div>
                 <p className="text-sm font-medium text-slate-600 mb-1">Click to upload or drag and drop</p>
                 <p className="text-xs text-slate-400">.xlsx, .xls, or .csv files</p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={(e) => handleFile(e.target.files[0])}
-                  className="hidden"
-                />
+                <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv"
+                  onChange={(e) => handleFile(e.target.files[0])} className="hidden" />
               </div>
-              
+
               <div className="mt-6 flex flex-col gap-4">
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-700 flex items-start gap-3 shadow-2xs">
                   <div className="p-1.5 rounded-lg bg-amber-100/80 text-amber-700 shrink-0 mt-0.5">
@@ -219,16 +210,17 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
                       <span className="px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-600 text-[10px] font-medium">Formats: .xlsx, .xls, .csv</span>
                     </div>
                     <p className="text-slate-600 text-[11px] leading-relaxed">
-                      Your document must include headers for <strong>Product Name</strong>, <strong>Godown Name</strong>, and <strong>Quantity</strong>.
-                      Products not found in the system will be auto-created with default settings (unit: kg). Godowns must already exist in Master records.
+                      Your document must include a <strong>Name</strong> column.
+                      Other columns ({columns.filter(c => !c.required).map(c => c.header).join(', ')}) are optional.
                     </p>
                   </div>
                 </div>
-                
+
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Expected Format</span>
-                    <button onClick={handleDownloadTemplate} className="text-xs text-primary hover:underline flex items-center gap-1 font-medium transition-colors">
+                    <button onClick={handleDownloadTemplate}
+                      className="text-xs text-primary hover:underline flex items-center gap-1 font-medium transition-colors">
                       <Download size={12} /> Download Template
                     </button>
                   </div>
@@ -236,25 +228,23 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
                     <table className="w-full text-xs text-left whitespace-nowrap">
                       <thead className="bg-white">
                         <tr>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Product Name<span className="text-red-500 ml-0.5">*</span></th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Godown Name<span className="text-red-500 ml-0.5">*</span></th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Quantity<span className="text-red-500 ml-0.5">*</span></th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Product Type</th>
+                          {columns.map(col => (
+                            <th key={col.key} className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">
+                              {col.header}{col.required && <span className="text-red-500 ml-0.5">*</span>}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody className="bg-slate-50/50">
-                        <tr>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Cement Grade A</td>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Main Godown</td>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">500</td>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">(7*10)</td>
-                        </tr>
-                        <tr>
-                          <td className="px-3 py-2 text-slate-500">Steel Rods 10mm</td>
-                          <td className="px-3 py-2 text-slate-500">Site B Godown</td>
-                          <td className="px-3 py-2 text-slate-500">1000</td>
-                          <td className="px-3 py-2 text-slate-500">(8*12)</td>
-                        </tr>
+                        {templateRows.map((row, i) => (
+                          <tr key={i}>
+                            {columns.map(col => (
+                              <td key={col.key} className="px-3 py-2 text-slate-500 border-b border-slate-100">
+                                {row[col.header] ?? ''}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -267,6 +257,7 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
           </>
         )}
 
+        {/* ── PREVIEW STEP ─────────────────────────────────────────── */}
         {step === 'preview' && (
           <>
             <ModalBody>
@@ -278,59 +269,52 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
                   <ArrowLeft size={12} /> Change file
                 </button>
               </div>
-              <div className="border border-slate-200 rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+              <div className="border border-slate-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
                     <tr>
                       <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase">#</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase">Product Name</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase">Godown Name</th>
-                      <th className="text-right px-3 py-2 text-xs font-semibold text-slate-500 uppercase">Quantity</th>
+                      {columns.map(col => (
+                        <th key={col.key} className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase">{col.header}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {rows.map((r, i) => (
                       <tr key={i} className="hover:bg-slate-50">
                         <td className="px-3 py-2 text-slate-400 text-xs">{i + 1}</td>
-                        <td className="px-3 py-2 text-slate-700">{r.productName || <span className="text-red-400 italic">empty</span>}</td>
-                        <td className="px-3 py-2 text-slate-700">{r.godownName || <span className="text-red-400 italic">empty</span>}</td>
-                        <td className="px-3 py-2 text-right font-medium">{r.qty || <span className="text-red-400 italic">0</span>}</td>
+                        {columns.map(col => (
+                          <td key={col.key} className="px-3 py-2 text-slate-700">
+                            {r[col.key] || <span className="text-slate-300 italic">—</span>}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                <p className="text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wider">Summary</p>
-                <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-                  <div><span className="text-slate-400">Unique Products:</span> <span className="font-medium">{Object.keys(summary).length}</span></div>
-                  <div><span className="text-slate-400">Total Entries:</span> <span className="font-medium">{rows.length}</span></div>
-                  {Object.entries(summary).slice(0, 5).map(([name, s]) => (
-                    <div key={name} className="col-span-2 truncate" title={name}>
-                      <span className="text-slate-400">•</span> {name} — <span className="font-medium">{s.godowns.size}</span> godown{s.godowns.size !== 1 ? 's' : ''}, <span className="font-medium">{s.totalQty}</span> total qty
-                    </div>
-                  ))}
-                  {Object.keys(summary).length > 5 && (
-                    <div className="col-span-2 text-slate-400 italic">...and {Object.keys(summary).length - 5} more</div>
+              <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <p className="text-xs font-semibold text-slate-600 mb-1 uppercase tracking-wider">Summary</p>
+                <div className="text-xs text-slate-600 flex gap-6">
+                  <div><span className="text-slate-400">Total rows:</span> <span className="font-medium">{rows.length}</span></div>
+                  <div><span className="text-slate-400">Ready to import:</span> <span className="font-medium text-emerald-600">{rows.filter(r => r.name).length}</span></div>
+                  {rows.filter(r => !r.name).length > 0 && (
+                    <div><span className="text-slate-400">Missing name:</span> <span className="font-medium text-red-500">{rows.filter(r => !r.name).length}</span></div>
                   )}
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">As of Date</label>
-                <DatePicker value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} />
               </div>
             </ModalBody>
             <ModalFooter>
               <Button variant="outline" onClick={handleClose}>Cancel</Button>
               <Button onClick={handleImport} disabled={submitting}>
-                {submitting ? 'Importing...' : `Import ${rows.length} Entr${rows.length === 1 ? 'y' : 'ies'}`}
+                {submitting ? 'Importing...' : `Import ${rows.length} ${rows.length === 1 ? label.slice(0, -1) : label}`}
               </Button>
             </ModalFooter>
           </>
         )}
 
+        {/* ── PROCESSING STEP ──────────────────────────────────────── */}
         {step === 'processing' && (
           <ModalBody>
             <div className="flex flex-col items-center justify-center py-12">
@@ -346,16 +330,16 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
                 </div>
               </div>
               <Loader size={28} className="text-primary animate-spin mb-4" />
-              <p className="text-base font-semibold text-slate-800 mb-1">Importing Products</p>
-              <p className="text-sm text-slate-400">Processing {rows.length} entr{rows.length === 1 ? 'y' : 'ies'} into the system...</p>
+              <p className="text-base font-semibold text-slate-800 mb-1">Importing {label}</p>
+              <p className="text-sm text-slate-400">Processing {rows.length} row{rows.length !== 1 ? 's' : ''}...</p>
               <div className="mt-6 w-64 h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div className="h-full bg-primary rounded-full animate-pulse" style={{ width: '60%' }}></div>
               </div>
-              <p className="text-xs text-slate-400 mt-2">This may take a few seconds</p>
             </div>
           </ModalBody>
         )}
 
+        {/* ── RESULTS STEP ─────────────────────────────────────────── */}
         {step === 'results' && results && (
           <>
             <ModalBody>
@@ -382,9 +366,8 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
                         : 'Import failed'}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {results.successCount} entr{results.successCount === 1 ? 'y' : 'ies'} imported
-                    {results.newProductCount > 0 ? ` · ${results.newProductCount} product${results.newProductCount === 1 ? '' : 's'} created` : ''}
-                    {results.errorCount > 0 ? ` · ${results.errorCount} error${results.errorCount === 1 ? '' : 's'}` : ''}
+                    {results.successCount} imported
+                    {results.errorCount > 0 ? ` · ${results.errorCount} error${results.errorCount !== 1 ? 's' : ''}` : ''}
                   </p>
                 </div>
               </div>
@@ -411,9 +394,9 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
               )}
 
               {results.successCount > 0 && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-700 flex items-start gap-2">
+                <div className="mt-3 bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-700 flex items-start gap-2">
                   <CheckCircle size={14} className="mt-0.5 shrink-0" />
-                  <span>Successfully imported {results.successCount} opening stock entr{results.successCount === 1 ? 'y' : 'ies'} into the system.</span>
+                  <span>Successfully imported {results.successCount} {results.successCount === 1 ? label.slice(0, -1) : label} into the system.</span>
                 </div>
               )}
             </ModalBody>
@@ -427,4 +410,4 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
   );
 };
 
-export default BulkImportModal;
+export default BulkImportEntityModal;
