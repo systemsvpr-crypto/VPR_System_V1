@@ -117,13 +117,35 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     setForm({ ...form, items: form.items.filter((_, i) => i !== index) });
   };
 
-  const handleImportProducts = (newItems, mode) => {
-    if (mode === 'replace') {
-      setForm(prev => ({ ...prev, items: newItems }));
-    } else {
-      const existingFiltered = form.items.filter(item => item.product_id || item.quantity);
-      setForm(prev => ({ ...prev, items: [...existingFiltered, ...newItems] }));
+  const handleImportProducts = (data, mode) => {
+    let header = null;
+    let newItems = [];
+
+    if (Array.isArray(data)) {
+      newItems = data;
+    } else if (data && typeof data === 'object') {
+      header = data.header || null;
+      newItems = data.items || [];
     }
+
+    setForm(prev => {
+      const updated = { ...prev };
+      if (header) {
+        if (header.indent_date) updated.indent_date = header.indent_date;
+        if (header.indent_number) updated.indent_number = header.indent_number;
+        if (header.godown_id) updated.godown_id = header.godown_id;
+        if (header.vendor_id) updated.vendor_id = header.vendor_id;
+        if (header.remarks !== undefined && header.remarks !== '') updated.remarks = header.remarks;
+        if (header.process_type) updated.process_type = header.process_type;
+      }
+      if (mode === 'replace') {
+        updated.items = newItems;
+      } else {
+        const existingFiltered = prev.items.filter(item => item.product_id || item.quantity);
+        updated.items = [...existingFiltered, ...newItems];
+      }
+      return updated;
+    });
   };
 
   const totalAmount = useMemo(() => {
@@ -280,6 +302,8 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         isOpen={bulkModalOpen}
         onClose={() => setBulkModalOpen(false)}
         products={products}
+        godowns={godowns}
+        vendors={vendors}
         onImportProducts={handleImportProducts}
       />
     </>

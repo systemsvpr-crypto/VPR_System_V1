@@ -1,15 +1,21 @@
 import { useState, useRef, useMemo } from 'react';
-import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText } from 'lucide-react';
+import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Layers } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
-const REQUIRED_COLUMNS = ['Product Name', 'Quantity'];
-
 const COLUMN_ALIASES = {
-  'Product Name': ['product name', 'product', 'productname', 'item name', 'item', 'itemname'],
+  'Indent Date': ['indent date', 'indentdate', 'date', 'indent_date'],
+  'Indent Number': ['indent number', 'indentnumber', 'indent no', 'indent no.', 'indent_no', 'indent_number'],
+  'Godown Name': ['godown name', 'godown', 'godownname', 'warehouse', 'warehouse name', 'location', 'godown_name'],
+  'Vendor Name': ['vendor name', 'vendorname', 'vendor', 'supplier', 'supplier name', 'party name', 'party', 'vendor_name'],
+  'Remarks': ['remarks', 'remark', 'notes', 'note', 'description'],
+  'Process Type': ['process type', 'processtype', 'type', 'indent type', 'process_type'],
+  'Product Name': ['product name', 'product', 'productname', 'item name', 'item', 'itemname', 'product_name'],
   'Quantity': ['quantity', 'qty', 'qnty', 'count', 'amount', 'units'],
   'Rate': ['rate', 'unit rate', 'unit price', 'unitprice', 'price', 'cost', 'unit cost', 'amount/unit'],
 };
@@ -23,20 +29,79 @@ const normalizeHeader = (header) => {
   return String(header).trim();
 };
 
-const BulkIndentProductsModal = ({ isOpen, onClose, products = [], onImportProducts }) => {
+const parseExcelDate = (val) => {
+  if (!val) return '';
+  if (typeof val === 'number') {
+    try {
+      const dateObj = XLSX.SSF.parse_date_code(val);
+      if (dateObj) {
+        const y = dateObj.y;
+        const m = String(dateObj.m).padStart(2, '0');
+        const d = String(dateObj.d).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    } catch (err) {}
+  }
+  const str = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const match = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (match) {
+    const d = String(match[1]).padStart(2, '0');
+    const m = String(match[2]).padStart(2, '0');
+    const y = match[3];
+    return `${y}-${m}-${d}`;
+  }
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    return d.toISOString().split('T')[0];
+  }
+  return '';
+};
+
+const BulkIndentProductsModal = ({ isOpen, onClose, products = [], godowns = [], vendors = [], onImportProducts }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [fileName, setFileName] = useState('');
+  const [headerData, setHeaderData] = useState({
+    indent_date: '',
+    indent_number: '',
+    godown_id: '',
+    vendor_id: '',
+    remarks: '',
+    process_type: 'process',
+    rawGodownName: '',
+    rawVendorName: '',
+  });
   const [rawRows, setRawRows] = useState([]);
   const [importMode, setImportMode] = useState('append'); // 'append' | 'replace'
+
+  const activeGodowns = useMemo(() => godowns.filter(g => g.is_active), [godowns]);
 
   const productOptions = useMemo(() => {
     return products.map(p => ({ value: p.product_id, label: `${p.name} (${p.unit || 'units'})` }));
   }, [products]);
 
+  const godownOptions = useMemo(() => {
+    return activeGodowns.map(g => ({ value: g.godown_id, label: g.name }));
+  }, [activeGodowns]);
+
+  const vendorOptions = useMemo(() => {
+    return vendors.map(v => ({ value: v.vendor_id, label: v.name }));
+  }, [vendors]);
+
   const reset = () => {
     setStep('upload');
     setFileName('');
+    setHeaderData({
+      indent_date: '',
+      indent_number: '',
+      godown_id: '',
+      vendor_id: '',
+      remarks: '',
+      process_type: 'process',
+      rawGodownName: '',
+      rawVendorName: '',
+    });
     setRawRows([]);
     setImportMode('append');
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -76,17 +141,58 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], onImportProdu
           normalizedMap[h] = normalizeHeader(h);
         }
 
-        const missing = REQUIRED_COLUMNS.filter(
-          c => !Object.values(normalizedMap).includes(c)
-        );
-        if (missing.length > 0) {
-          toast.error(`Missing required columns in document: ${missing.join(', ')}. Found: ${headers.join(', ')}`);
-          return;
-        }
-
         const productKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Product Name');
         const qtyKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Quantity');
         const rateKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Rate');
+
+        if (!productKey || !qtyKey) {
+          toast.error(`Missing required item columns ("Product Name" and "Quantity"). Found: ${headers.join(', ')}`);
+          return;
+        }
+
+        // Header detection
+        const indentDateKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Indent Date');
+        const indentNumKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Indent Number');
+        const godownKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Godown Name');
+        const vendorKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Vendor Name');
+        const remarksKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Remarks');
+        const processTypeKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Process Type');
+
+        let rawIndentDate = '';
+        let rawIndentNumber = '';
+        let rawGodownName = '';
+        let rawVendorName = '';
+        let rawRemarks = '';
+        let rawProcessType = '';
+
+        for (const r of json) {
+          if (!rawIndentDate && indentDateKey && r[indentDateKey]) rawIndentDate = r[indentDateKey];
+          if (!rawIndentNumber && indentNumKey && r[indentNumKey]) rawIndentNumber = String(r[indentNumKey]).trim();
+          if (!rawGodownName && godownKey && r[godownKey]) rawGodownName = String(r[godownKey]).trim();
+          if (!rawVendorName && vendorKey && r[vendorKey]) rawVendorName = String(r[vendorKey]).trim();
+          if (!rawRemarks && remarksKey && r[remarksKey]) rawRemarks = String(r[remarksKey]).trim();
+          if (!rawProcessType && processTypeKey && r[processTypeKey]) rawProcessType = String(r[processTypeKey]).trim();
+        }
+
+        const parsedIndentDate = parseExcelDate(rawIndentDate);
+        const matchedGodown = activeGodowns.find(g => g.name.trim().toLowerCase() === rawGodownName.toLowerCase());
+        const matchedVendor = vendors.find(v => v.name.trim().toLowerCase() === rawVendorName.toLowerCase());
+        let parsedProcessType = 'process';
+        if (rawProcessType) {
+          const pLower = rawProcessType.toLowerCase();
+          if (pLower.includes('direct')) parsedProcessType = 'direct';
+        }
+
+        setHeaderData({
+          indent_date: parsedIndentDate,
+          indent_number: rawIndentNumber,
+          godown_id: matchedGodown ? matchedGodown.godown_id : '',
+          vendor_id: matchedVendor ? matchedVendor.vendor_id : '',
+          remarks: rawRemarks,
+          process_type: parsedProcessType,
+          rawGodownName,
+          rawVendorName,
+        });
 
         const parsedRows = json.map((row, idx) => {
           const rawProd = String(row[productKey] || '').trim();
@@ -148,37 +254,55 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], onImportProdu
       quantity: r.quantity || '1',
     }));
 
-    onImportProducts(itemsToImport, importMode);
-    toast.success(`Successfully added ${itemsToImport.length} product(s) to indent!`);
+    onImportProducts({
+      header: headerData,
+      items: itemsToImport,
+    }, importMode);
+
+    toast.success(`Successfully imported indent data with ${itemsToImport.length} product(s)!`);
     handleClose();
   };
 
   const handleExportHeaderOnly = () => {
-    const ws = XLSX.utils.aoa_to_sheet([['Product Name', 'Quantity', 'Rate']]);
+    const ws = XLSX.utils.aoa_to_sheet([['Indent Date', 'Indent Number', 'Godown Name', 'Vendor Name', 'Process Type', 'Remarks', 'Product Name', 'Quantity', 'Rate']]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Format_Headers');
-    XLSX.writeFile(wb, 'Indent_Products_Headers_Only.csv');
+    XLSX.writeFile(wb, 'Indent_Bulk_Import_Headers_Only.csv');
   };
 
   const handleDownloadTemplate = () => {
+    const sampleVendor = vendors[0]?.name || 'Reliable Traders';
+    const sampleGodown = activeGodowns[0]?.name || 'Main Godown';
     const sampleProduct1 = products[0]?.name || 'Cement Grade A';
     const sampleProduct2 = products[1]?.name || 'Steel Rods 10mm';
 
     const ws = XLSX.utils.json_to_sheet([
       {
+        'Indent Date': '2026-07-30',
+        'Indent Number': 'VPR/IN-001',
+        'Godown Name': sampleGodown,
+        'Vendor Name': sampleVendor,
+        'Process Type': 'Process',
+        'Remarks': 'Urgent purchase',
         'Product Name': sampleProduct1,
         'Quantity': 100,
         'Rate': 320
       },
       {
+        'Indent Date': '2026-07-30',
+        'Indent Number': 'VPR/IN-001',
+        'Godown Name': sampleGodown,
+        'Vendor Name': sampleVendor,
+        'Process Type': 'Process',
+        'Remarks': 'Urgent purchase',
         'Product Name': sampleProduct2,
         'Quantity': 250,
         'Rate': 600
       }
     ]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Indent_Products_Template');
-    XLSX.writeFile(wb, 'Indent_Products_Upload_Template.xlsx');
+    XLSX.utils.book_append_sheet(wb, ws, 'Indent_Import_Template');
+    XLSX.writeFile(wb, 'Indent_Bulk_Upload_Template.xlsx');
   };
 
   const validRowsCount = useMemo(() => {
@@ -194,8 +318,8 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], onImportProdu
               <FileSpreadsheet size={20} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-800">Bulk Upload Products to Indent</h2>
-              <p className="text-xs text-slate-500">Import multiple purchase indent products via Excel or CSV file</p>
+              <h2 className="text-xl font-bold text-slate-800">Bulk Upload Indent</h2>
+              <p className="text-xs text-slate-500">Import complete indent details and products via Excel or CSV file</p>
             </div>
           </div>
         </ModalHeader>
@@ -203,7 +327,6 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], onImportProdu
         {step === 'upload' && (
           <>
             <ModalBody className="space-y-4">
-              {/* Light Note for Required Documents */}
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 shadow-2xs">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -224,7 +347,6 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], onImportProdu
                 </div>
               </div>
 
-              {/* Upload Drop Area */}
               <div
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
@@ -245,7 +367,6 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], onImportProdu
                 />
               </div>
 
-              {/* Template Download Bar */}
               <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
                 <span className="text-slate-600 font-medium">Need a sample document format?</span>
                 <button
@@ -283,6 +404,81 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], onImportProdu
                   >
                     <ArrowLeft size={12} /> Change Document
                   </button>
+                </div>
+              </div>
+
+              {/* Indent Header Fields Preview Card */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Layers size={14} className="text-primary" /> Indent Header Information
+                  </span>
+                  {(headerData.rawVendorName && !headerData.vendor_id || headerData.rawGodownName && !headerData.godown_id) && (
+                    <span className="text-[11px] text-amber-600 font-medium bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                      Some header fields not matched. Please select below.
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1">Indent Date</label>
+                    <DatePicker
+                      value={headerData.indent_date}
+                      onChange={(e) => setHeaderData(prev => ({ ...prev, indent_date: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1">Indent Number</label>
+                    <Input
+                      value={headerData.indent_number}
+                      onChange={(e) => setHeaderData(prev => ({ ...prev, indent_number: e.target.value }))}
+                      placeholder="e.g. VPR/IN-001"
+                      className="h-8 text-xs bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1">Godown</label>
+                    <Dropdown
+                      value={headerData.godown_id}
+                      onValueChange={(val) => setHeaderData(prev => ({ ...prev, godown_id: val }))}
+                      options={godownOptions}
+                      placeholder={headerData.rawGodownName ? `Match "${headerData.rawGodownName}"...` : "Select godown..."}
+                      searchPlaceholder="Search godowns..."
+                      align="start"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1">Vendor</label>
+                    <Dropdown
+                      value={headerData.vendor_id}
+                      onValueChange={(val) => setHeaderData(prev => ({ ...prev, vendor_id: val }))}
+                      options={vendorOptions}
+                      placeholder={headerData.rawVendorName ? `Match "${headerData.rawVendorName}"...` : "Select vendor..."}
+                      searchPlaceholder="Search vendors..."
+                      align="start"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1">Process Type</label>
+                    <Dropdown
+                      value={headerData.process_type}
+                      onValueChange={(val) => setHeaderData(prev => ({ ...prev, process_type: val }))}
+                      options={[
+                        { value: 'process', label: 'Process' },
+                        { value: 'direct', label: 'Direct' },
+                      ]}
+                      align="start"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1">Remarks</label>
+                    <Input
+                      value={headerData.remarks}
+                      onChange={(e) => setHeaderData(prev => ({ ...prev, remarks: e.target.value }))}
+                      placeholder="Optional remarks..."
+                      className="h-8 text-xs bg-white"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -353,7 +549,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], onImportProdu
                               value={row.rate}
                               onChange={(e) => handleUpdateRow(i, 'rate', e.target.value)}
                               placeholder="0.00"
-                              className="w-full h-8 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary"
+                              className="w-full h-8 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
                             />
                           </td>
                           <td className="px-3 py-2 text-right">
@@ -364,7 +560,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], onImportProdu
                               value={row.quantity}
                               onChange={(e) => handleUpdateRow(i, 'quantity', e.target.value.replace(/\D/g, ''))}
                               placeholder="1"
-                              className="w-20 h-8 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary"
+                              className="w-20 h-8 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary bg-white"
                             />
                           </td>
                         </tr>
@@ -377,7 +573,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], onImportProdu
             <ModalFooter>
               <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
               <Button type="button" onClick={handleConfirmImport} disabled={validRowsCount === 0}>
-                Import {rawRows.length} Product(s) to Indent
+                Import Indent ({rawRows.length} Products)
               </Button>
             </ModalFooter>
           </>

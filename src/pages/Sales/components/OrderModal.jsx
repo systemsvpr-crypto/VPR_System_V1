@@ -127,14 +127,33 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     setForm({ ...form, items: form.items.filter((_, i) => i !== index) });
   };
 
-  const handleImportProducts = (newItems, mode) => {
-    if (mode === 'replace') {
-      setForm(prev => ({ ...prev, items: newItems }));
-    } else {
-      // Append mode
-      const existingFiltered = form.items.filter(item => item.product_id || item.godown_id || item.quantity);
-      setForm(prev => ({ ...prev, items: [...existingFiltered, ...newItems] }));
+  const handleImportProducts = (data, mode) => {
+    let header = null;
+    let newItems = [];
+
+    if (Array.isArray(data)) {
+      newItems = data;
+    } else if (data && typeof data === 'object') {
+      header = data.header || null;
+      newItems = data.items || [];
     }
+
+    setForm(prev => {
+      const updated = { ...prev };
+      if (header) {
+        if (header.order_date) updated.order_date = header.order_date;
+        if (header.order_number) updated.order_number = header.order_number;
+        if (header.customer_id) updated.customer_id = header.customer_id;
+        if (header.process_type) updated.process_type = header.process_type;
+      }
+      if (mode === 'replace') {
+        updated.items = newItems;
+      } else {
+        const existingFiltered = prev.items.filter(item => item.product_id || item.godown_id || item.quantity);
+        updated.items = [...existingFiltered, ...newItems];
+      }
+      return updated;
+    });
   };
 
   const totalAmount = useMemo(() => {
@@ -305,6 +324,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
         onClose={() => setBulkModalOpen(false)}
         products={products}
         godowns={godowns}
+        customers={customers}
         onImportProducts={handleImportProducts}
       />
     </>

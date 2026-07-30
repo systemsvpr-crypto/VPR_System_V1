@@ -1,16 +1,20 @@
 import { useState, useRef, useMemo } from 'react';
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, ArrowLeft, Download, Info, FileText, Check, Plus, RefreshCw } from 'lucide-react';
+import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Layers } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
-const REQUIRED_COLUMNS = ['Product Name', 'Godown Name', 'Quantity'];
-
 const COLUMN_ALIASES = {
-  'Product Name': ['product name', 'product', 'productname', 'item name', 'item', 'itemname'],
-  'Godown Name': ['godown name', 'godown', 'godownname', 'warehouse', 'warehouse name', 'location'],
+  'Order Date': ['order date', 'orderdate', 'date', 'order_date'],
+  'Order Number': ['order number', 'ordernumber', 'order no', 'order no.', 'order_no', 'order_number'],
+  'Customer Name': ['customer name', 'customer', 'customername', 'client', 'party name', 'party', 'customer_name'],
+  'Process Type': ['process type', 'processtype', 'type', 'order type', 'process_type'],
+  'Product Name': ['product name', 'product', 'productname', 'item name', 'item', 'itemname', 'product_name'],
+  'Godown Name': ['godown name', 'godown', 'godownname', 'warehouse', 'warehouse name', 'location', 'godown_name'],
   'Quantity': ['quantity', 'qty', 'qnty', 'count', 'amount', 'units'],
   'Unit Price': ['unit price', 'unitprice', 'price', 'rate', 'cost', 'unit cost', 'amount/unit'],
 };
@@ -24,10 +28,46 @@ const normalizeHeader = (header) => {
   return String(header).trim();
 };
 
-const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], onImportProducts }) => {
+const parseExcelDate = (val) => {
+  if (!val) return '';
+  if (typeof val === 'number') {
+    try {
+      const dateObj = XLSX.SSF.parse_date_code(val);
+      if (dateObj) {
+        const y = dateObj.y;
+        const m = String(dateObj.m).padStart(2, '0');
+        const d = String(dateObj.d).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    } catch (err) {}
+  }
+  const str = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const match = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (match) {
+    const d = String(match[1]).padStart(2, '0');
+    const m = String(match[2]).padStart(2, '0');
+    const y = match[3];
+    return `${y}-${m}-${d}`;
+  }
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    return d.toISOString().split('T')[0];
+  }
+  return '';
+};
+
+const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], customers = [], onImportProducts }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [fileName, setFileName] = useState('');
+  const [headerData, setHeaderData] = useState({
+    order_date: '',
+    order_number: '',
+    customer_id: '',
+    rawCustomerName: '',
+    process_type: 'order_process',
+  });
   const [rawRows, setRawRows] = useState([]);
   const [importMode, setImportMode] = useState('append'); // 'append' | 'replace'
 
@@ -41,9 +81,20 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
     return activeGodowns.map(g => ({ value: g.godown_id, label: g.name }));
   }, [activeGodowns]);
 
+  const customerOptions = useMemo(() => {
+    return customers.map(c => ({ value: c.customer_id, label: c.name }));
+  }, [customers]);
+
   const reset = () => {
     setStep('upload');
     setFileName('');
+    setHeaderData({
+      order_date: '',
+      order_number: '',
+      customer_id: '',
+      rawCustomerName: '',
+      process_type: 'order_process',
+    });
     setRawRows([]);
     setImportMode('append');
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -83,22 +134,53 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
           normalizedMap[h] = normalizeHeader(h);
         }
 
-        const missing = REQUIRED_COLUMNS.filter(
-          c => !Object.values(normalizedMap).includes(c)
-        );
-        if (missing.length > 0) {
-          toast.error(`Missing required columns in document: ${missing.join(', ')}. Found: ${headers.join(', ')}`);
-          return;
-        }
-
         const productKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Product Name');
         const godownKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Godown Name');
         const qtyKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Quantity');
         const priceKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Unit Price');
 
+        if (!productKey || !qtyKey) {
+          toast.error(`Missing required item columns ("Product Name" and "Quantity"). Found: ${headers.join(', ')}`);
+          return;
+        }
+
+        // Header detection
+        const orderDateKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Order Date');
+        const orderNumKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Order Number');
+        const customerKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Customer Name');
+        const processTypeKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Process Type');
+
+        let rawOrderDate = '';
+        let rawOrderNumber = '';
+        let rawCustomerName = '';
+        let rawProcessType = '';
+
+        for (const r of json) {
+          if (!rawOrderDate && orderDateKey && r[orderDateKey]) rawOrderDate = r[orderDateKey];
+          if (!rawOrderNumber && orderNumKey && r[orderNumKey]) rawOrderNumber = String(r[orderNumKey]).trim();
+          if (!rawCustomerName && customerKey && r[customerKey]) rawCustomerName = String(r[customerKey]).trim();
+          if (!rawProcessType && processTypeKey && r[processTypeKey]) rawProcessType = String(r[processTypeKey]).trim();
+        }
+
+        const parsedOrderDate = parseExcelDate(rawOrderDate);
+        const matchedCustomer = customers.find(c => c.name.trim().toLowerCase() === rawCustomerName.toLowerCase());
+        let parsedProcessType = 'order_process';
+        if (rawProcessType) {
+          const pLower = rawProcessType.toLowerCase();
+          if (pLower.includes('skip')) parsedProcessType = 'skip_delivered';
+        }
+
+        setHeaderData({
+          order_date: parsedOrderDate,
+          order_number: rawOrderNumber,
+          customer_id: matchedCustomer ? matchedCustomer.customer_id : '',
+          rawCustomerName,
+          process_type: parsedProcessType,
+        });
+
         const parsedRows = json.map((row, idx) => {
           const rawProd = String(row[productKey] || '').trim();
-          const rawGodown = String(row[godownKey] || '').trim();
+          const rawGodown = godownKey ? String(row[godownKey] || '').trim() : '';
           const rawQty = Number(row[qtyKey]) || 0;
           const rawPrice = priceKey && row[priceKey] !== '' ? String(row[priceKey]) : '';
 
@@ -162,19 +244,24 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
       quantity: r.quantity || '1',
     }));
 
-    onImportProducts(itemsToImport, importMode);
-    toast.success(`Successfully added ${itemsToImport.length} product(s) to order!`);
+    onImportProducts({
+      header: headerData,
+      items: itemsToImport,
+    }, importMode);
+
+    toast.success(`Successfully imported order data with ${itemsToImport.length} product(s)!`);
     handleClose();
   };
 
   const handleExportHeaderOnly = () => {
-    const ws = XLSX.utils.aoa_to_sheet([['Product Name', 'Godown Name', 'Quantity', 'Unit Price']]);
+    const ws = XLSX.utils.aoa_to_sheet([['Order Date', 'Order Number', 'Customer Name', 'Process Type', 'Product Name', 'Godown Name', 'Unit Price', 'Quantity']]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Format_Headers');
-    XLSX.writeFile(wb, 'Order_Products_Headers_Only.csv');
+    XLSX.writeFile(wb, 'Order_Bulk_Import_Headers_Only.csv');
   };
 
   const handleDownloadTemplate = () => {
+    const sampleCustomer = customers[0]?.name || 'Acme Enterprises';
     const sampleProduct1 = products[0]?.name || 'Cement Grade A';
     const sampleProduct2 = products[1]?.name || 'Steel Rods 10mm';
     const sampleGodown1 = activeGodowns[0]?.name || 'Main Godown';
@@ -182,12 +269,20 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
 
     const ws = XLSX.utils.json_to_sheet([
       {
+        'Order Date': '2026-07-30',
+        'Order Number': 'VPR/OR-001',
+        'Customer Name': sampleCustomer,
+        'Process Type': 'Order Process',
         'Product Name': sampleProduct1,
         'Godown Name': sampleGodown1,
         'Quantity': 50,
         'Unit Price': 350
       },
       {
+        'Order Date': '2026-07-30',
+        'Order Number': 'VPR/OR-001',
+        'Customer Name': sampleCustomer,
+        'Process Type': 'Order Process',
         'Product Name': sampleProduct2,
         'Godown Name': sampleGodown2,
         'Quantity': 100,
@@ -195,8 +290,8 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
       }
     ]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Order_Products_Template');
-    XLSX.writeFile(wb, 'Order_Products_Upload_Template.xlsx');
+    XLSX.utils.book_append_sheet(wb, ws, 'Order_Import_Template');
+    XLSX.writeFile(wb, 'Order_Bulk_Upload_Template.xlsx');
   };
 
   const validRowsCount = useMemo(() => {
@@ -212,8 +307,8 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
               <FileSpreadsheet size={20} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-800">Bulk Upload Products to Order</h2>
-              <p className="text-xs text-slate-500">Import multiple order products via Excel or CSV file</p>
+              <h2 className="text-xl font-bold text-slate-800">Bulk Upload Order</h2>
+              <p className="text-xs text-slate-500">Import complete order details and products via Excel or CSV file</p>
             </div>
           </div>
         </ModalHeader>
@@ -221,7 +316,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
         {step === 'upload' && (
           <>
             <ModalBody className="space-y-4">
-              {/* Light Note for Required Documents */}
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 shadow-2xs">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -242,7 +336,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
                 </div>
               </div>
 
-              {/* Upload Drop Area */}
               <div
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
@@ -263,7 +356,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
                 />
               </div>
 
-              {/* Template Download Bar */}
               <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
                 <span className="text-slate-600 font-medium">Need a sample document format?</span>
                 <button
@@ -301,6 +393,61 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
                   >
                     <ArrowLeft size={12} /> Change Document
                   </button>
+                </div>
+              </div>
+
+              {/* Order Header Fields Preview Card */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Layers size={14} className="text-primary" /> Order Header Information
+                  </span>
+                  {headerData.rawCustomerName && !headerData.customer_id && (
+                    <span className="text-[11px] text-amber-600 font-medium bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                      Customer "{headerData.rawCustomerName}" not matched. Select below.
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1">Order Date</label>
+                    <DatePicker
+                      value={headerData.order_date}
+                      onChange={(e) => setHeaderData(prev => ({ ...prev, order_date: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1">Order Number</label>
+                    <Input
+                      value={headerData.order_number}
+                      onChange={(e) => setHeaderData(prev => ({ ...prev, order_number: e.target.value }))}
+                      placeholder="e.g. VPR/OR-001"
+                      className="h-8 text-xs bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1">Customer</label>
+                    <Dropdown
+                      value={headerData.customer_id}
+                      onValueChange={(val) => setHeaderData(prev => ({ ...prev, customer_id: val }))}
+                      options={customerOptions}
+                      placeholder={headerData.rawCustomerName ? `Match "${headerData.rawCustomerName}"...` : "Select customer..."}
+                      searchPlaceholder="Search customers..."
+                      align="start"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1">Process Type</label>
+                    <Dropdown
+                      value={headerData.process_type}
+                      onValueChange={(val) => setHeaderData(prev => ({ ...prev, process_type: val }))}
+                      options={[
+                        { value: 'order_process', label: 'Order Process' },
+                        { value: 'skip_delivered', label: 'Skip Delivered' },
+                      ]}
+                      align="start"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -382,7 +529,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
                               value={row.unit_price}
                               onChange={(e) => handleUpdateRow(i, 'unit_price', e.target.value)}
                               placeholder="0.00"
-                              className="w-full h-8 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary"
+                              className="w-full h-8 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
                             />
                           </td>
                           <td className="px-3 py-2 text-right">
@@ -393,7 +540,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
                               value={row.quantity}
                               onChange={(e) => handleUpdateRow(i, 'quantity', e.target.value.replace(/\D/g, ''))}
                               placeholder="1"
-                              className="w-20 h-8 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary"
+                              className="w-20 h-8 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary bg-white"
                             />
                           </td>
                         </tr>
@@ -406,7 +553,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, products = [], godowns = [], 
             <ModalFooter>
               <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
               <Button type="button" onClick={handleConfirmImport} disabled={validRowsCount === 0}>
-                Import {rawRows.length} Product(s) to Order
+                Import Order ({rawRows.length} Products)
               </Button>
             </ModalFooter>
           </>
