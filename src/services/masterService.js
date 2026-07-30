@@ -88,6 +88,22 @@ export const updateProduct = async ({ product_id, name, unit, allow_negative_sto
   return data;
 };
 
+export const deleteProduct = async (product_id) => {
+  const { error } = await supabase
+    .from('products')
+    .delete()
+    .eq('product_id', product_id);
+  if (error) throw error;
+};
+
+export const deleteGodown = async (godown_id) => {
+  const { error } = await supabase
+    .from('godowns')
+    .delete()
+    .eq('godown_id', godown_id);
+  if (error) throw error;
+};
+
 export const getProductStockByDate = async (date) => {
   const { data: godowns } = await supabase
     .from('godowns')

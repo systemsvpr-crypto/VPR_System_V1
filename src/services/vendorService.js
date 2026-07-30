@@ -30,6 +30,14 @@ export const updateVendor = async ({ vendor_id, name, location, phone_number, em
   return data;
 };
 
+export const deleteVendor = async (vendor_id) => {
+  const { error } = await supabase
+    .from('vendors')
+    .delete()
+    .eq('vendor_id', vendor_id);
+  if (error) throw error;
+};
+
 export const bulkImportVendors = async (rows) => {
   const results = { successCount: 0, errorCount: 0, errors: [] };
   for (let i = 0; i < rows.length; i++) {

@@ -1,21 +1,23 @@
 import { useState, useEffect } from 'react';
-import { FolderTree, Search } from 'lucide-react';
+import { FolderTree, Search, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getAllGroups, createGroup, updateGroup } from '../../../../services/productGroupingService';
+import { getAllGroups, createGroup, updateGroup, deleteGroup } from '../../../../services/productGroupingService';
 import { getAllProducts } from '../../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
-const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup }) => {
+const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }) => {
   const [groupName, setGroupName] = useState('');
   const [productIds, setProductIds] = useState([]);
   const [products, setProducts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [alreadyGroupedProductIds, setAlreadyGroupedProductIds] = useState(new Set());
 
   const isEditing = !!editingGroup;
+  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
 
   useEffect(() => {
     if (isOpen) {
@@ -104,6 +106,19 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup }) => {
     setSubmitting(false);
   };
 
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete group "${editingGroup?.group_name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deleteGroup(editingGroup.group_id);
+      toast.success('Group deleted successfully');
+      onClose();
+      onSuccess();
+      if (onDelete) onDelete();
+    } catch (err) { toast.error(err.message); }
+    setDeleting(false);
+  };
+
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <ModalContent className="max-w-xl">
@@ -174,6 +189,12 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup }) => {
           </ModalBody>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            {isEditing && isSuperAdmin && (
+              <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
+                <Trash2 size={16} className="mr-1" />
+                {deleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            )}
             <Button type="submit" disabled={submitting}>
               {submitting ? 'Saving...' : (isEditing ? 'Update Group' : 'Create Group')}
             </Button>

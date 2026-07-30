@@ -30,6 +30,14 @@ export const updateTransporter = async ({ transporter_id, name, vehicle_number, 
   return data;
 };
 
+export const deleteTransporter = async (transporter_id) => {
+  const { error } = await supabase
+    .from('transporters')
+    .delete()
+    .eq('transporter_id', transporter_id);
+  if (error) throw error;
+};
+
 export const bulkImportTransporters = async (rows) => {
   const results = { successCount: 0, errorCount: 0, errors: [] };
   for (let i = 0; i < rows.length; i++) {

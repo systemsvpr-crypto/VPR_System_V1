@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Users } from 'lucide-react';
+import { Users, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { createCustomer, updateCustomer } from '../../../services/customerService';
+import { createCustomer, updateCustomer, deleteCustomer } from '../../../services/customerService';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
-const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer }) => {
+const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDelete }) => {
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -15,8 +15,10 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer }) => {
   const [gstNumber, setGstNumber] = useState('');
   const [crmFollowUp, setCrmFollowUp] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const isEditing = !!editingCustomer;
+  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
 
   useEffect(() => {
     if (!isOpen) {
@@ -55,6 +57,19 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer }) => {
       onSuccess();
     } catch (err) { toast.error(err.message); }
     setSubmitting(false);
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete customer "${editingCustomer?.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deleteCustomer(editingCustomer.customer_id);
+      toast.success('Customer deleted successfully');
+      onClose();
+      onSuccess();
+      if (onDelete) onDelete();
+    } catch (err) { toast.error(err.message); }
+    setDeleting(false);
   };
 
   return (
@@ -98,6 +113,12 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer }) => {
           </ModalBody>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            {isEditing && isSuperAdmin && (
+              <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
+                <Trash2 size={16} className="mr-1" />
+                {deleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            )}
             <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : isEditing ? 'Update Customer' : 'Save Customer'}</Button>
           </ModalFooter>
         </form>

@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react';
-import { Truck } from 'lucide-react';
+import { Truck, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { createTransporter, updateTransporter } from '../../../services/transporterService';
+import { createTransporter, updateTransporter, deleteTransporter } from '../../../services/transporterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
-const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter }) => {
+const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user, onDelete }) => {
   const [name, setName] = useState('');
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [driverPhoneNumber, setDriverPhoneNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const isEditing = !!editingTransporter;
+  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
 
   useEffect(() => {
     if (!isOpen) {
@@ -48,6 +50,19 @@ const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter }) =>
     setSubmitting(false);
   };
 
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete transporter "${editingTransporter?.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deleteTransporter(editingTransporter.transporter_id);
+      toast.success('Transporter deleted successfully');
+      onClose();
+      onSuccess();
+      if (onDelete) onDelete();
+    } catch (err) { toast.error(err.message); }
+    setDeleting(false);
+  };
+
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <ModalContent className="max-w-md">
@@ -77,6 +92,12 @@ const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter }) =>
           </ModalBody>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            {isEditing && isSuperAdmin && (
+              <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
+                <Trash2 size={16} className="mr-1" />
+                {deleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            )}
             <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : isEditing ? 'Update Transporter' : 'Save Transporter'}</Button>
           </ModalFooter>
         </form>

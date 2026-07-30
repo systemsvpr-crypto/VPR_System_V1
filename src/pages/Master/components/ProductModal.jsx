@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Package, X } from 'lucide-react';
+import { Package, X, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { createProduct, updateProduct } from '../../../services/masterService';
+import { createProduct, updateProduct, deleteProduct } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -10,14 +10,16 @@ import {
 } from '@/components/ui/Select';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
-const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduct }) => {
+const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduct, onDelete }) => {
   const [form, setForm] = useState({
     name: '', unit: 'pcs', product_type: '', allow_negative_stock: true,
     as_of_date: new Date().toISOString().split('T')[0], entries: [],
   });
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const isEditing = !!editingProduct;
+  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
 
   useEffect(() => {
     if (!isOpen) {
@@ -59,6 +61,19 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
       onSuccess();
     } catch (err) { toast.error(err.message); }
     setSubmitting(false);
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete product "${editingProduct?.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deleteProduct(editingProduct.product_id);
+      toast.success('Product deleted successfully');
+      onClose();
+      onSuccess();
+      if (onDelete) onDelete();
+    } catch (err) { toast.error(err.message); }
+    setDeleting(false);
   };
 
   const addEntry = () => {
@@ -153,6 +168,12 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
           </ModalBody>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            {isEditing && isSuperAdmin && (
+              <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
+                <Trash2 size={16} className="mr-1" />
+                {deleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            )}
             <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : (isEditing ? 'Update Product' : 'Save Product')}</Button>
           </ModalFooter>
         </form>

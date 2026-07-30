@@ -30,6 +30,14 @@ export const updateCustomer = async ({ customer_id, name, location, phone_number
   return data;
 };
 
+export const deleteCustomer = async (customer_id) => {
+  const { error } = await supabase
+    .from('customers')
+    .delete()
+    .eq('customer_id', customer_id);
+  if (error) throw error;
+};
+
 export const bulkImportCustomers = async (rows) => {
   const results = { successCount: 0, errorCount: 0, errors: [] };
   for (let i = 0; i < rows.length; i++) {

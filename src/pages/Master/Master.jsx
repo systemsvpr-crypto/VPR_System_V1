@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
-import { getAllGodowns, getAllProducts, getAllProductStock, toggleGodownStatus } from '../../services/masterService';
+import { getAllGodowns, getAllProducts, getAllProductStock, toggleGodownStatus, deleteGodown } from '../../services/masterService';
 import { getAllCustomers, bulkImportCustomers } from '../../services/customerService';
 import { getAllVendors, bulkImportVendors } from '../../services/vendorService';
 import { getAllTransporters, bulkImportTransporters } from '../../services/transporterService';
@@ -268,6 +268,15 @@ const Master = () => {
     } catch (err) { toast.error(err.message); }
   };
 
+  const handleDeleteGodown = async (godown) => {
+    if (!window.confirm(`Delete godown "${godown.name}"? This action cannot be undone.`)) return;
+    try {
+      await deleteGodown(godown.godown_id);
+      toast.success('Godown deleted');
+      loadData();
+    } catch (err) { toast.error(err.message); }
+  };
+
   return (
     <div className="flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
 
@@ -360,7 +369,7 @@ const Master = () => {
           )}
           {activeTab === 'godowns' && (
             <div className="flex flex-col">
-              <GodownTable godowns={currentGodowns} totalItems={filteredGodowns.length} loading={loading} onToggle={handleToggleGodown} searchTerm={searchTerm} />
+              <GodownTable godowns={currentGodowns} totalItems={filteredGodowns.length} loading={loading} onToggle={handleToggleGodown} searchTerm={searchTerm} user={user} onDelete={handleDeleteGodown} />
               {!loading && filteredGodowns.length > 0 && (
                 <Pagination currentPage={currentPage} totalPages={totalGodownPages} totalItems={filteredGodowns.length}
                   startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1} endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredGodowns.length)}
@@ -419,11 +428,11 @@ const Master = () => {
       <BulkImportModal isOpen={importModalOpen} onClose={() => setImportModalOpen(false)}
         user={user} onSuccess={loadData} />
       <CustomerModal isOpen={customerModalOpen} onClose={handleCloseCustomerModal}
-        onSuccess={loadData} editingCustomer={editingCustomer} />
+        onSuccess={loadData} editingCustomer={editingCustomer} user={user} />
       <VendorModal isOpen={vendorModalOpen} onClose={handleCloseVendorModal}
-        onSuccess={loadData} editingVendor={editingVendor} />
+        onSuccess={loadData} editingVendor={editingVendor} user={user} />
       <TransporterModal isOpen={transporterModalOpen} onClose={handleCloseTransporterModal}
-        onSuccess={loadData} editingTransporter={editingTransporter} />
+        onSuccess={loadData} editingTransporter={editingTransporter} user={user} />
       <GroupModal isOpen={groupModalOpen} onClose={handleCloseGroupModal}
         user={user} onSuccess={loadData} editingGroup={editingGroup} />
       {entityImportType && (

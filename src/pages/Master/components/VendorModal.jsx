@@ -1,20 +1,22 @@
 import { useState, useEffect } from 'react';
-import { Building2 } from 'lucide-react';
+import { Building2, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { createVendor, updateVendor } from '../../../services/vendorService';
+import { createVendor, updateVendor, deleteVendor } from '../../../services/vendorService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
-const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor }) => {
+const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor, user, onDelete }) => {
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
   const [gstNumber, setGstNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const isEditing = !!editingVendor;
+  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
 
   useEffect(() => {
     if (!isOpen) {
@@ -54,6 +56,19 @@ const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor }) => {
     setSubmitting(false);
   };
 
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete vendor "${editingVendor?.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deleteVendor(editingVendor.vendor_id);
+      toast.success('Vendor deleted successfully');
+      onClose();
+      onSuccess();
+      if (onDelete) onDelete();
+    } catch (err) { toast.error(err.message); }
+    setDeleting(false);
+  };
+
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <ModalContent className="max-w-lg">
@@ -91,6 +106,12 @@ const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor }) => {
           </ModalBody>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            {isEditing && isSuperAdmin && (
+              <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
+                <Trash2 size={16} className="mr-1" />
+                {deleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            )}
             <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : isEditing ? 'Update Vendor' : 'Save Vendor'}</Button>
           </ModalFooter>
         </form>

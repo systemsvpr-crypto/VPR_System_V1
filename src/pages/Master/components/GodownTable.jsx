@@ -1,6 +1,7 @@
-import { ToggleLeft, ToggleRight, Warehouse } from 'lucide-react';
+import { ToggleLeft, ToggleRight, Warehouse, Trash2 } from 'lucide-react';
 
-const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm }) => {
+const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user, onDelete }) => {
+  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
   if (loading) {
     return (
       <div className="p-12 text-center">
@@ -45,9 +46,16 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm }) => 
                   }
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary transition-colors">
-                    {g.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
-                  </button>
+                  <div className="flex items-center justify-end gap-2">
+                    <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary transition-colors">
+                      {g.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
+                    </button>
+                    {isSuperAdmin && (
+                      <button onClick={() => onDelete(g)} className="text-slate-300 hover:text-red-500 transition-colors" title="Delete Godown">
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
