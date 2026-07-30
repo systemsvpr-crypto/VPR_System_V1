@@ -97,7 +97,7 @@ const Purchase = () => {
   };
 
   const handleDeleteIndent = async (indent) => {
-    if (!window.confirm(`[DEV] Permanently delete indent "${indent.indent_number}"? This cannot be undone.`)) return;
+    if (!window.confirm(`Permanently delete indent "${indent.indent_number}"? This cannot be undone.`)) return;
     try {
       await deleteIndent(indent.indent_id);
       toast.success('Indent deleted');

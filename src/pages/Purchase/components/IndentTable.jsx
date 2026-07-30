@@ -2,8 +2,13 @@ import { useState } from 'react';
 import { ShoppingCart, Edit2, ChevronDown, Zap, ArrowRightLeft, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
+import useAuthStore from '../../../store/authStore';
 
 const IndentTable = ({ indents, totalItems, loading, onEdit, onDelete, searchTerm }) => {
+  const { user } = useAuthStore();
+  const roleUpper = String(user?.role || '').trim().toUpperCase();
+  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
+  const canDelete = import.meta.env.DEV || isSuperAdmin;
   const [expandedIndents, setExpandedIndents] = useState(new Set());
 
   const toggleExpand = (indentId) => {
@@ -97,9 +102,9 @@ const IndentTable = ({ indents, totalItems, loading, onEdit, onDelete, searchTer
                     className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
                     <Edit2 size={15} />
                   </Button>
-                  {import.meta.env.DEV && (
+                  {canDelete && (
                     <Button variant="ghost" size="icon" type="button" onClick={() => onDelete(o)}
-                      title="[DEV ONLY] Delete indent"
+                      title="Delete indent"
                       className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all">
                       <Trash2 size={15} />
                     </Button>
