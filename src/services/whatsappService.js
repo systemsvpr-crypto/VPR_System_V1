@@ -42,6 +42,6 @@ export const sendDispatchConfirmationWhatsapp = async ({ phone, customerName, or
   });
 };
 
-export const PREDEFINED_INDENT_PHONE_NUMBER ='919981175504';
+export const PREDEFINED_INDENT_PHONE_NUMBER ='918982185175';
 
 

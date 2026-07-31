@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, ClipboardList, Bell, CheckCircle, Mail, Truck } from 'lucide-react';
+import { Search, ShoppingCart, Plus, ClipboardList, Bell, CheckCircle, Mail, Truck, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllOrders, deleteOrder } from '../../services/salesService';
@@ -45,6 +45,8 @@ const Sales = () => {
   const [completeFilter, setCompleteFilter] = useState('pending');
   const [afterFilter, setAfterFilter] = useState('pending');
   const [skipFilter, setSkipFilter] = useState('pending');
+  const [godownFilter, setGodownFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
 
   const visibleTabs = useMemo(() => {
     const allowedTabs = user?.tab_access?.sales;
@@ -54,11 +56,16 @@ const Sales = () => {
 
   const filteredOrders = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    return orders.filter(o =>
-      o.order_number?.toLowerCase().includes(term) ||
-      o.customers?.name?.toLowerCase().includes(term)
-    );
-  }, [orders, searchTerm]);
+    return orders.filter(o => {
+      const matchSearch =
+        o.order_number?.toLowerCase().includes(term) ||
+        o.customers?.name?.toLowerCase().includes(term);
+      const matchGodown = !godownFilter ||
+        (o.sales_order_items || []).some(item => String(item.godown_id) === godownFilter);
+      const matchType = !typeFilter || o.process_type === typeFilter;
+      return matchSearch && matchGodown && matchType;
+    });
+  }, [orders, searchTerm, godownFilter, typeFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / ITEMS_PER_PAGE));
 
@@ -68,7 +75,7 @@ const Sales = () => {
   }, [filteredOrders, currentPage]);
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, completeFilter, afterFilter, skipFilter]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, completeFilter, afterFilter, skipFilter, godownFilter, typeFilter]);
 
   useEffect(() => {
     if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === activeTab)) {
@@ -91,6 +98,32 @@ const Sales = () => {
       setOrders([]);
     }
     setLoading(false);
+  };
+
+  const exportOrdersCSV = (data) => {
+    const rows = [
+      ['Order Date', 'Order No.', 'Customer', 'Type', 'Items', 'Total Amount', 'Created'],
+    ];
+    data.forEach(o => {
+      const items = o.sales_order_items || [];
+      rows.push([
+        new Date(o.order_date).toLocaleDateString('en-IN'),
+        o.order_number || '',
+        o.customers?.name || '',
+        o.process_type === 'skip_delivered' ? 'Skip' : 'Process',
+        items.length,
+        Number(o.total_amount).toFixed(2),
+        new Date(o.created_at).toLocaleDateString('en-IN'),
+      ]);
+    });
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleEditOrder = (order) => {
@@ -142,12 +175,38 @@ const Sales = () => {
       {activeTab === 'orders' && (
         <div className="flex flex-col gap-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-            <div className="relative w-full md:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
-              <Input type="text" placeholder="Search orders..." className="pl-9"
-                value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <div className="flex flex-wrap items-center gap-3 flex-1">
+              <div className="relative w-full md:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
+                <Input type="text" placeholder="Search orders..." className="pl-9"
+                  value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              </div>
+              <select
+                value={godownFilter}
+                onChange={e => setGodownFilter(e.target.value)}
+                className="h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px]"
+              >
+                <option value="">All Godowns</option>
+                {godowns.map(g => (
+                  <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
+                ))}
+              </select>
+              <select
+                value={typeFilter}
+                onChange={e => setTypeFilter(e.target.value)}
+                className="h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[130px]"
+              >
+                <option value="">All Types</option>
+                <option value="order_process">Process</option>
+                <option value="skip_delivered">Skip</option>
+              </select>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 shrink-0">
+              {!loading && filteredOrders.length > 0 && (
+                <Button variant="outline" onClick={() => exportOrdersCSV(filteredOrders)} className="gap-2 px-4 font-medium text-slate-600 border-slate-200 hover:bg-slate-50">
+                  <Download size={16} /><span>Export</span>
+                </Button>
+              )}
               {!loading && (
                 <Button onClick={() => { setEditingOrder(null); setModalOpen(true); }} className="gap-2 px-4 font-medium">
                   <Plus size={20} /><span>Add Order</span>

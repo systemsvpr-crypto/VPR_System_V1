@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, FileText, Users, BadgeCheck, Truck, Zap } from 'lucide-react';
+import { Search, ShoppingCart, Plus, FileText, Users, BadgeCheck, Truck, Zap, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllIndents, deleteIndent } from '../../services/purchaseService';
@@ -43,6 +43,8 @@ const Purchase = () => {
   const [editingIndent, setEditingIndent] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [godownFilter, setGodownFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
 
   const visibleTabs = useMemo(() => {
     const allowedTabs = user?.tab_access?.purchase;
@@ -52,11 +54,15 @@ const Purchase = () => {
 
   const filteredIndents = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    return indents.filter(o =>
-      o.indent_number?.toLowerCase().includes(term) ||
-      o.vendors?.name?.toLowerCase().includes(term)
-    );
-  }, [indents, searchTerm]);
+    return indents.filter(o => {
+      const matchSearch =
+        o.indent_number?.toLowerCase().includes(term) ||
+        o.vendors?.name?.toLowerCase().includes(term);
+      const matchGodown = !godownFilter || String(o.godown_id) === godownFilter;
+      const matchType = !typeFilter || o.process_type === typeFilter;
+      return matchSearch && matchGodown && matchType;
+    });
+  }, [indents, searchTerm, godownFilter, typeFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredIndents.length / ITEMS_PER_PAGE));
 
@@ -66,7 +72,7 @@ const Purchase = () => {
   }, [filteredIndents, currentPage]);
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter, typeFilter]);
 
   useEffect(() => {
     if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === activeTab)) {
@@ -112,6 +118,33 @@ const Purchase = () => {
     setEditingIndent(null);
   };
 
+  const exportIndentsCSV = (data) => {
+    const rows = [
+      ['Indent Date', 'Indent No.', 'Vendor', 'Godown', 'Type', 'Items', 'Total Amount', 'Created'],
+    ];
+    data.forEach(o => {
+      const items = o.purchase_indent_items || [];
+      rows.push([
+        new Date(o.indent_date).toLocaleDateString('en-IN'),
+        o.indent_number || '',
+        o.vendors?.name || '',
+        o.godowns?.name || '',
+        o.process_type === 'direct' ? 'Direct' : 'Process',
+        items.length,
+        Number(o.total_amount).toFixed(2),
+        new Date(o.created_at).toLocaleDateString('en-IN'),
+      ]);
+    });
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `indents_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="flex flex-col gap-6">
 
@@ -142,12 +175,38 @@ const Purchase = () => {
       {activeTab === 'indent' && (
         <div className="flex flex-col gap-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-            <div className="relative w-full md:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
-              <Input type="text" placeholder="Search indents..." className="pl-9"
-                value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <div className="flex flex-wrap items-center gap-3 flex-1">
+              <div className="relative w-full md:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
+                <Input type="text" placeholder="Search indents..." className="pl-9"
+                  value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              </div>
+              <select
+                value={godownFilter}
+                onChange={e => setGodownFilter(e.target.value)}
+                className="h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px]"
+              >
+                <option value="">All Godowns</option>
+                {godowns.map(g => (
+                  <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
+                ))}
+              </select>
+              <select
+                value={typeFilter}
+                onChange={e => setTypeFilter(e.target.value)}
+                className="h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[130px]"
+              >
+                <option value="">All Types</option>
+                <option value="direct">Direct</option>
+                <option value="process">Process</option>
+              </select>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 shrink-0">
+              {!loading && filteredIndents.length > 0 && (
+                <Button variant="outline" onClick={() => exportIndentsCSV(filteredIndents)} className="gap-2 px-4 font-medium text-slate-600 border-slate-200 hover:bg-slate-50">
+                  <Download size={16} /><span>Export</span>
+                </Button>
+              )}
               {!loading && (
                 <Button onClick={() => { setEditingIndent(null); setModalOpen(true); }} className="gap-2 px-4 font-medium">
                   <Plus size={20} /><span>Add Indent</span>
