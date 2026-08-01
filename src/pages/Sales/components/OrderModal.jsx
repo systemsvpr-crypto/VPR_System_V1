@@ -204,7 +204,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
               </div>
             </div>
           </ModalHeader>
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <ModalBody>
               <div className="grid grid-cols-3 gap-3">
                 <div>
@@ -241,7 +241,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                 {form.items.length === 0 && (
                   <p className="text-xs text-slate-400 italic mb-2">No products added yet.</p>
                 )}
-                <div className="space-y-3">
+                <div className="space-y-3 max-h-72 overflow-y-auto pr-1 border border-slate-200/80 rounded-xl p-3 bg-slate-50/50">
                   {form.items.map((item, i) => {
                     const itemLocked = isItemLocked(item.item_id);
                     return (
@@ -322,10 +322,14 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
       <BulkOrderProductsModal
         isOpen={bulkModalOpen}
         onClose={() => setBulkModalOpen(false)}
+        user={user}
         products={products}
         godowns={godowns}
         customers={customers}
-        onImportProducts={handleImportProducts}
+        onSuccess={() => {
+          if (onSuccess) onSuccess();
+          onClose();
+        }}
       />
     </>
   );

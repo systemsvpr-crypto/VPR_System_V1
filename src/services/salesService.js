@@ -24,6 +24,33 @@ export const generateNextOrderNumber = async () => {
   return `VPR/OR-${String(next).padStart(3, '0')}`;
 };
 
+export const generateMultipleOrderNumbers = async (count) => {
+  if (!count || count <= 0) return [];
+  const { data, error } = await supabase
+    .from('sales_orders')
+    .select('order_number')
+    .like('order_number', 'VPR/OR-%')
+    .order('order_number', { ascending: false })
+    .limit(1);
+
+  if (error) throw error;
+
+  let startNum = 1;
+  if (data && data.length > 0) {
+    const last = data[0].order_number;
+    const match = last.match(/VPR\/OR-(\d+)/);
+    if (match) {
+      startNum = parseInt(match[1], 10) + 1;
+    }
+  }
+
+  const numbers = [];
+  for (let i = 0; i < count; i++) {
+    numbers.push(`VPR/OR-${String(startNum + i).padStart(3, '0')}`);
+  }
+  return numbers;
+};
+
 export const getAllOrders = async () => {
   const { data: orders, error: ordersErr } = await supabase
     .from('sales_orders')

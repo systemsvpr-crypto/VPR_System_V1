@@ -27,6 +27,33 @@ export const generateNextIndentNumber = async () => {
   return `VPR/IN-${String(next).padStart(3, '0')}`;
 };
 
+export const generateMultipleIndentNumbers = async (count) => {
+  if (!count || count <= 0) return [];
+  const { data, error } = await supabase
+    .from('purchase_indents')
+    .select('indent_number')
+    .like('indent_number', 'VPR/IN-%')
+    .order('indent_number', { ascending: false })
+    .limit(1);
+
+  if (error) throw error;
+
+  let startNum = 1;
+  if (data && data.length > 0) {
+    const last = data[0].indent_number;
+    const match = last.match(/VPR\/IN-(\d+)/);
+    if (match) {
+      startNum = parseInt(match[1], 10) + 1;
+    }
+  }
+
+  const numbers = [];
+  for (let i = 0; i < count; i++) {
+    numbers.push(`VPR/IN-${String(startNum + i).padStart(3, '0')}`);
+  }
+  return numbers;
+};
+
 export const getAllIndents = async () => {
   const { data: indents, error: indentsErr } = await supabase
     .from('purchase_indents')

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, FileText, Users, BadgeCheck, Truck, Zap, Download } from 'lucide-react';
+import { Search, ShoppingCart, Plus, FileText, Users, BadgeCheck, Truck, Zap, Download, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllIndents, deleteIndent } from '../../services/purchaseService';
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import Pagination from '@/components/ui/pagination';
 import IndentTable from './components/IndentTable';
 import IndentModal from './components/IndentModal';
+import BulkIndentProductsModal from './components/BulkIndentProductsModal';
 import VendorSelectionTable from './components/VendorSelectionTable';
 import VendorApprovalTable from './components/VendorApprovalTable';
 import DeliveryTable from './components/DeliveryTable';
@@ -40,6 +41,7 @@ const Purchase = () => {
   const [transporters, setTransporters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
   const [editingIndent, setEditingIndent] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -208,9 +210,14 @@ const Purchase = () => {
                 </Button>
               )}
               {!loading && (
-                <Button onClick={() => { setEditingIndent(null); setModalOpen(true); }} className="gap-2 px-4 font-medium">
-                  <Plus size={20} /><span>Add Indent</span>
-                </Button>
+                <>
+                  <Button variant="outline" onClick={() => setBulkModalOpen(true)} className="gap-2 px-4 font-medium text-slate-700 border-slate-200 hover:bg-slate-50">
+                    <Upload size={18} /><span>Bulk Upload</span>
+                  </Button>
+                  <Button onClick={() => { setEditingIndent(null); setModalOpen(true); }} className="gap-2 px-4 font-medium">
+                    <Plus size={20} /><span>Add Indent</span>
+                  </Button>
+                </>
               )}
             </div>
           </div>
@@ -229,6 +236,16 @@ const Purchase = () => {
           <IndentModal isOpen={modalOpen} onClose={handleCloseModal}
             user={user} onSuccess={loadData} editingIndent={editingIndent}
             products={products} godowns={godowns} vendors={vendors} />
+
+          <BulkIndentProductsModal
+            isOpen={bulkModalOpen}
+            onClose={() => setBulkModalOpen(false)}
+            user={user}
+            products={products}
+            godowns={godowns}
+            vendors={vendors}
+            onSuccess={loadData}
+          />
         </div>
       )}
 

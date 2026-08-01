@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, ClipboardList, Bell, CheckCircle, Mail, Truck, Download } from 'lucide-react';
+import { Search, ShoppingCart, Plus, ClipboardList, Bell, CheckCircle, Mail, Truck, Download, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllOrders, deleteOrder } from '../../services/salesService';
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import Pagination from '@/components/ui/pagination';
 import OrderTable from './components/OrderTable';
 import OrderModal from './components/OrderModal';
+import BulkOrderProductsModal from './components/BulkOrderProductsModal';
 import DispatchPlanningTable from './components/DispatchPlanningTable';
 import DispatchCompletedTable from './components/DispatchCompletedTable';
 import InformAfterDispatchTable from './components/InformAfterDispatchTable';
@@ -38,6 +39,7 @@ const Sales = () => {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -208,9 +210,14 @@ const Sales = () => {
                 </Button>
               )}
               {!loading && (
-                <Button onClick={() => { setEditingOrder(null); setModalOpen(true); }} className="gap-2 px-4 font-medium">
-                  <Plus size={20} /><span>Add Order</span>
-                </Button>
+                <>
+                  <Button variant="outline" onClick={() => setBulkModalOpen(true)} className="gap-2 px-4 font-medium text-slate-700 border-slate-200 hover:bg-slate-50">
+                    <Upload size={18} /><span>Bulk Upload</span>
+                  </Button>
+                  <Button onClick={() => { setEditingOrder(null); setModalOpen(true); }} className="gap-2 px-4 font-medium">
+                    <Plus size={20} /><span>Add Order</span>
+                  </Button>
+                </>
               )}
             </div>
           </div>
@@ -229,6 +236,16 @@ const Sales = () => {
           <OrderModal isOpen={modalOpen} onClose={handleCloseModal}
             user={user} onSuccess={loadData} editingOrder={editingOrder}
             products={products} godowns={godowns} customers={customers} />
+
+          <BulkOrderProductsModal
+            isOpen={bulkModalOpen}
+            onClose={() => setBulkModalOpen(false)}
+            user={user}
+            products={products}
+            godowns={godowns}
+            customers={customers}
+            onSuccess={loadData}
+          />
         </div>
       )}
 

@@ -1,20 +1,18 @@
 import { useState, useRef, useMemo } from 'react';
-import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Layers } from 'lucide-react';
+import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Layers, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { createIndent, generateMultipleIndentNumbers } from '../../../services/purchaseService';
 
 const COLUMN_ALIASES = {
-  'Indent Date': ['indent date', 'indentdate', 'date', 'indent_date'],
-  'Indent Number': ['indent number', 'indentnumber', 'indent no', 'indent no.', 'indent_no', 'indent_number'],
+  'Indent Date': ['indent date', 'indentdate', 'date', 'indent_date', 'order date', 'orderdate', 'order_date'],
   'Godown Name': ['godown name', 'godown', 'godownname', 'warehouse', 'warehouse name', 'location', 'godown_name'],
   'Vendor Name': ['vendor name', 'vendorname', 'vendor', 'supplier', 'supplier name', 'party name', 'party', 'vendor_name'],
   'Remarks': ['remarks', 'remark', 'notes', 'note', 'description'],
-  'Process Type': ['process type', 'processtype', 'type', 'indent type', 'process_type'],
   'Product Name': ['product name', 'product', 'productname', 'item name', 'item', 'itemname', 'product_name'],
   'Quantity': ['quantity', 'qty', 'qnty', 'count', 'amount', 'units'],
   'Rate': ['rate', 'unit rate', 'unit price', 'unitprice', 'price', 'cost', 'unit cost', 'amount/unit'],
@@ -27,6 +25,11 @@ const normalizeHeader = (header) => {
     if (aliases.includes(h)) return standard;
   }
   return String(header).trim();
+};
+
+const getTodayLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
 const parseExcelDate = (val) => {
@@ -58,22 +61,12 @@ const parseExcelDate = (val) => {
   return '';
 };
 
-const BulkIndentProductsModal = ({ isOpen, onClose, products = [], godowns = [], vendors = [], onImportProducts }) => {
+const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns = [], vendors = [], onImportProducts, onSuccess }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [fileName, setFileName] = useState('');
-  const [headerData, setHeaderData] = useState({
-    indent_date: '',
-    indent_number: '',
-    godown_id: '',
-    vendor_id: '',
-    remarks: '',
-    process_type: 'process',
-    rawGodownName: '',
-    rawVendorName: '',
-  });
   const [rawRows, setRawRows] = useState([]);
-  const [importMode, setImportMode] = useState('append'); // 'append' | 'replace'
+  const [submitting, setSubmitting] = useState(false);
 
   const activeGodowns = useMemo(() => godowns.filter(g => g.is_active), [godowns]);
 
@@ -92,18 +85,8 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], godowns = [],
   const reset = () => {
     setStep('upload');
     setFileName('');
-    setHeaderData({
-      indent_date: '',
-      indent_number: '',
-      godown_id: '',
-      vendor_id: '',
-      remarks: '',
-      process_type: 'process',
-      rawGodownName: '',
-      rawVendorName: '',
-    });
     setRawRows([]);
-    setImportMode('append');
+    setSubmitting(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -150,66 +133,41 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], godowns = [],
           return;
         }
 
-        // Header detection
         const indentDateKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Indent Date');
-        const indentNumKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Indent Number');
         const godownKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Godown Name');
         const vendorKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Vendor Name');
         const remarksKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Remarks');
-        const processTypeKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Process Type');
 
-        let rawIndentDate = '';
-        let rawIndentNumber = '';
-        let rawGodownName = '';
-        let rawVendorName = '';
-        let rawRemarks = '';
-        let rawProcessType = '';
-
-        for (const r of json) {
-          if (!rawIndentDate && indentDateKey && r[indentDateKey]) rawIndentDate = r[indentDateKey];
-          if (!rawIndentNumber && indentNumKey && r[indentNumKey]) rawIndentNumber = String(r[indentNumKey]).trim();
-          if (!rawGodownName && godownKey && r[godownKey]) rawGodownName = String(r[godownKey]).trim();
-          if (!rawVendorName && vendorKey && r[vendorKey]) rawVendorName = String(r[vendorKey]).trim();
-          if (!rawRemarks && remarksKey && r[remarksKey]) rawRemarks = String(r[remarksKey]).trim();
-          if (!rawProcessType && processTypeKey && r[processTypeKey]) rawProcessType = String(r[processTypeKey]).trim();
-        }
-
-        const parsedIndentDate = parseExcelDate(rawIndentDate);
-        const matchedGodown = activeGodowns.find(g => g.name.trim().toLowerCase() === rawGodownName.toLowerCase());
-        const matchedVendor = vendors.find(v => v.name.trim().toLowerCase() === rawVendorName.toLowerCase());
-        let parsedProcessType = 'process';
-        if (rawProcessType) {
-          const pLower = rawProcessType.toLowerCase();
-          if (pLower.includes('direct')) parsedProcessType = 'direct';
-        }
-
-        setHeaderData({
-          indent_date: parsedIndentDate,
-          indent_number: rawIndentNumber,
-          godown_id: matchedGodown ? matchedGodown.godown_id : '',
-          vendor_id: matchedVendor ? matchedVendor.vendor_id : '',
-          remarks: rawRemarks,
-          process_type: parsedProcessType,
-          rawGodownName,
-          rawVendorName,
-        });
-
+        const defaultDate = getTodayLocal();
         const parsedRows = json.map((row, idx) => {
           const rawProd = String(row[productKey] || '').trim();
           const rawQty = Number(row[qtyKey]) || 0;
           const rawRate = rateKey && row[rateKey] !== '' ? String(row[rateKey]) : '';
+          const rawVendor = vendorKey ? String(row[vendorKey] || '').trim() : '';
+          const rawGodown = godownKey ? String(row[godownKey] || '').trim() : '';
+          const rawDate = indentDateKey ? String(row[indentDateKey] || '').trim() : '';
+          const rawRemarks = remarksKey ? String(row[remarksKey] || '').trim() : '';
 
-          // Find product match
+          const parsedDate = parseExcelDate(rawDate) || defaultDate;
           const matchedProd = products.find(p => p.name.trim().toLowerCase() === rawProd.toLowerCase());
+          const matchedVendor = vendors.find(v => v.name.trim().toLowerCase() === rawVendor.toLowerCase());
+          const matchedGodown = activeGodowns.find(g => g.name.trim().toLowerCase() === rawGodown.toLowerCase());
 
           return {
             id: idx,
+            indent_date: parsedDate,
+            rawVendorName: rawVendor,
+            vendor_id: matchedVendor ? matchedVendor.vendor_id : (vendors[0]?.vendor_id || ''),
+            rawGodownName: rawGodown,
+            godown_id: matchedGodown ? matchedGodown.godown_id : (activeGodowns[0]?.godown_id || ''),
             rawProductName: rawProd,
             product_id: matchedProd ? matchedProd.product_id : '',
             rate: rawRate,
             quantity: rawQty > 0 ? String(rawQty) : '1',
+            process_type: 'process',
+            remarks: rawRemarks,
           };
-        }).filter(r => r.rawProductName);
+        }).filter(r => r.rawProductName || r.product_id);
 
         if (parsedRows.length === 0) {
           toast.error('No valid product rows found in the uploaded document.');
@@ -241,63 +199,131 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], godowns = [],
     setRawRows(updated);
   };
 
-  const handleConfirmImport = () => {
-    const invalidCount = rawRows.filter(r => !r.product_id || !Number(r.quantity)).length;
+  const handleRemoveRow = (index) => {
+    const updated = rawRows.filter((_, i) => i !== index);
+    setRawRows(updated);
+  };
+
+  // Group rows by unique (Date, Vendor) combination
+  const groupedOrders = useMemo(() => {
+    const groups = {};
+    rawRows.forEach((row, idx) => {
+      const vendorKey = row.vendor_id || row.rawVendorName || 'unassigned';
+      const key = `${row.indent_date}_${vendorKey}`;
+      if (!groups[key]) {
+        const vendorObj = vendors.find(v => v.vendor_id === row.vendor_id);
+        groups[key] = {
+          key,
+          indent_date: row.indent_date,
+          vendor_id: row.vendor_id,
+          vendor_name: vendorObj ? vendorObj.name : (row.rawVendorName || 'Unknown Vendor'),
+          godown_id: row.godown_id,
+          process_type: 'process',
+          remarks: row.remarks || '',
+          items: [],
+        };
+      }
+      groups[key].items.push({ ...row, originalIndex: idx });
+    });
+    return Object.values(groups);
+  }, [rawRows, vendors]);
+
+  const handleGroupHeaderChange = (groupKey, field, value) => {
+    const updated = rawRows.map(row => {
+      const vKey = row.vendor_id || row.rawVendorName || 'unassigned';
+      const k = `${row.indent_date}_${vKey}`;
+      if (k === groupKey) {
+        return { ...row, [field]: value };
+      }
+      return row;
+    });
+    setRawRows(updated);
+  };
+
+  const handleConfirmImport = async () => {
+    const invalidCount = rawRows.filter(r => !r.product_id || !r.vendor_id || !r.godown_id || !Number(r.quantity)).length;
     if (invalidCount > 0) {
-      toast.error(`Please select a valid product for all rows (${invalidCount} incomplete).`);
+      toast.error(`Please select a valid product, vendor, and godown for all rows (${invalidCount} incomplete).`);
       return;
     }
 
-    const itemsToImport = rawRows.map(r => ({
-      product_id: r.product_id,
-      rate: r.rate || '0',
-      quantity: r.quantity || '1',
-    }));
+    setSubmitting(true);
+    try {
 
-    onImportProducts({
-      header: headerData,
-      items: itemsToImport,
-    }, importMode);
+      // Automatically create indents for each (Date, Vendor) group with system-generated order numbers
+      const generatedNumbers = await generateMultipleIndentNumbers(groupedOrders.length);
 
-    toast.success(`Successfully imported indent data with ${itemsToImport.length} product(s)!`);
-    handleClose();
+      for (let i = 0; i < groupedOrders.length; i++) {
+        const grp = groupedOrders[i];
+        const autoIndentNumber = generatedNumbers[i];
+
+        await createIndent({
+          indent_date: grp.indent_date,
+          indent_number: autoIndentNumber,
+          godown_id: grp.godown_id,
+          vendor_id: grp.vendor_id,
+          remarks: grp.remarks,
+          items: grp.items.map(item => ({
+            product_id: item.product_id,
+            quantity: item.quantity,
+            rate: item.rate,
+          })),
+          created_by: user?.user_id,
+          process_type: 'process',
+        });
+      }
+
+      toast.success(`Successfully generated and created ${groupedOrders.length} order(s) with ${rawRows.length} item(s)!`);
+      if (onSuccess) onSuccess();
+      handleClose();
+    } catch (err) {
+      toast.error('Failed to create orders: ' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleExportHeaderOnly = () => {
-    const ws = XLSX.utils.aoa_to_sheet([['Indent Date', 'Indent Number', 'Godown Name', 'Vendor Name', 'Process Type', 'Remarks', 'Product Name', 'Quantity', 'Rate']]);
+    const ws = XLSX.utils.aoa_to_sheet([['Indent Date', 'Vendor Name', 'Godown Name', 'Remarks', 'Product Name', 'Quantity', 'Rate']]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Format_Headers');
     XLSX.writeFile(wb, 'Indent_Bulk_Import_Headers_Only.csv');
   };
 
   const handleDownloadTemplate = () => {
-    const sampleVendor = vendors[0]?.name || 'Reliable Traders';
+    const sampleVendor1 = vendors[0]?.name || 'Reliable Traders';
+    const sampleVendor2 = vendors[1]?.name || vendors[0]?.name || 'Apex Distributors';
     const sampleGodown = activeGodowns[0]?.name || 'Main Godown';
     const sampleProduct1 = products[0]?.name || 'Cement Grade A';
     const sampleProduct2 = products[1]?.name || 'Steel Rods 10mm';
 
     const ws = XLSX.utils.json_to_sheet([
       {
-        'Indent Date': '2026-07-30',
-        'Indent Number': 'VPR/IN-001',
+        'Indent Date': getTodayLocal(),
+        'Vendor Name': sampleVendor1,
         'Godown Name': sampleGodown,
-        'Vendor Name': sampleVendor,
-        'Process Type': 'Process',
         'Remarks': 'Urgent purchase',
         'Product Name': sampleProduct1,
         'Quantity': 100,
         'Rate': 320
       },
       {
-        'Indent Date': '2026-07-30',
-        'Indent Number': 'VPR/IN-001',
+        'Indent Date': getTodayLocal(),
+        'Vendor Name': sampleVendor1,
         'Godown Name': sampleGodown,
-        'Vendor Name': sampleVendor,
-        'Process Type': 'Process',
         'Remarks': 'Urgent purchase',
         'Product Name': sampleProduct2,
         'Quantity': 250,
         'Rate': 600
+      },
+      {
+        'Indent Date': getTodayLocal(),
+        'Vendor Name': sampleVendor2,
+        'Godown Name': sampleGodown,
+        'Remarks': 'Regular supply',
+        'Product Name': sampleProduct1,
+        'Quantity': 50,
+        'Rate': 315
       }
     ]);
     const wb = XLSX.utils.book_new();
@@ -306,20 +332,20 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], godowns = [],
   };
 
   const validRowsCount = useMemo(() => {
-    return rawRows.filter(r => r.product_id && Number(r.quantity) > 0).length;
+    return rawRows.filter(r => r.product_id && r.vendor_id && r.godown_id && Number(r.quantity) > 0).length;
   }, [rawRows]);
 
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
-      <ModalContent className="max-w-3xl">
+      <ModalContent className="max-w-4xl">
         <ModalHeader>
           <div className="flex items-center gap-3">
             <div className="bg-primary/10 p-2 rounded-lg">
               <FileSpreadsheet size={20} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-800">Bulk Upload Indent</h2>
-              <p className="text-xs text-slate-500">Import complete indent details and products via Excel or CSV file</p>
+              <h2 className="text-xl font-bold text-slate-800">Bulk Upload Indent / Orders</h2>
+              <p className="text-xs text-slate-500">Import orders via Excel or CSV. Order numbers will be auto-generated for each unique date & vendor.</p>
             </div>
           </div>
         </ModalHeader>
@@ -334,7 +360,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], godowns = [],
                       <FileText size={16} />
                     </div>
                     <span className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
-                      <Info size={15} className="text-primary" /> Required Document Guidelines & Format
+                      <Info size={15} className="text-primary" /> Document Format & Auto Order-Number Guidelines
                     </span>
                   </div>
                   <button
@@ -344,6 +370,11 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], godowns = [],
                   >
                     <Download size={13} /> Export Format (Headers Only)
                   </button>
+                </div>
+                <div className="mt-2 text-xs text-slate-600 space-y-1 pl-8">
+                  <p>• <strong>Order Numbers are auto-generated:</strong> Do not include Order/Indent Number in your file.</p>
+                  <p>• <strong>Process Type is auto-set to Process:</strong> Do not include Process Type in your file.</p>
+                  <p>• <strong>Grouping Logic:</strong> Rows with the <em>same Indent Date and Vendor Name</em> will be assigned the <strong>same auto-generated order number</strong>.</p>
                 </div>
               </div>
 
@@ -386,14 +417,14 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], godowns = [],
 
         {step === 'preview' && (
           <>
-            <ModalBody className="space-y-4">
+            <ModalBody className="space-y-4 max-h-[70vh] overflow-y-auto">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <div>
                   <p className="text-sm text-slate-700">
                     Document: <span className="font-semibold text-slate-800">{fileName}</span>
                   </p>
                   <p className="text-xs text-slate-500">
-                    Found <span className="font-semibold text-slate-700">{rawRows.length}</span> items ({validRowsCount} fully matched)
+                    Detected <span className="font-semibold text-slate-800">{groupedOrders.length} Order Group(s)</span> across <span className="font-semibold text-slate-800">{rawRows.length} item(s)</span> ({validRowsCount} fully matched)
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -407,173 +438,139 @@ const BulkIndentProductsModal = ({ isOpen, onClose, products = [], godowns = [],
                 </div>
               </div>
 
-              {/* Indent Header Fields Preview Card */}
-              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers size={14} className="text-primary" /> Indent Header Information
-                  </span>
-                  {(headerData.rawVendorName && !headerData.vendor_id || headerData.rawGodownName && !headerData.godown_id) && (
-                    <span className="text-[11px] text-amber-600 font-medium bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
-                      Some header fields not matched. Please select below.
-                    </span>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                  <div>
-                    <label className="block text-slate-500 font-medium mb-1">Indent Date</label>
-                    <DatePicker
-                      value={headerData.indent_date}
-                      onChange={(e) => setHeaderData(prev => ({ ...prev, indent_date: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-500 font-medium mb-1">Indent Number</label>
-                    <Input
-                      value={headerData.indent_number}
-                      onChange={(e) => setHeaderData(prev => ({ ...prev, indent_number: e.target.value }))}
-                      placeholder="e.g. VPR/IN-001"
-                      className="h-8 text-xs bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-500 font-medium mb-1">Godown</label>
-                    <Dropdown
-                      value={headerData.godown_id}
-                      onValueChange={(val) => setHeaderData(prev => ({ ...prev, godown_id: val }))}
-                      options={godownOptions}
-                      placeholder={headerData.rawGodownName ? `Match "${headerData.rawGodownName}"...` : "Select godown..."}
-                      searchPlaceholder="Search godowns..."
-                      align="start"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-500 font-medium mb-1">Vendor</label>
-                    <Dropdown
-                      value={headerData.vendor_id}
-                      onValueChange={(val) => setHeaderData(prev => ({ ...prev, vendor_id: val }))}
-                      options={vendorOptions}
-                      placeholder={headerData.rawVendorName ? `Match "${headerData.rawVendorName}"...` : "Select vendor..."}
-                      searchPlaceholder="Search vendors..."
-                      align="start"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-500 font-medium mb-1">Process Type</label>
-                    <Dropdown
-                      value={headerData.process_type}
-                      onValueChange={(val) => setHeaderData(prev => ({ ...prev, process_type: val }))}
-                      options={[
-                        { value: 'process', label: 'Process' },
-                        { value: 'direct', label: 'Direct' },
-                      ]}
-                      align="start"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-500 font-medium mb-1">Remarks</label>
-                    <Input
-                      value={headerData.remarks}
-                      onChange={(e) => setHeaderData(prev => ({ ...prev, remarks: e.target.value }))}
-                      placeholder="Optional remarks..."
-                      className="h-8 text-xs bg-white"
-                    />
-                  </div>
-                </div>
-              </div>
+              {/* Grouped Orders Preview */}
+              <div className="space-y-4">
+                {groupedOrders.map((group, gIdx) => (
+                  <div key={group.key} className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="bg-primary/10 text-primary font-bold text-xs px-2.5 py-1 rounded-md flex items-center gap-1">
+                          <Layers size={13} /> Order Group #{gIdx + 1}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-600">
+                          System Order No: <span className="text-primary font-mono italic">VPR/IN-AUTO-{String(gIdx + 1).padStart(2, '0')}</span>
+                        </span>
+                        <span className="bg-slate-200/70 text-slate-700 text-[11px] font-semibold px-2 py-0.5 rounded">
+                          Process
+                        </span>
+                      </div>
+                      <span className="text-xs text-slate-500 font-medium">
+                        {group.items.length} product(s) in this order
+                      </span>
+                    </div>
 
-              {/* Import Mode Toggle */}
-              <div className="flex items-center gap-4 text-xs font-medium bg-white p-2.5 rounded-lg border border-slate-200">
-                <span className="text-slate-500">Import Mode:</span>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="importMode"
-                    value="append"
-                    checked={importMode === 'append'}
-                    onChange={() => setImportMode('append')}
-                    className="text-primary focus:ring-primary"
-                  />
-                  <span>Append to existing products</span>
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="importMode"
-                    value="replace"
-                    checked={importMode === 'replace'}
-                    onChange={() => setImportMode('replace')}
-                    className="text-primary focus:ring-primary"
-                  />
-                  <span>Replace existing products</span>
-                </label>
-              </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1">Order Date</label>
+                        <DatePicker
+                          value={group.indent_date}
+                          onChange={(e) => handleGroupHeaderChange(group.key, 'indent_date', e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1">Vendor <span className="text-red-500">*</span></label>
+                        <Dropdown
+                          value={group.vendor_id}
+                          onValueChange={(val) => handleGroupHeaderChange(group.key, 'vendor_id', val)}
+                          options={vendorOptions}
+                          placeholder={group.vendor_name ? `Match "${group.vendor_name}"...` : "Select vendor..."}
+                          searchPlaceholder="Search vendors..."
+                          align="start"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1">Godown <span className="text-red-500">*</span></label>
+                        <Dropdown
+                          value={group.godown_id}
+                          onValueChange={(val) => handleGroupHeaderChange(group.key, 'godown_id', val)}
+                          options={godownOptions}
+                          placeholder="Select godown..."
+                          searchPlaceholder="Search godowns..."
+                          align="start"
+                        />
+                      </div>
+                    </div>
 
-              {/* Parsed Items Table */}
-              <div className="border border-slate-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-100 border-b border-slate-200 sticky top-0 z-10 font-semibold text-slate-700">
-                    <tr>
-                      <th className="px-3 py-2">#</th>
-                      <th className="px-3 py-2 w-6/12">Product <span className="text-red-500">*</span></th>
-                      <th className="px-3 py-2 w-3/12">Rate</th>
-                      <th className="px-3 py-2 w-3/12 text-right">Qty <span className="text-red-500">*</span></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {rawRows.map((row, i) => {
-                      const isMatched = !!row.product_id;
-                      return (
-                        <tr key={i} className={isMatched ? 'hover:bg-slate-50' : 'bg-amber-50/40 hover:bg-amber-50/70'}>
-                          <td className="px-3 py-2 text-slate-400 font-mono">{i + 1}</td>
-                          <td className="px-3 py-2">
-                            <Dropdown
-                              value={row.product_id}
-                              onValueChange={(val) => handleUpdateRow(i, 'product_id', val)}
-                              options={productOptions}
-                              placeholder={row.rawProductName ? `Match "${row.rawProductName}"...` : "Select product..."}
-                              searchPlaceholder="Search products..."
-                              align="start"
-                            />
-                            {!row.product_id && row.rawProductName && (
-                              <span className="text-[10px] text-amber-600 font-medium block mt-0.5">
-                                File value: "{row.rawProductName}" (Not matched)
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2">
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={row.rate}
-                              onChange={(e) => handleUpdateRow(i, 'rate', e.target.value)}
-                              placeholder="0.00"
-                              className="w-full h-8 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <input
-                              type="number"
-                              step="1"
-                              min="1"
-                              value={row.quantity}
-                              onChange={(e) => handleUpdateRow(i, 'quantity', e.target.value.replace(/\D/g, ''))}
-                              placeholder="1"
-                              className="w-20 h-8 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary bg-white"
-                            />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                    {/* Products Table for this group */}
+                    <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-slate-100 border-b border-slate-200 font-semibold text-slate-700">
+                          <tr>
+                            <th className="px-3 py-1.5">#</th>
+                            <th className="px-3 py-1.5 w-6/12">Product <span className="text-red-500">*</span></th>
+                            <th className="px-3 py-1.5 w-3/12">Rate</th>
+                            <th className="px-3 py-1.5 w-2/12 text-right">Qty <span className="text-red-500">*</span></th>
+                            <th className="px-2 py-1.5 text-center w-1/12"></th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {group.items.map((row, i) => {
+                            const origIdx = row.originalIndex;
+                            const isMatched = !!row.product_id;
+                            return (
+                              <tr key={origIdx} className={isMatched ? 'hover:bg-slate-50' : 'bg-amber-50/40 hover:bg-amber-50/70'}>
+                                <td className="px-3 py-1.5 text-slate-400 font-mono">{i + 1}</td>
+                                <td className="px-3 py-1.5">
+                                  <Dropdown
+                                    value={row.product_id}
+                                    onValueChange={(val) => handleUpdateRow(origIdx, 'product_id', val)}
+                                    options={productOptions}
+                                    placeholder={row.rawProductName ? `Match "${row.rawProductName}"...` : "Select product..."}
+                                    searchPlaceholder="Search products..."
+                                    align="start"
+                                  />
+                                  {!row.product_id && row.rawProductName && (
+                                    <span className="text-[10px] text-amber-600 font-medium block mt-0.5">
+                                      File value: "{row.rawProductName}" (Not matched)
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-1.5">
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={row.rate}
+                                    onChange={(e) => handleUpdateRow(origIdx, 'rate', e.target.value)}
+                                    placeholder="0.00"
+                                    className="w-full h-7 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
+                                  />
+                                </td>
+                                <td className="px-3 py-1.5 text-right">
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min="1"
+                                    value={row.quantity}
+                                    onChange={(e) => handleUpdateRow(origIdx, 'quantity', e.target.value.replace(/\D/g, ''))}
+                                    placeholder="1"
+                                    className="w-20 h-7 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary bg-white"
+                                  />
+                                </td>
+                                <td className="px-2 py-1.5 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveRow(origIdx)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
+                                    title="Remove row"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
               </div>
             </ModalBody>
             <ModalFooter>
               <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button type="button" onClick={handleConfirmImport} disabled={validRowsCount === 0}>
-                Import Indent ({rawRows.length} Products)
+              <Button type="button" onClick={handleConfirmImport} disabled={validRowsCount === 0 || submitting}>
+                {submitting ? 'Generating Orders...' : `Import & Create ${groupedOrders.length} Order(s)`}
               </Button>
             </ModalFooter>
           </>

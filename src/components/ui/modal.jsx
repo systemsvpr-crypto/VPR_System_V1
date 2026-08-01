@@ -29,13 +29,13 @@ const ModalContent = React.forwardRef(({ className, children, ...props }, ref) =
       ref={ref}
       aria-describedby={undefined}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl border border-slate-200 p-0 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+        "fixed left-1/2 top-1/2 z-50 w-full max-h-[90vh] flex flex-col -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl border border-slate-200 p-0 overflow-hidden duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
         className
       )}
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors z-10">
         <X size={18} />
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
@@ -44,19 +44,19 @@ const ModalContent = React.forwardRef(({ className, children, ...props }, ref) =
 ModalContent.displayName = "ModalContent"
 
 const ModalHeader = ({ className, children, ...props }) => (
-  <div className={cn("px-6 py-5 border-b border-slate-100 flex items-center gap-3", className)} {...props}>
+  <div className={cn("px-6 py-4 border-b border-slate-100 flex items-center gap-3 shrink-0 bg-white", className)} {...props}>
     {children}
   </div>
 )
 
 const ModalBody = ({ className, children, ...props }) => (
-  <div className={cn("px-6 py-5 space-y-4", className)} {...props}>
+  <div className={cn("px-6 py-5 space-y-4 flex-1 overflow-y-auto min-h-0", className)} {...props}>
     {children}
   </div>
 )
 
 const ModalFooter = ({ className, children, ...props }) => (
-  <div className={cn("px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-3", className)} {...props}>
+  <div className={cn("px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-3 shrink-0 bg-white", className)} {...props}>
     {children}
   </div>
 )
