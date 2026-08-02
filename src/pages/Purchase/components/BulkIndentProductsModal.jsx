@@ -204,12 +204,13 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
     setRawRows(updated);
   };
 
-  // Group rows by unique (Date, Vendor) combination
+  // Group rows by unique (Date, Vendor, Product) combination
   const groupedOrders = useMemo(() => {
     const groups = {};
     rawRows.forEach((row, idx) => {
       const vendorKey = row.vendor_id || row.rawVendorName || 'unassigned';
-      const key = `${row.indent_date}_${vendorKey}`;
+      const prodKey = row.product_id || row.rawProductName || 'unassigned';
+      const key = `${row.indent_date}_${vendorKey}_${prodKey}`;
       if (!groups[key]) {
         const vendorObj = vendors.find(v => v.vendor_id === row.vendor_id);
         groups[key] = {
@@ -231,7 +232,8 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
   const handleGroupHeaderChange = (groupKey, field, value) => {
     const updated = rawRows.map(row => {
       const vKey = row.vendor_id || row.rawVendorName || 'unassigned';
-      const k = `${row.indent_date}_${vKey}`;
+      const pKey = row.product_id || row.rawProductName || 'unassigned';
+      const k = `${row.indent_date}_${vKey}_${pKey}`;
       if (k === groupKey) {
         return { ...row, [field]: value };
       }
@@ -250,7 +252,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
     setSubmitting(true);
     try {
 
-      // Automatically create indents for each (Date, Vendor) group with system-generated order numbers
+      // Automatically create indents for each (Date, Vendor, Product) group with system-generated order numbers
       const generatedNumbers = await generateMultipleIndentNumbers(groupedOrders.length);
 
       for (let i = 0; i < groupedOrders.length; i++) {
@@ -345,7 +347,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
             </div>
             <div>
               <h2 className="text-xl font-bold text-slate-800">Bulk Upload Indent / Orders</h2>
-              <p className="text-xs text-slate-500">Import orders via Excel or CSV. Order numbers will be auto-generated for each unique date & vendor.</p>
+              <p className="text-xs text-slate-500">Import orders via Excel or CSV. Order numbers will be auto-generated for each unique date, vendor & product.</p>
             </div>
           </div>
         </ModalHeader>
@@ -374,7 +376,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                 <div className="mt-2 text-xs text-slate-600 space-y-1 pl-8">
                   <p>• <strong>Order Numbers are auto-generated:</strong> Do not include Order/Indent Number in your file.</p>
                   <p>• <strong>Process Type is auto-set to Process:</strong> Do not include Process Type in your file.</p>
-                  <p>• <strong>Grouping Logic:</strong> Rows with the <em>same Indent Date and Vendor Name</em> will be assigned the <strong>same auto-generated order number</strong>.</p>
+                  <p>• <strong>Grouping Logic:</strong> Rows with the <em>same Indent Date, Vendor Name, and Product Name</em> will be assigned the <strong>same auto-generated order number</strong>.</p>
                 </div>
               </div>
 
