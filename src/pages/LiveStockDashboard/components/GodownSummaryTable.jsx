@@ -1,15 +1,6 @@
-import { Warehouse } from 'lucide-react';
-
 const formatNum = (n) => Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
 const GodownSummaryTable = ({ godowns, totals }) => (
-  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-center gap-3">
-      <div className="bg-primary/10 p-2 rounded-lg">
-        <Warehouse size={18} className="text-primary" />
-      </div>
-      <h3 className="font-semibold text-slate-800 text-lg">Godown Summary</h3>
-    </div>
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
@@ -41,7 +32,6 @@ const GodownSummaryTable = ({ godowns, totals }) => (
         </tbody>
       </table>
     </div>
-  </div>
 );
 
 export default GodownSummaryTable;

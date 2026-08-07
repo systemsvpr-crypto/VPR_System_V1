@@ -90,7 +90,7 @@ export const getGodownSummary = async (date, signal) => {
 };
 
 export const getDashboardData = async (date, signal, options = {}) => {
-  const { page = 1, pageSize = 10, search } = options;
+  const { page = 1, pageSize = 10, search, all = false } = options;
 
   const prevDate = new Date(date);
   prevDate.setDate(prevDate.getDate() - 1);
@@ -105,7 +105,7 @@ export const getDashboardData = async (date, signal, options = {}) => {
 
   if (search) {
     productsQuery = productsQuery.ilike('name', `%${search}%`);
-  } else {
+  } else if (!all) {
     productsQuery = productsQuery.range((page - 1) * pageSize, page * pageSize - 1);
   }
 
@@ -240,6 +240,10 @@ export const getDashboardData = async (date, signal, options = {}) => {
       productId: product.product_id,
       productName: product.name,
       unit: product.unit,
+      category: product.category || '',
+      brandName: product.brand_name || '',
+      productType: product.product_type || '',
+      mux: product.mux || '',
       godowns: godownRows,
       totals: {
         opening: totalOpening,

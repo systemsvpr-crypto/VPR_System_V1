@@ -44,10 +44,10 @@ export const getAllProducts = async () => {
   return data || [];
 };
 
-export const createProduct = async ({ name, unit, allow_negative_stock, product_type, openingEntries, as_of_date, created_by }) => {
+export const createProduct = async ({ name, unit, allow_negative_stock, product_type, brand_name, category, mux, openingEntries, as_of_date, created_by }) => {
   const { data: product, error: productError } = await supabase
     .from('products')
-    .insert([{ name, unit, allow_negative_stock: true, product_type: product_type || '' }])
+    .insert([{ name, unit, allow_negative_stock: true, product_type: product_type || '', brand_name: brand_name || '', category: category || '', mux: mux || '' }])
     .select()
     .single();
   if (productError) throw productError;
@@ -77,10 +77,10 @@ export const createProduct = async ({ name, unit, allow_negative_stock, product_
   return product;
 };
 
-export const updateProduct = async ({ product_id, name, unit, allow_negative_stock, product_type }) => {
+export const updateProduct = async ({ product_id, name, unit, allow_negative_stock, product_type, brand_name, category, mux }) => {
   const { data, error } = await supabase
     .from('products')
-    .update({ name, unit, allow_negative_stock, product_type: product_type || '' })
+    .update({ name, unit, allow_negative_stock, product_type: product_type || '', brand_name: brand_name || '', category: category || '', mux: mux || '' })
     .eq('product_id', product_id)
     .select()
     .single();
@@ -140,6 +140,14 @@ export const getProductOpeningStock = async (productId) => {
   return data || [];
 };
 
+const bulkImportMatchKey = (brandName, category, productType, unit, mux) =>
+  [brandName, category, productType, unit, mux].map(v => (v || '').trim().toLowerCase()).join('|');
+
+const bulkImportProductName = (brandName, category, productType, mux) => {
+  const base = [brandName, category, productType].map(v => (v || '').trim()).filter(Boolean).join(' ');
+  return mux?.trim() ? `${base} (${mux.trim()})` : base;
+};
+
 export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
   const { data: allGodowns, error: godownErr } = await supabase
     .from('godowns')
@@ -153,40 +161,48 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
 
   const { data: allProducts, error: prodErr } = await supabase
     .from('products')
-    .select('product_id, name');
+    .select('product_id, name, brand_name, category, product_type, unit, mux');
   if (prodErr) throw prodErr;
 
   const productMap = {};
   for (const p of allProducts || []) {
-    productMap[p.name.toLowerCase().trim()] = p.product_id;
+    productMap[bulkImportMatchKey(p.brand_name, p.category, p.product_type, p.unit, p.mux)] = p.product_id;
   }
 
   const uniqueProducts = [];
   const seen = new Set();
   for (const r of rows) {
-    const name = r.productName?.trim();
-    if (name && !seen.has(name.toLowerCase())) {
-      seen.add(name.toLowerCase());
-      uniqueProducts.push({ name, product_type: r.productType?.trim() || '' });
+    const key = bulkImportMatchKey(r.brandName, r.category, r.productType, r.unit, r.mux);
+    if ((r.brandName?.trim() || r.category?.trim()) && !seen.has(key)) {
+      seen.add(key);
+      uniqueProducts.push({ key, ...r });
     }
   }
   const errors = [];
   const newProducts = [];
 
-  for (const { name, product_type } of uniqueProducts) {
-    const key = name.toLowerCase();
-    if (!productMap[key]) {
+  for (const row of uniqueProducts) {
+    if (!productMap[row.key]) {
+      const name = bulkImportProductName(row.brandName, row.category, row.productType, row.mux);
       const { data: created, error: createErr } = await supabase
         .from('products')
-        .insert([{ name, unit: 'kg', allow_negative_stock: true, product_type }])
+        .insert([{
+          name,
+          unit: row.unit?.trim() || 'pcs',
+          allow_negative_stock: true,
+          product_type: row.productType?.trim() || '',
+          brand_name: row.brandName?.trim() || '',
+          category: row.category?.trim() || '',
+          mux: row.mux?.trim() || '',
+        }])
         .select()
         .single();
       if (createErr) {
-        for (const row of rows.filter(r => r.productName.trim().toLowerCase() === key)) {
-          errors.push({ row: `${row.productName} → ${row.godownName}`, message: `Failed to create product: ${createErr.message}` });
+        for (const r of rows.filter(r => bulkImportMatchKey(r.brandName, r.category, r.productType, r.unit, r.mux) === row.key)) {
+          errors.push({ row: `${name} → ${r.godownName}`, message: `Failed to create product: ${createErr.message}` });
         }
       } else {
-        productMap[key] = created.product_id;
+        productMap[row.key] = created.product_id;
         newProducts.push(created);
       }
     }
@@ -198,32 +214,33 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const productKey = row.productName?.trim().toLowerCase();
+    const displayName = bulkImportProductName(row.brandName, row.category, row.productType, row.mux);
+    const productKey = bulkImportMatchKey(row.brandName, row.category, row.productType, row.unit, row.mux);
     const godownKey = row.godownName?.trim().toLowerCase();
     const qty = Number(row.qty);
 
-    if (!productKey || !row.productName?.trim()) {
-      errors.push({ row: `Row ${i + 1}`, message: 'Product name is empty' });
+    if (!row.brandName?.trim() && !row.category?.trim()) {
+      errors.push({ row: `Row ${i + 1}`, message: 'Brand Name / Category is empty' });
       continue;
     }
-    if (!godownKey || !row.godownName?.trim()) {
-      errors.push({ row: `Row ${i + 1}: ${row.productName}`, message: 'Godown name is empty' });
+    if (!godownKey) {
+      errors.push({ row: `Row ${i + 1}: ${displayName}`, message: 'Godown name is empty' });
       continue;
     }
     if (isNaN(qty) || qty < 0 || !Number.isInteger(qty)) {
-      errors.push({ row: `Row ${i + 1}: ${row.productName} → ${row.godownName}`, message: 'Quantity must be a valid non-negative whole number' });
+      errors.push({ row: `Row ${i + 1}: ${displayName} → ${row.godownName}`, message: 'Quantity must be a valid non-negative whole number' });
       continue;
     }
 
     const productId = productMap[productKey];
     if (!productId) {
-      errors.push({ row: `Row ${i + 1}: ${row.productName}`, message: 'Product could not be resolved' });
+      errors.push({ row: `Row ${i + 1}: ${displayName}`, message: 'Product could not be resolved' });
       continue;
     }
 
     const godownId = godownMap[godownKey];
     if (!godownId) {
-      errors.push({ row: `Row ${i + 1}: ${row.productName} → ${row.godownName}`, message: `Godown "${row.godownName}" not found` });
+      errors.push({ row: `Row ${i + 1}: ${displayName} → ${row.godownName}`, message: `Godown "${row.godownName}" not found` });
       continue;
     }
 

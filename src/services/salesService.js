@@ -237,7 +237,8 @@ export const getAllOrderItemsForDispatch = async () => {
         order_number, order_date, process_type,
         customers:customer_id(name)
       ),
-      products:product_id(name, unit)
+      products:product_id(name, unit),
+      godowns:godown_id(name)
     `)
     .order('created_at', { ascending: false });
   if (itemsErr) throw itemsErr;

@@ -1,20 +1,22 @@
 import { useState, useRef } from 'react';
-import { Upload, FileSpreadsheet, CheckCircle, XCircle, AlertCircle, ArrowLeft, Loader, Database, Download, FileText } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle, XCircle, AlertCircle, ArrowLeft, Loader, Database, Download, FileText, Pencil, Check, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
-import { bulkImportProducts } from '../../../services/masterService';
+import { bulkImportProducts, getAllProducts } from '../../../services/masterService';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
-const REQUIRED_COLUMNS = ['Product Name', 'Godown Name'];
+const REQUIRED_COLUMNS = ['Brand Name', 'Category', 'Godown Name', 'Qty'];
 
 const COLUMN_ALIASES = {
-  'Product Name': ['product name', 'product', 'productname', 'item name', 'item'],
+  'Brand Name': ['brand name', 'brand', 'brandname'],
+  'Category': ['category', 'categories'],
+  'Product Type': ['product type', 'producttype', 'type', 'item type'],
+  'Unit': ['unit', 'units', 'uom'],
+  'mux': ['mux', 'weight', 'packaging weight', 'packaging'],
   'Godown Name': ['godown name', 'godown', 'godownname', 'warehouse', 'warehouse name'],
-  'Quantity': ['quantity', 'qty', 'qnty', 'stock', 'opening stock', 'opening', 'count'],
-  'Product Type': ['product type', 'producttype', 'type', 'category', 'item type'],
+  'Qty': ['qty', 'quantity', 'qnty', 'stock', 'opening stock', 'opening', 'count'],
 };
 
 const normalizeHeader = (header) => {
@@ -25,19 +27,35 @@ const normalizeHeader = (header) => {
   return header.trim();
 };
 
-const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
+const matchKey = (brandName, category, productType, unit, mux) =>
+  [brandName, category, productType, unit, mux].map(v => (v || '').trim().toLowerCase()).join('|');
+
+const buildProductName = (brandName, category, productType, mux) => {
+  const base = [brandName, category, productType].map(v => (v || '').trim()).filter(Boolean).join(' ');
+  return mux?.trim() ? `${base} (${mux.trim()})` : base;
+};
+
+const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [fileName, setFileName] = useState('');
   const [rows, setRows] = useState([]);
+  const [productLookup, setProductLookup] = useState(new Map());
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editDraft, setEditDraft] = useState(null);
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState(null);
+
+  const activeGodowns = (godowns || []).filter(g => g.is_active !== false);
 
   const reset = () => {
     setStep('upload');
     setFileName('');
     setRows([]);
+    setProductLookup(new Map());
+    setEditingIndex(null);
+    setEditDraft(null);
     setAsOfDate(new Date().toISOString().split('T')[0]);
     setSubmitting(false);
     setResults(null);
@@ -60,7 +78,7 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
     setFileName(file.name);
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
@@ -86,24 +104,47 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
           return;
         }
 
-        const qtyKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Quantity') || 'Quantity';
-        const productKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Product Name');
-        const godownKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Godown Name');
-        const typeKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Product Type');
+        const keyFor = (std) => Object.keys(normalizedMap).find(k => normalizedMap[k] === std);
+        const brandKey = keyFor('Brand Name');
+        const categoryKey = keyFor('Category');
+        const typeKey = keyFor('Product Type');
+        const unitKey = keyFor('Unit');
+        const muxKey = keyFor('mux');
+        const godownKey = keyFor('Godown Name');
+        const qtyKey = keyFor('Qty');
 
-        const parsed = json.map((row) => ({
-          productName: String(row[productKey] || '').trim(),
-          godownName: String(row[godownKey] || '').trim(),
-          qty: Number(row[qtyKey]) || 0,
-          productType: typeKey ? String(row[typeKey] || '').trim() : '',
-        })).filter(r => r.productName || r.godownName);
+        const parsed = json.map((row) => {
+          const brandName = String(row[brandKey] || '').trim();
+          const category = String(row[categoryKey] || '').trim();
+          const productType = typeKey ? String(row[typeKey] || '').trim() : '';
+          const unit = unitKey ? String(row[unitKey] || '').trim() : '';
+          const mux = muxKey ? String(row[muxKey] || '').trim() : '';
+          const godownName = String(row[godownKey] || '').trim();
+          const qty = Number(row[qtyKey]) || 0;
+          return {
+            brandName, category, productType, unit, mux, godownName, qty,
+            productName: buildProductName(brandName, category, productType, mux),
+          };
+        }).filter(r => r.brandName || r.category || r.godownName);
 
         if (parsed.length === 0) {
           toast.error('No valid data rows found in the file.');
           return;
         }
 
-        setRows(parsed);
+        const existingProducts = await getAllProducts();
+        const lookup = new Map();
+        for (const p of existingProducts) {
+          lookup.set(matchKey(p.brand_name, p.category, p.product_type, p.unit, p.mux), p);
+        }
+
+        const withMatch = parsed.map(r => {
+          const match = lookup.get(matchKey(r.brandName, r.category, r.productType, r.unit, r.mux));
+          return { ...r, productId: match?.product_id || null, isNew: !match };
+        });
+
+        setProductLookup(lookup);
+        setRows(withMatch);
         setStep('preview');
       } catch (err) {
         toast.error('Failed to parse file: ' + err.message);
@@ -120,6 +161,35 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
 
   const handleDragOver = (e) => {
     e.preventDefault();
+  };
+
+  const startEdit = (index) => {
+    const r = rows[index];
+    setEditingIndex(index);
+    setEditDraft({
+      brandName: r.brandName, category: r.category, productType: r.productType,
+      unit: r.unit, mux: r.mux, godownName: r.godownName, qty: r.qty,
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setEditDraft(null);
+  };
+
+  const saveEdit = () => {
+    const productName = buildProductName(editDraft.brandName, editDraft.category, editDraft.productType, editDraft.mux);
+    const match = productLookup.get(matchKey(editDraft.brandName, editDraft.category, editDraft.productType, editDraft.unit, editDraft.mux));
+    setRows(prev => prev.map((r, i) => i !== editingIndex ? r : {
+      ...r,
+      ...editDraft,
+      qty: Number(editDraft.qty) || 0,
+      productName,
+      productId: match?.product_id || null,
+      isNew: !match,
+    }));
+    setEditingIndex(null);
+    setEditDraft(null);
   };
 
   const handleImport = async () => {
@@ -151,16 +221,22 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
   const handleDownloadTemplate = () => {
     const ws = XLSX.utils.json_to_sheet([
       {
-        'Product Name': 'Cement Grade A',
+        'Brand Name': 'Ambuja',
+        'Category': 'Nt 160g',
+        'Product Type': '10*13',
+        'Unit': 'bag',
+        'mux': '32 Kg',
         'Godown Name': 'Main Godown',
-        'Quantity': 500,
-        'Product Type': '(7*10)'
+        'Qty': 500,
       },
       {
-        'Product Name': 'Steel Rods 10mm',
+        'Brand Name': 'AM',
+        'Category': 'BLK',
+        'Product Type': '7*14',
+        'Unit': 'bag',
+        'mux': '30 Kg',
         'Godown Name': 'Site B Godown',
-        'Quantity': 1000,
-        'Product Type': '(8*12)'
+        'Qty': 1000,
       }
     ]);
     const wb = XLSX.utils.book_new();
@@ -169,17 +245,19 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
   };
 
   const summary = rows.reduce((acc, r) => {
-    const key = r.productName;
-    if (!acc[key]) acc[key] = { productName: key, godowns: new Set(), totalQty: 0, count: 0 };
+    const key = matchKey(r.brandName, r.category, r.productType, r.unit, r.mux);
+    if (!acc[key]) acc[key] = { productName: r.productName, isNew: r.isNew, godowns: new Set(), totalQty: 0, count: 0 };
     acc[key].godowns.add(r.godownName);
     acc[key].totalQty += Number(r.qty) || 0;
     acc[key].count += 1;
     return acc;
   }, {});
+  const newProductCount = Object.values(summary).filter(s => s.isNew).length;
+  const existingProductCount = Object.keys(summary).length - newProductCount;
 
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
-      <ModalContent className="max-w-2xl">
+      <ModalContent className="max-w-4xl">
         <ModalHeader>
           <div className="bg-primary/10 p-2 rounded-lg"><FileSpreadsheet size={20} className="text-primary" /></div>
           <h2 className="text-xl font-bold text-slate-800">Bulk Import Products</h2>
@@ -219,8 +297,9 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
                       <span className="px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-600 text-[10px] font-medium">Formats: .xlsx, .xls, .csv</span>
                     </div>
                     <p className="text-slate-600 text-[11px] leading-relaxed">
-                      Your document must include headers for <strong>Product Name</strong>, <strong>Godown Name</strong>, and <strong>Quantity</strong>.
-                      Products not found in the system will be auto-created with default settings (unit: kg). Godowns must already exist in Master records.
+                      Your document must include headers for <strong>Brand Name</strong>, <strong>Category</strong>, <strong>Godown Name</strong>, and <strong>Qty</strong>.
+                      <strong> Product Type</strong>, <strong>Unit</strong> and <strong>mux</strong> are optional. Product Name is auto-generated as Brand + Category + Product Type + (mux) and matched
+                      against existing products — a combination not found in the system will be auto-created. Godowns must already exist in Master records.
                     </p>
                   </div>
                 </div>
@@ -236,24 +315,33 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
                     <table className="w-full text-xs text-left whitespace-nowrap">
                       <thead className="bg-white">
                         <tr>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Product Name<span className="text-red-500 ml-0.5">*</span></th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Godown Name<span className="text-red-500 ml-0.5">*</span></th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Quantity<span className="text-red-500 ml-0.5">*</span></th>
+                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Brand Name<span className="text-red-500 ml-0.5">*</span></th>
+                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Category<span className="text-red-500 ml-0.5">*</span></th>
                           <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Product Type</th>
+                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Unit</th>
+                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">mux</th>
+                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Godown Name<span className="text-red-500 ml-0.5">*</span></th>
+                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Qty<span className="text-red-500 ml-0.5">*</span></th>
                         </tr>
                       </thead>
                       <tbody className="bg-slate-50/50">
                         <tr>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Cement Grade A</td>
+                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Ambuja</td>
+                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Nt 160g</td>
+                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">10*13</td>
+                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">bag</td>
+                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">32 Kg</td>
                           <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Main Godown</td>
                           <td className="px-3 py-2 text-slate-500 border-b border-slate-100">500</td>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">(7*10)</td>
                         </tr>
                         <tr>
-                          <td className="px-3 py-2 text-slate-500">Steel Rods 10mm</td>
+                          <td className="px-3 py-2 text-slate-500">AM</td>
+                          <td className="px-3 py-2 text-slate-500">BLK</td>
+                          <td className="px-3 py-2 text-slate-500">7*14</td>
+                          <td className="px-3 py-2 text-slate-500">bag</td>
+                          <td className="px-3 py-2 text-slate-500">30 Kg</td>
                           <td className="px-3 py-2 text-slate-500">Site B Godown</td>
                           <td className="px-3 py-2 text-slate-500">1000</td>
-                          <td className="px-3 py-2 text-slate-500">(8*12)</td>
                         </tr>
                       </tbody>
                     </table>
@@ -278,25 +366,115 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
                   <ArrowLeft size={12} /> Change file
                 </button>
               </div>
-              <div className="border border-slate-200 rounded-lg overflow-hidden max-h-56 overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
+              <div className="flex items-center gap-4 mb-2 text-[11px] text-slate-500">
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-green-400 inline-block" />Existing product — stock will be added</span>
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400 inline-block" />New product — will be created</span>
+              </div>
+              <div className="border border-slate-200 rounded-lg max-h-72 overflow-auto">
+                <table className="w-full text-sm min-w-[880px]">
+                  <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                     <tr>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase">#</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase">Product Name</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase">Godown Name</th>
-                      <th className="text-right px-3 py-2 text-xs font-semibold text-slate-500 uppercase">Quantity</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">#</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Product Name</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Brand Name</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Category</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Product Type</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Unit</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">mux</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Godown Name</th>
+                      <th className="text-right px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Qty</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Status</th>
+                      <th className="text-center px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Edit</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {rows.map((r, i) => (
-                      <tr key={i} className="hover:bg-slate-50">
-                        <td className="px-3 py-2 text-slate-400 text-xs">{i + 1}</td>
-                        <td className="px-3 py-2 text-slate-700">{r.productName || <span className="text-red-400 italic">empty</span>}</td>
-                        <td className="px-3 py-2 text-slate-700">{r.godownName || <span className="text-red-400 italic">empty</span>}</td>
-                        <td className="px-3 py-2 text-right font-medium">{r.qty || <span className="text-red-400 italic">0</span>}</td>
-                      </tr>
-                    ))}
+                    {rows.map((r, i) => {
+                      const isEditing = editingIndex === i;
+                      const cellInput = (field, opts = {}) => (
+                        <input
+                          type={opts.type || 'text'}
+                          value={editDraft[field]}
+                          onChange={(e) => setEditDraft({ ...editDraft, [field]: opts.type === 'number' ? e.target.value.replace(/\D/g, '') : e.target.value })}
+                          className="w-full min-w-[70px] border border-slate-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      );
+                      return (
+                        <tr key={i} className={isEditing ? 'bg-blue-50/60' : r.isNew ? 'bg-red-50/50 hover:bg-red-50' : 'bg-green-50/50 hover:bg-green-50'}>
+                          <td className="px-3 py-2 text-slate-400 text-xs">{i + 1}</td>
+                          {isEditing ? (
+                            <>
+                              <td className="px-3 py-2 text-slate-400 italic text-xs whitespace-nowrap">
+                                {buildProductName(editDraft.brandName, editDraft.category, editDraft.productType, editDraft.mux) || 'empty'}
+                              </td>
+                              <td className="px-2 py-2">{cellInput('brandName')}</td>
+                              <td className="px-2 py-2">{cellInput('category')}</td>
+                              <td className="px-2 py-2">{cellInput('productType')}</td>
+                              <td className="px-2 py-2">
+                                <select
+                                  value={editDraft.unit}
+                                  onChange={(e) => setEditDraft({ ...editDraft, unit: e.target.value })}
+                                  className="w-full min-w-[70px] border border-slate-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary bg-white"
+                                >
+                                  <option value="">Select unit</option>
+                                  {['kg', 'bag'].map(u => (
+                                    <option key={u} value={u}>{u}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-2 py-2">{cellInput('mux')}</td>
+                              <td className="px-2 py-2">
+                                {activeGodowns.length > 0 ? (
+                                  <select
+                                    value={editDraft.godownName}
+                                    onChange={(e) => setEditDraft({ ...editDraft, godownName: e.target.value })}
+                                    className="w-full min-w-[100px] border border-slate-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary bg-white"
+                                  >
+                                    <option value="">Select godown</option>
+                                    {activeGodowns.map(g => (
+                                      <option key={g.godown_id} value={g.name}>{g.name}</option>
+                                    ))}
+                                  </select>
+                                ) : cellInput('godownName')}
+                              </td>
+                              <td className="px-2 py-2">{cellInput('qty', { type: 'number' })}</td>
+                              <td className="px-3 py-2" colSpan={2}>
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button type="button" onClick={saveEdit} title="Save" className="p-1 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200">
+                                    <Check size={13} />
+                                  </button>
+                                  <button type="button" onClick={cancelEdit} title="Cancel" className="p-1 rounded bg-slate-100 text-slate-500 hover:bg-slate-200">
+                                    <X size={13} />
+                                  </button>
+                                </div>
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{r.productName || <span className="text-red-400 italic">empty</span>}</td>
+                              <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.brandName || <span className="text-red-400 italic">empty</span>}</td>
+                              <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.category || <span className="text-red-400 italic">empty</span>}</td>
+                              <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.productType || <span className="text-slate-300">—</span>}</td>
+                              <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.unit || <span className="text-slate-300">—</span>}</td>
+                              <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.mux || <span className="text-slate-300">—</span>}</td>
+                              <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{r.godownName || <span className="text-red-400 italic">empty</span>}</td>
+                              <td className="px-3 py-2 text-right font-medium whitespace-nowrap">{r.qty || <span className="text-red-400 italic">0</span>}</td>
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                {r.isNew ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">New</span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Existing</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                <button type="button" onClick={() => startEdit(i)} title="Edit row" className="p-1 rounded text-slate-400 hover:text-primary hover:bg-primary/10">
+                                  <Pencil size={13} />
+                                </button>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -306,9 +484,11 @@ const BulkImportModal = ({ isOpen, onClose, user, onSuccess }) => {
                 <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
                   <div><span className="text-slate-400">Unique Products:</span> <span className="font-medium">{Object.keys(summary).length}</span></div>
                   <div><span className="text-slate-400">Total Entries:</span> <span className="font-medium">{rows.length}</span></div>
-                  {Object.entries(summary).slice(0, 5).map(([name, s]) => (
-                    <div key={name} className="col-span-2 truncate" title={name}>
-                      <span className="text-slate-400">•</span> {name} — <span className="font-medium">{s.godowns.size}</span> godown{s.godowns.size !== 1 ? 's' : ''}, <span className="font-medium">{s.totalQty}</span> total qty
+                  <div><span className="text-slate-400">New Products:</span> <span className="font-medium text-red-600">{newProductCount}</span></div>
+                  <div><span className="text-slate-400">Existing Products:</span> <span className="font-medium text-green-700">{existingProductCount}</span></div>
+                  {Object.entries(summary).slice(0, 5).map(([key, s]) => (
+                    <div key={key} className="col-span-2 truncate" title={s.productName}>
+                      <span className={s.isNew ? 'text-red-400' : 'text-green-500'}>•</span> {s.productName} — <span className="font-medium">{s.godowns.size}</span> godown{s.godowns.size !== 1 ? 's' : ''}, <span className="font-medium">{s.totalQty}</span> total qty
                     </div>
                   ))}
                   {Object.keys(summary).length > 5 && (

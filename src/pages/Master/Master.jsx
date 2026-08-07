@@ -426,7 +426,7 @@ const Master = () => {
       <GodownModal isOpen={godownModalOpen} onClose={() => setGodownModalOpen(false)}
         onSuccess={loadData} />
       <BulkImportModal isOpen={importModalOpen} onClose={() => setImportModalOpen(false)}
-        user={user} onSuccess={loadData} />
+        godowns={godowns} user={user} onSuccess={loadData} />
       <CustomerModal isOpen={customerModalOpen} onClose={handleCloseCustomerModal}
         onSuccess={loadData} editingCustomer={editingCustomer} user={user} />
       <VendorModal isOpen={vendorModalOpen} onClose={handleCloseVendorModal}

@@ -12,7 +12,7 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/comp
 
 const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduct, onDelete }) => {
   const [form, setForm] = useState({
-    name: '', unit: 'pcs', product_type: '', allow_negative_stock: true,
+    brand_name: '', category: '', unit: 'bag', product_type: '', mux: '', allow_negative_stock: true,
     as_of_date: new Date().toISOString().split('T')[0], entries: [],
   });
   const [submitting, setSubmitting] = useState(false);
@@ -21,14 +21,22 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
   const isEditing = !!editingProduct;
   const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
 
+  const baseName = [form.brand_name, form.category, form.product_type]
+    .map(v => v.trim())
+    .filter(Boolean)
+    .join(' ');
+  const computedName = form.mux.trim() ? `${baseName} (${form.mux.trim()})` : baseName;
+
   useEffect(() => {
     if (!isOpen) {
-      setForm({ name: '', unit: 'pcs', product_type: '', allow_negative_stock: true, as_of_date: new Date().toISOString().split('T')[0], entries: [] });
+      setForm({ brand_name: '', category: '', unit: 'bag', product_type: '', mux: '', allow_negative_stock: true, as_of_date: new Date().toISOString().split('T')[0], entries: [] });
     } else if (editingProduct) {
       setForm({
-        name: editingProduct.name,
+        brand_name: editingProduct.brand_name || '',
+        category: editingProduct.category || '',
         unit: editingProduct.unit,
         product_type: editingProduct.product_type || '',
+        mux: editingProduct.mux || '',
         allow_negative_stock: editingProduct.allow_negative_stock,
         as_of_date: new Date().toISOString().split('T')[0],
         entries: [],
@@ -38,21 +46,27 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name.trim()) { toast.error('Product name is required.'); return; }
+    if (!form.brand_name.trim()) { toast.error('Brand name is required.'); return; }
+    if (!form.category.trim()) { toast.error('Category is required.'); return; }
     setSubmitting(true);
     try {
       if (isEditing) {
         await updateProduct({
           product_id: editingProduct.product_id,
-          name: form.name.trim(),
+          name: computedName,
           unit: form.unit,
           product_type: form.product_type.trim(),
+          brand_name: form.brand_name.trim(),
+          category: form.category.trim(),
+          mux: form.mux.trim(),
           allow_negative_stock: form.allow_negative_stock,
         });
         toast.success('Product updated successfully');
       } else {
         await createProduct({
-          name: form.name.trim(), unit: form.unit, product_type: form.product_type.trim(), allow_negative_stock: form.allow_negative_stock,
+          name: computedName, unit: form.unit, product_type: form.product_type.trim(),
+          brand_name: form.brand_name.trim(), category: form.category.trim(), mux: form.mux.trim(),
+          allow_negative_stock: form.allow_negative_stock,
           openingEntries: form.entries, as_of_date: form.as_of_date, created_by: user?.user_id,
         });
         toast.success('Product created successfully');
@@ -101,9 +115,15 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
         </ModalHeader>
         <form onSubmit={handleSubmit}>
           <ModalBody>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Product Name</label>
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Enter product name" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Brand Name <span className="text-red-500">*</span></label>
+                <Input value={form.brand_name} onChange={(e) => setForm({ ...form, brand_name: e.target.value })} placeholder="Ex: Ambuja" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Category <span className="text-red-500">*</span></label>
+                <Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Ex: Cement" />
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Product Type</label>
@@ -117,20 +137,28 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
                   <SelectContent>
                     <SelectGroup>
                       <SelectLabel>Unit</SelectLabel>
-                      {['pcs', 'kg', 'ltr', 'mtr', 'box', 'bag', 'pair'].map(u => (
+                      {['kg', 'bag'].map(u => (
                         <SelectItem key={u} value={u}>{u}</SelectItem>
                       ))}
                     </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
-              {!isEditing && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">As of Date</label>
-                  <DatePicker value={form.as_of_date} onChange={(e) => setForm({ ...form, as_of_date: e.target.value })} />
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Mux (Weight)</label>
+                <Input value={form.mux} onChange={(e) => setForm({ ...form, mux: e.target.value })} placeholder="Ex: 32 Kg" />
+              </div>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Product Name</label>
+              <Input value={computedName} disabled readOnly placeholder="Auto-generated from Brand + Category + Type + Mux" className="bg-slate-50 text-slate-500" />
+            </div>
+            {!isEditing && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">As of Date</label>
+                <DatePicker value={form.as_of_date} onChange={(e) => setForm({ ...form, as_of_date: e.target.value })} />
+              </div>
+            )}
 
             {!isEditing && (
               <div>
