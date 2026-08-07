@@ -7,8 +7,6 @@ import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
-const REQUIRED_COLUMNS = ['Brand Name', 'Category', 'Godown Name', 'Qty'];
-
 const COLUMN_ALIASES = {
   'Brand Name': ['brand name', 'brand', 'brandname'],
   'Category': ['category', 'categories'],
@@ -33,6 +31,12 @@ const matchKey = (brandName, category, productType, unit, mux) =>
 const buildProductName = (brandName, category, productType, mux) => {
   const base = [brandName, category, productType].map(v => (v || '').trim()).filter(Boolean).join(' ');
   return mux?.trim() ? `${base} (${mux.trim()})` : base;
+};
+
+// A mux value that's just a number (e.g. "32") is assumed to be a weight in Kg.
+const normalizeMux = (mux) => {
+  const trimmed = String(mux ?? '').trim();
+  return /^\d+(\.\d+)?$/.test(trimmed) ? `${trimmed} Kg` : trimmed;
 };
 
 const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
@@ -96,14 +100,6 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
           normalizedMap[h] = normalizeHeader(h);
         }
 
-        const missing = REQUIRED_COLUMNS.filter(
-          c => !Object.values(normalizedMap).includes(c)
-        );
-        if (missing.length > 0) {
-          toast.error(`Missing required columns: ${missing.join(', ')}. Found: ${headers.join(', ')}`);
-          return;
-        }
-
         const keyFor = (std) => Object.keys(normalizedMap).find(k => normalizedMap[k] === std);
         const brandKey = keyFor('Brand Name');
         const categoryKey = keyFor('Category');
@@ -118,7 +114,7 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
           const category = String(row[categoryKey] || '').trim();
           const productType = typeKey ? String(row[typeKey] || '').trim() : '';
           const unit = unitKey ? String(row[unitKey] || '').trim() : '';
-          const mux = muxKey ? String(row[muxKey] || '').trim() : '';
+          const mux = muxKey ? normalizeMux(row[muxKey]) : '';
           const godownName = String(row[godownKey] || '').trim();
           const qty = Number(row[qtyKey]) || 0;
           return {
@@ -297,8 +293,8 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
                       <span className="px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-600 text-[10px] font-medium">Formats: .xlsx, .xls, .csv</span>
                     </div>
                     <p className="text-slate-600 text-[11px] leading-relaxed">
-                      Your document must include headers for <strong>Brand Name</strong>, <strong>Category</strong>, <strong>Godown Name</strong>, and <strong>Qty</strong>.
-                      <strong> Product Type</strong>, <strong>Unit</strong> and <strong>mux</strong> are optional. Product Name is auto-generated as Brand + Category + Product Type + (mux) and matched
+                      Your document can include headers for <strong>Brand Name</strong>, <strong>Category</strong>, <strong>Product Type</strong>, <strong>Unit</strong>,
+                      <strong> mux</strong>, <strong>Godown Name</strong>, and <strong>Qty</strong> — none are mandatory. Product Name is auto-generated as Brand + Category + Product Type + (mux) and matched
                       against existing products — a combination not found in the system will be auto-created. Godowns must already exist in Master records.
                     </p>
                   </div>
@@ -315,13 +311,13 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
                     <table className="w-full text-xs text-left whitespace-nowrap">
                       <thead className="bg-white">
                         <tr>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Brand Name<span className="text-red-500 ml-0.5">*</span></th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Category<span className="text-red-500 ml-0.5">*</span></th>
+                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Brand Name</th>
+                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Category</th>
                           <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Product Type</th>
                           <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Unit</th>
                           <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">mux</th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Godown Name<span className="text-red-500 ml-0.5">*</span></th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Qty<span className="text-red-500 ml-0.5">*</span></th>
+                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Godown Name</th>
+                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Qty</th>
                         </tr>
                       </thead>
                       <tbody className="bg-slate-50/50">
