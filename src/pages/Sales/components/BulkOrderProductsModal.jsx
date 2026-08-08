@@ -154,9 +154,9 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
             id: idx,
             order_date: parsedDate,
             rawCustomerName: rawCust,
-            customer_id: matchedCust ? matchedCust.customer_id : (customers[0]?.customer_id || ''),
+            customer_id: matchedCust ? matchedCust.customer_id : '',
             rawGodownName: rawGodown,
-            godown_id: matchedGodown ? matchedGodown.godown_id : (activeGodowns[0]?.godown_id || ''),
+            godown_id: matchedGodown ? matchedGodown.godown_id : '',
             rawProductName: rawProd,
             product_id: matchedProd ? matchedProd.product_id : '',
             unit_price: rawPrice,
@@ -471,6 +471,11 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                           searchPlaceholder="Search customers..."
                           align="start"
                         />
+                        {!group.customer_id && group.customer_name && (
+                          <span className="text-[10px] text-red-600 font-medium block mt-0.5">
+                            File value: "{group.customer_name}" (Not matched)
+                          </span>
+                        )}
                       </div>
                     </div>
 

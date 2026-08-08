@@ -12,9 +12,7 @@ import { exportStockReport } from './exportStockReport';
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
 const LiveStockDashboard = () => {
-  const [date, setDate] = useState(() => {
-    return localStorage.getItem('dashboardDate') || new Date().toISOString().split('T')[0];
-  });
+  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [data, setData] = useState([]);
   const [summaryData, setSummaryData] = useState({ godowns: [], totals: { opening: 0, stockIn: 0, stockOut: 0, closing: 0 } });
   const [loading, setLoading] = useState(true);
@@ -58,18 +56,14 @@ const LiveStockDashboard = () => {
   const today = new Date().toISOString().split('T')[0];
 
   const handleDateChange = (e) => {
-    const newDate = e.target.value;
-    setDate(newDate);
-    localStorage.setItem('dashboardDate', newDate);
+    setDate(e.target.value);
     setCurrentPage(1);
   };
 
   const handlePrevDay = () => {
     const d = new Date(date);
     d.setDate(d.getDate() - 1);
-    const newDate = d.toISOString().split('T')[0];
-    setDate(newDate);
-    localStorage.setItem('dashboardDate', newDate);
+    setDate(d.toISOString().split('T')[0]);
     setCurrentPage(1);
   };
 
@@ -79,7 +73,6 @@ const LiveStockDashboard = () => {
     const newDate = d.toISOString().split('T')[0];
     if (newDate > today) return;
     setDate(newDate);
-    localStorage.setItem('dashboardDate', newDate);
     setCurrentPage(1);
   };
 
