@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, X, Trash2 } from 'lucide-react';
+import { Package, X, Trash2, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createProduct, updateProduct, deleteProduct } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
   });
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [duplicateNotice, setDuplicateNotice] = useState('');
 
   const isEditing = !!editingProduct;
   const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
@@ -30,6 +31,7 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
   useEffect(() => {
     if (!isOpen) {
       setForm({ brand_name: '', category: '', unit: 'bag', product_type: '', mux: '', allow_negative_stock: true, as_of_date: new Date().toISOString().split('T')[0], entries: [] });
+      setDuplicateNotice('');
     } else if (editingProduct) {
       setForm({
         brand_name: editingProduct.brand_name || '',
@@ -41,13 +43,21 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
         as_of_date: new Date().toISOString().split('T')[0],
         entries: [],
       });
+      setDuplicateNotice('');
     }
   }, [isOpen, editingProduct]);
+
+  // Once flagged as a duplicate, clear the notice as soon as the user changes any of the
+  // 4 identity fields — it becomes stale the moment they start correcting it.
+  useEffect(() => {
+    setDuplicateNotice('');
+  }, [form.brand_name, form.category, form.product_type, form.mux]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.brand_name.trim()) { toast.error('Brand name is required.'); return; }
     if (!form.category.trim()) { toast.error('Category is required.'); return; }
+    setDuplicateNotice('');
     setSubmitting(true);
     try {
       if (isEditing) {
@@ -73,7 +83,13 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
       }
       onClose();
       onSuccess();
-    } catch (err) { toast.error(err.message); }
+    } catch (err) {
+      if (err.code === 'DUPLICATE_PRODUCT') {
+        setDuplicateNotice(err.message);
+      } else {
+        toast.error(err.message);
+      }
+    }
     setSubmitting(false);
   };
 
@@ -153,6 +169,12 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
               <label className="block text-sm font-medium text-slate-700 mb-1">Product Name</label>
               <Input value={computedName} disabled readOnly placeholder="Auto-generated from Brand + Category + Type + Mux" className="bg-slate-50 text-slate-500" />
             </div>
+            {duplicateNotice && (
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                <span>{duplicateNotice}</span>
+              </div>
+            )}
             {!isEditing && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">As of Date</label>

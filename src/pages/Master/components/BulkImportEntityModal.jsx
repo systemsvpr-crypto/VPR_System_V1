@@ -17,10 +17,11 @@ export const CUSTOMER_CONFIG = {
     { key: 'email',        header: 'Email',         required: false, aliases: ['email', 'email address', 'emailaddress'] },
     { key: 'location',     header: 'Location',      required: false, aliases: ['location', 'address', 'city', 'place'] },
     { key: 'gst_number',   header: 'GST Number',    required: false, aliases: ['gst number', 'gstnumber', 'gst', 'gstin'] },
+    { key: 'crm_follow_up', header: 'CRM Follow Up', required: false, aliases: ['crm follow up', 'crmfollowup', 'crm_follow_up', 'crm', 'follow up', 'followup', 'crm notes', 'crm status', 'remarks'] },
   ],
   templateRows: [
-    { Name: 'Acme Corp', Phone: '9876543210', Email: 'acme@example.com', Location: 'Mumbai', 'GST Number': '27ABCDE1234F1Z5' },
-    { Name: 'Beta Ltd',  Phone: '9123456789', Email: 'beta@example.com', Location: 'Delhi',  'GST Number': '' },
+    { Name: 'Acme Corp', Phone: '9876543210', Email: 'acme@example.com', Location: 'Mumbai', 'GST Number': '27ABCDE1234F1Z5', 'CRM Follow Up': 'Call next week' },
+    { Name: 'Beta Ltd',  Phone: '9123456789', Email: 'beta@example.com', Location: 'Delhi',  'GST Number': '', 'CRM Follow Up': '' },
   ],
 };
 

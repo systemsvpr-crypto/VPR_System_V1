@@ -25,8 +25,10 @@ const normalizeHeader = (header) => {
   return header.trim();
 };
 
-const matchKey = (brandName, category, productType, unit, mux) =>
-  [brandName, category, productType, unit, mux].map(v => (v || '').trim().toLowerCase()).join('|');
+// A product is a duplicate when Brand Name + Category + Product Type + Mux all match —
+// Unit is deliberately excluded, matching the server-side check in masterService.js.
+const matchKey = (brandName, category, productType, mux) =>
+  [brandName, category, productType, mux].map(v => (v || '').trim().toLowerCase()).join('|');
 
 const buildProductName = (brandName, category, productType, mux) => {
   const base = [brandName, category, productType].map(v => (v || '').trim()).filter(Boolean).join(' ');
@@ -131,11 +133,11 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
         const existingProducts = await getAllProducts();
         const lookup = new Map();
         for (const p of existingProducts) {
-          lookup.set(matchKey(p.brand_name, p.category, p.product_type, p.unit, p.mux), p);
+          lookup.set(matchKey(p.brand_name, p.category, p.product_type, p.mux), p);
         }
 
         const withMatch = parsed.map(r => {
-          const match = lookup.get(matchKey(r.brandName, r.category, r.productType, r.unit, r.mux));
+          const match = lookup.get(matchKey(r.brandName, r.category, r.productType, r.mux));
           return { ...r, productId: match?.product_id || null, isNew: !match };
         });
 
@@ -175,7 +177,7 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
 
   const saveEdit = () => {
     const productName = buildProductName(editDraft.brandName, editDraft.category, editDraft.productType, editDraft.mux);
-    const match = productLookup.get(matchKey(editDraft.brandName, editDraft.category, editDraft.productType, editDraft.unit, editDraft.mux));
+    const match = productLookup.get(matchKey(editDraft.brandName, editDraft.category, editDraft.productType, editDraft.mux));
     setRows(prev => prev.map((r, i) => i !== editingIndex ? r : {
       ...r,
       ...editDraft,
@@ -241,7 +243,7 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
   };
 
   const summary = rows.reduce((acc, r) => {
-    const key = matchKey(r.brandName, r.category, r.productType, r.unit, r.mux);
+    const key = matchKey(r.brandName, r.category, r.productType, r.mux);
     if (!acc[key]) acc[key] = { productName: r.productName, isNew: r.isNew, godowns: new Set(), totalQty: 0, count: 0 };
     acc[key].godowns.add(r.godownName);
     acc[key].totalQty += Number(r.qty) || 0;

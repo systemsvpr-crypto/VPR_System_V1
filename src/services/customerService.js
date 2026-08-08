@@ -54,6 +54,7 @@ export const bulkImportCustomers = async (rows) => {
         email: row.email || null,
         location: row.location || null,
         gst_number: row.gst_number || null,
+        crm_follow_up: row.crm_follow_up || null,
       }]);
       if (error) throw error;
       results.successCount++;

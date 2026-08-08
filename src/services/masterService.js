@@ -44,7 +44,33 @@ export const getAllProducts = async () => {
   return data || [];
 };
 
+// The 4 fields that define a unique product: same Brand Name + Category + Product Type + Mux
+// is always treated as the same product, regardless of Unit or spelling/case/whitespace differences.
+const productMatchKey = (brandName, category, productType, mux) =>
+  [brandName, category, productType, mux].map(v => (v || '').trim().toLowerCase()).join('|');
+
+const getAllProductKeys = async () => {
+  const { data, error } = await supabase
+    .from('products')
+    .select('product_id, name, brand_name, category, product_type, mux');
+  if (error) throw error;
+  return data || [];
+};
+
+const duplicateProductError = (name) => {
+  const err = new Error(`Already in database: "${name}" has the same Brand Name, Category, Product Type & Mux.`);
+  err.code = 'DUPLICATE_PRODUCT';
+  return err;
+};
+
 export const createProduct = async ({ name, unit, allow_negative_stock, product_type, brand_name, category, mux, openingEntries, as_of_date, created_by }) => {
+  const newKey = productMatchKey(brand_name, category, product_type, mux);
+  const allProducts = await getAllProductKeys();
+  const duplicate = allProducts.find(p => productMatchKey(p.brand_name, p.category, p.product_type, p.mux) === newKey);
+  if (duplicate) {
+    throw duplicateProductError(duplicate.name);
+  }
+
   const { data: product, error: productError } = await supabase
     .from('products')
     .insert([{ name, unit, allow_negative_stock: true, product_type: product_type || '', brand_name: brand_name || '', category: category || '', mux: mux || '' }])
@@ -78,6 +104,21 @@ export const createProduct = async ({ name, unit, allow_negative_stock, product_
 };
 
 export const updateProduct = async ({ product_id, name, unit, allow_negative_stock, product_type, brand_name, category, mux }) => {
+  const newKey = productMatchKey(brand_name, category, product_type, mux);
+  const allProducts = await getAllProductKeys();
+  const self = allProducts.find(p => p.product_id === product_id);
+  const oldKey = self ? productMatchKey(self.brand_name, self.category, self.product_type, self.mux) : null;
+
+  // Only block when this edit actually changes the identity fields into a collision with
+  // another product — a pre-existing duplicate elsewhere shouldn't lock out unrelated edits
+  // (e.g. fixing Unit) on a product whose own Brand/Category/Type/Mux hasn't changed.
+  if (newKey !== oldKey) {
+    const duplicate = allProducts.find(p => p.product_id !== product_id && productMatchKey(p.brand_name, p.category, p.product_type, p.mux) === newKey);
+    if (duplicate) {
+      throw duplicateProductError(duplicate.name);
+    }
+  }
+
   const { data, error } = await supabase
     .from('products')
     .update({ name, unit, allow_negative_stock, product_type: product_type || '', brand_name: brand_name || '', category: category || '', mux: mux || '' })
@@ -140,9 +181,6 @@ export const getProductOpeningStock = async (productId) => {
   return data || [];
 };
 
-const bulkImportMatchKey = (brandName, category, productType, unit, mux) =>
-  [brandName, category, productType, unit, mux].map(v => (v || '').trim().toLowerCase()).join('|');
-
 const bulkImportProductName = (brandName, category, productType, mux) => {
   const base = [brandName, category, productType].map(v => (v || '').trim()).filter(Boolean).join(' ');
   return mux?.trim() ? `${base} (${mux.trim()})` : base;
@@ -166,13 +204,13 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
 
   const productMap = {};
   for (const p of allProducts || []) {
-    productMap[bulkImportMatchKey(p.brand_name, p.category, p.product_type, p.unit, p.mux)] = p.product_id;
+    productMap[productMatchKey(p.brand_name, p.category, p.product_type, p.mux)] = p.product_id;
   }
 
   const uniqueProducts = [];
   const seen = new Set();
   for (const r of rows) {
-    const key = bulkImportMatchKey(r.brandName, r.category, r.productType, r.unit, r.mux);
+    const key = productMatchKey(r.brandName, r.category, r.productType, r.mux);
     if ((r.brandName?.trim() || r.category?.trim()) && !seen.has(key)) {
       seen.add(key);
       uniqueProducts.push({ key, ...r });
@@ -198,7 +236,7 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
         .select()
         .single();
       if (createErr) {
-        for (const r of rows.filter(r => bulkImportMatchKey(r.brandName, r.category, r.productType, r.unit, r.mux) === row.key)) {
+        for (const r of rows.filter(r => productMatchKey(r.brandName, r.category, r.productType, r.mux) === row.key)) {
           errors.push({ row: `${name} → ${r.godownName}`, message: `Failed to create product: ${createErr.message}` });
         }
       } else {
@@ -215,7 +253,7 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const displayName = bulkImportProductName(row.brandName, row.category, row.productType, row.mux);
-    const productKey = bulkImportMatchKey(row.brandName, row.category, row.productType, row.unit, row.mux);
+    const productKey = productMatchKey(row.brandName, row.category, row.productType, row.mux);
     const godownKey = row.godownName?.trim().toLowerCase();
     const qty = Number(row.qty);
 
