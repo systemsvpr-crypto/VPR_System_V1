@@ -6,6 +6,14 @@ const THIN_BORDER = { style: 'thin', color: { argb: 'FFB9C4D0' } };
 const BORDER_ALL = { top: THIN_BORDER, left: THIN_BORDER, bottom: THIN_BORDER, right: THIN_BORDER };
 const UNCATEGORIZED = 'Uncategorized';
 
+// The 3 factory godowns shown in the "Factory Stock List" block — matched
+// against product.godowns[].godownName (case-insensitively). These are 3 of
+// several "Own"-type godowns (which also include e.g. "Godown" and "LP"), so
+// matching by name rather than godownType is what actually scopes it to just
+// these 3 — spelling must match the real godowns table exactly: "Darba" and
+// "Dusera" (not "Darbha"/"Dussera").
+const FACTORY_GODOWNS = ['Darba', 'DP', 'Dusera'];
+
 // Sorts sizes like "4X8", "5X10", "11X22" in numeric order instead of alphabetic.
 const naturalCompare = (a, b) => {
   const numsA = String(a).match(/\d+(\.\d+)?/g)?.map(Number) || [];
@@ -57,6 +65,41 @@ const buildCategoryPivots = (products) => {
 };
 
 const EMPTY_BUCKET = { types: new Set(), brands: new Set(), matrix: new Map() };
+
+// Swaps rows/columns of a { types, brands, matrix } bucket — used to make the
+// Uncategorized block match the PDF's transposed layout: rows = Brand Name,
+// columns = Product Type (every other category keeps rows = Type, columns =
+// Brand, as usual). Rebuilt from the original type x brand sets rather than
+// splitting the matrix's " "-joined keys back apart, since either half of a
+// key can itself contain spaces.
+const transposeBucket = ({ types, brands, matrix }) => {
+  const transposedMatrix = new Map();
+  for (const type of types) {
+    for (const brand of brands) {
+      const value = matrix.get(`${type} ${brand}`) || 0;
+      if (value !== 0) transposedMatrix.set(`${brand} ${type}`, value);
+    }
+  }
+  return { types: brands, brands: types, matrix: transposedMatrix };
+};
+
+// For each of the 3 FACTORY_GODOWNS, collects every product with non-zero
+// current stock at that specific godown, sorted by product name. Products
+// not stocked at a given factory are left out of that factory's list rather
+// than padding it out with "-" rows. Mirrors buildFactoryStockLists in
+// exportStockPdf.js.
+const buildFactoryStockLists = (products) => {
+  return FACTORY_GODOWNS.map((factoryName) => {
+    const rows = [];
+    for (const p of products) {
+      const g = p.godowns?.find((gd) => gd.godownName?.trim().toLowerCase() === factoryName.toLowerCase());
+      const qty = g?.current || 0;
+      if (qty !== 0) rows.push({ productName: p.productName, qty });
+    }
+    rows.sort((a, b) => a.productName.localeCompare(b.productName));
+    return { factoryName, rows };
+  });
+};
 
 // Writes one category's pivot table into `sheet` starting at `startRow`.
 // Returns the row number right after the block (before any gap the caller
@@ -197,90 +240,123 @@ const writeBrandStockBlock = (sheet, startRow, date, brandTotals) => {
   return startRow + 3;
 };
 
-// Stacks every named category's pivot table into a single sheet, one block after another.
-const addCombinedCategoriesSheet = (workbook, categories, date) => {
-  const sheet = workbook.addWorksheet('Categories', { views: [{ state: 'frozen', xSplit: 1, ySplit: 0 }] });
+// Writes the "Factory Stock List" block: one Product Name / Qty pair of
+// columns per factory (Darba, DP, Dusera), placed side by side with a blank
+// gap column between each pair — mirrors the PDF's 6-column side-by-side
+// layout. Returns `null` (writing nothing) when none of the 3 factories have
+// any stock.
+const FACTORY_COL_STARTS = [1, 4, 7]; // columns 1-2, 4-5, 7-8; 3 and 6 are gap columns
+
+const writeFactoryStockBlock = (sheet, startRow, date, factoryLists) => {
+  if (!factoryLists.some((f) => f.rows.length > 0)) {
+    return null;
+  }
+
+  const lastCol = FACTORY_COL_STARTS[FACTORY_COL_STARTS.length - 1] + 1;
+
+  const titleRow = sheet.getRow(startRow);
+  titleRow.getCell(1).value = `Factory Stock List — Live Stock (as of ${date})`;
+  sheet.mergeCells(startRow, 1, startRow, lastCol);
+  titleRow.getCell(1).font = { bold: true, size: 13, color: { argb: 'FF1F2937' } };
+  titleRow.height = 24;
+
+  const factoryHeaderRow = sheet.getRow(startRow + 1);
+  const subHeaderRow = sheet.getRow(startRow + 2);
+
+  factoryLists.forEach(({ factoryName }, i) => {
+    const col = FACTORY_COL_STARTS[i];
+    sheet.mergeCells(startRow + 1, col, startRow + 1, col + 1);
+    [col, col + 1].forEach((c) => {
+      const cell = factoryHeaderRow.getCell(c);
+      cell.font = { bold: true, color: { argb: 'FF1F2937' } };
+      cell.fill = HEADER_FILL;
+      cell.border = BORDER_ALL;
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    });
+    factoryHeaderRow.getCell(col).value = factoryName;
+
+    subHeaderRow.getCell(col).value = 'Product Name';
+    subHeaderRow.getCell(col + 1).value = 'Qty';
+    [col, col + 1].forEach((c) => {
+      const cell = subHeaderRow.getCell(c);
+      cell.font = { bold: true, color: { argb: 'FF1F2937' } };
+      cell.fill = HEADER_FILL;
+      cell.border = BORDER_ALL;
+      cell.alignment = { vertical: 'middle', horizontal: c === col ? 'left' : 'center' };
+    });
+  });
+  factoryHeaderRow.height = 20;
+  subHeaderRow.height = 20;
+
+  const maxRows = Math.max(0, ...factoryLists.map((f) => f.rows.length));
+  const dataStartRow = startRow + 3;
+
+  for (let i = 0; i < maxRows; i++) {
+    const row = sheet.getRow(dataStartRow + i);
+    factoryLists.forEach(({ rows }, idx) => {
+      const entry = rows[i];
+      if (!entry) return;
+      const col = FACTORY_COL_STARTS[idx];
+
+      const nameCell = row.getCell(col);
+      nameCell.value = entry.productName;
+      nameCell.alignment = { vertical: 'middle', horizontal: 'left' };
+      nameCell.border = BORDER_ALL;
+
+      const qtyCell = row.getCell(col + 1);
+      qtyCell.value = entry.qty;
+      qtyCell.alignment = { vertical: 'middle', horizontal: 'center' };
+      qtyCell.border = BORDER_ALL;
+      qtyCell.font = { bold: true, color: { argb: 'FF111827' } };
+    });
+  }
+
+  FACTORY_COL_STARTS.forEach((col) => {
+    const nameCol = sheet.getColumn(col);
+    nameCol.width = Math.max(nameCol.width || 0, 30);
+    const qtyCol = sheet.getColumn(col + 1);
+    qtyCol.width = Math.max(qtyCol.width || 0, 10);
+  });
+
+  return dataStartRow + maxRows;
+};
+
+// Builds the whole report as ONE sheet, stacking blocks top to bottom in the
+// same order and layout as the PDF export: every named category's pivot
+// table, then Uncategorized (transposed — rows = Brand, columns = Type),
+// then the No Category/No Size brand card, then Factory Stock List last.
+const addCombinedReportSheet = (workbook, products, date) => {
+  const sheet = workbook.addWorksheet('Live Stock Report', { views: [{ state: 'frozen', xSplit: 1, ySplit: 0 }] });
+
+  const { categories, noSizeBrandTotals } = buildCategoryPivots(products);
+  const factoryLists = buildFactoryStockLists(products);
+
+  let row = 1;
+
   const categoryNames = [...categories.keys()]
     .filter((name) => name !== UNCATEGORIZED)
     .sort((a, b) => a.localeCompare(b));
 
-  if (categoryNames.length === 0) {
-    sheet.getCell(1, 1).value = 'No categorized products found.';
-    sheet.getCell(1, 1).font = { italic: true, color: { argb: 'FF94A3B8' } };
-    return;
-  }
-
-  let row = 1;
   for (const categoryName of categoryNames) {
     const end = writePivotBlock(sheet, row, categoryName, date, categories.get(categoryName));
     if (end !== null) row = end + 1; // blank gap row between category blocks
   }
-};
 
-// Both blocks return `null` when they have nothing to show — if neither has
-// data, the sheet is left completely blank rather than showing a "no
-// products" placeholder; if only one has data, it starts right at row 1
-// instead of leaving a leading gap for the other, empty one.
-const addUncategorizedSheet = (workbook, categories, noSizeBrandTotals, date) => {
-  const sheet = workbook.addWorksheet('Uncategorized', { views: [{ state: 'frozen', xSplit: 1, ySplit: 2 }] });
-  const pivotEnd = writePivotBlock(sheet, 1, UNCATEGORIZED, date, categories.get(UNCATEGORIZED) || EMPTY_BUCKET);
-  const nextRow = pivotEnd !== null ? pivotEnd + 1 : 1;
-  writeBrandStockBlock(sheet, nextRow, date, noSizeBrandTotals);
-};
+  const uncategorizedBucket = transposeBucket(categories.get(UNCATEGORIZED) || EMPTY_BUCKET);
+  const uncategorizedEnd = writePivotBlock(sheet, row, UNCATEGORIZED, date, uncategorizedBucket);
+  if (uncategorizedEnd !== null) row = uncategorizedEnd + 1;
 
-const addDetailSheet = (workbook, products) => {
-  const sheet = workbook.addWorksheet('All Products', { views: [{ state: 'frozen', ySplit: 1 }] });
-  sheet.columns = [
-    { header: 'Product', key: 'product', width: 34 },
-    { header: 'Category', key: 'category', width: 16 },
-    { header: 'Product Type', key: 'type', width: 14 },
-    { header: 'Brand Name', key: 'brand', width: 20 },
-    { header: 'Unit', key: 'unit', width: 8 },
-    { header: 'Opening', key: 'opening', width: 12 },
-    { header: 'Stock In', key: 'stockIn', width: 12 },
-    { header: 'Stock Out', key: 'stockOut', width: 12 },
-    { header: 'Closing', key: 'closing', width: 12 },
-    { header: 'Current Stock', key: 'current', width: 14 },
-    { header: 'Godown-wise Stock', key: 'godownWise', width: 40 },
-  ];
-  sheet.getRow(1).eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: 'FF1F2937' } };
-    cell.fill = HEADER_FILL;
-    cell.border = BORDER_ALL;
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
-  });
-  sheet.getRow(1).height = 20;
+  const noSizeEnd = writeBrandStockBlock(sheet, row, date, noSizeBrandTotals);
+  if (noSizeEnd !== null) row = noSizeEnd + 1; // blank gap row before Factory Stock List
 
-  for (const p of products) {
-    const row = sheet.addRow({
-      product: p.productName,
-      category: p.category || '—',
-      type: p.productType || '—',
-      brand: p.brandName || '—',
-      unit: p.unit,
-      opening: p.totals.opening,
-      stockIn: p.totals.stockIn,
-      stockOut: p.totals.stockOut,
-      closing: p.totals.closing,
-      current: p.totals.current,
-      godownWise: p.godowns.filter((g) => g.current !== 0).map((g) => `${g.godownName}: ${g.current}`).join(', ') || 'No stock',
-    });
-    row.eachCell((cell) => {
-      cell.border = BORDER_ALL;
-      cell.alignment = { vertical: 'middle' };
-    });
-  }
+  writeFactoryStockBlock(sheet, row, date, factoryLists);
 };
 
 export const exportStockReport = async (products, date) => {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'VPR Systems';
 
-  const { categories, noSizeBrandTotals } = buildCategoryPivots(products);
-
-  addCombinedCategoriesSheet(workbook, categories, date);
-  addUncategorizedSheet(workbook, categories, noSizeBrandTotals, date);
-  addDetailSheet(workbook, products);
+  addCombinedReportSheet(workbook, products, date);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/octet-stream' });
