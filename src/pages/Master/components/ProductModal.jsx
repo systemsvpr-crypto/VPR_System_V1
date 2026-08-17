@@ -106,8 +106,12 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
     setDeleting(false);
   };
 
+  // Only real (Own) godowns can carry opening stock — Transporter-type godowns
+  // are just stock-tracking placeholders, not physical storage locations.
+  const activeGodowns = godowns.filter(g => g.is_active && (g.godown_type || 'Own') === 'Own');
+
   const addEntry = () => {
-    const availableGodowns = godowns.filter(g => g.is_active && !form.entries.find(e => e.godown_id === g.godown_id));
+    const availableGodowns = activeGodowns.filter(g => !form.entries.find(e => e.godown_id === g.godown_id));
     if (availableGodowns.length === 0) { toast.error('No more godowns available.'); return; }
     setForm({ ...form, entries: [...form.entries, { godown_id: availableGodowns[0].godown_id, qty: '' }] });
   };
@@ -119,8 +123,6 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
   const removeEntry = (index) => {
     setForm({ ...form, entries: form.entries.filter((_, i) => i !== index) });
   };
-
-  const activeGodowns = godowns.filter(g => g.is_active);
 
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>

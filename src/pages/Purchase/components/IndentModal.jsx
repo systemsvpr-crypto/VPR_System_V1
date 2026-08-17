@@ -82,6 +82,8 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
           vendor_id: form.vendor_id,
           remarks: form.remarks.trim(),
           items: form.items,
+          process_type: form.process_type,
+          user_id: user?.user_id,
         });
         toast.success('Indent updated successfully');
       } else {
@@ -153,10 +155,12 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   }, [form.items]);
 
   const productOptions = useMemo(() => {
-    return products.map(p => ({ value: p.product_id, label: `${p.name} (${p.unit})` }));
+    return products.map(p => ({ value: p.product_id, label: p.name }));
   }, [products]);
 
-  const activeGodowns = useMemo(() => godowns.filter(g => g.is_active), [godowns]);
+  // Only real (Own) godowns are valid delivery destinations for an indent —
+  // Transporter-type godowns are just stock-tracking placeholders.
+  const activeGodowns = useMemo(() => godowns.filter(g => g.is_active && (g.godown_type || 'Own') === 'Own'), [godowns]);
 
   return (
     <>
@@ -222,48 +226,44 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
               </div>
 
               <div className="mt-4">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-slate-700">Products ({form.items.length})</label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setBulkModalOpen(true)}
-                    className="gap-1.5 text-xs font-medium text-primary border-primary/30 hover:bg-primary/5 transition-colors"
-                  >
-                    <Upload size={14} /> Upload Products in Bulk
-                  </Button>
-                </div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Products ({form.items.length})</label>
                 {form.items.length === 0 && (
                   <p className="text-xs text-slate-400 italic mb-2">No products added yet.</p>
                 )}
                 <div className="space-y-3 max-h-72 overflow-y-auto pr-1 border border-slate-200/80 rounded-xl p-3 bg-slate-50/50">
-                  {form.items.map((item, i) => (
-                    <div key={i} className="grid grid-cols-12 gap-2 items-end">
-                      <div className="col-span-5">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
-                        <Dropdown value={item.product_id} onValueChange={(v) => updateItem(i, 'product_id', v)}
-                          options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
-                          align="start" />
+                  {form.items.map((item, i) => {
+                    const selectedProduct = products.find(p => p.product_id === item.product_id);
+                    return (
+                      <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                        <div className="col-span-5">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
+                          <Dropdown value={item.product_id} onValueChange={(v) => updateItem(i, 'product_id', v)}
+                            options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
+                            align="start" />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">UoM</label>
+                          <Input value={selectedProduct?.unit || ''} readOnly placeholder="-" className="bg-slate-100/70 text-slate-600 cursor-not-allowed" />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Rate</label>
+                          <Input type="number" step="0.01" min="0" placeholder="0.00"
+                            value={item.rate} onChange={(e) => updateItem(i, 'rate', e.target.value)} />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
+                          <Input type="number" step="1" min="1" placeholder="1"
+                            value={item.quantity} onChange={(e) => updateItem(i, 'quantity', e.target.value.replace(/\D/g, ''))} />
+                        </div>
+                        <div className="col-span-1 flex items-end pb-0.5">
+                          <button type="button" onClick={() => removeItem(i)}
+                            className="p-1.5 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-all">
+                            <X size={18} />
+                          </button>
+                        </div>
                       </div>
-                      <div className="col-span-3">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Rate</label>
-                        <Input type="number" step="0.01" min="0" placeholder="0.00"
-                          value={item.rate} onChange={(e) => updateItem(i, 'rate', e.target.value)} />
-                      </div>
-                      <div className="col-span-3">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
-                        <Input type="number" step="1" min="1" placeholder="1"
-                          value={item.quantity} onChange={(e) => updateItem(i, 'quantity', e.target.value.replace(/\D/g, ''))} />
-                      </div>
-                      <div className="col-span-1 flex items-end pb-0.5">
-                        <button type="button" onClick={() => removeItem(i)}
-                          className="p-1.5 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-all">
-                          <X size={18} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div className="flex items-center gap-2 mt-3">
                   <Button type="button" variant="outline" size="sm" onClick={addItem}

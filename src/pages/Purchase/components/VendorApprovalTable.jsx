@@ -233,7 +233,7 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
         <p className="text-sm text-slate-400">
           {searchTerm
             ? 'No indents match your search criteria.'
-            : 'Mark items as "Planned" in Vendor Selection to see them here for approval.'}
+            : 'Mark items as "Planned" in Vendor Approval to see them here for approval.'}
         </p>
       </div>
     );

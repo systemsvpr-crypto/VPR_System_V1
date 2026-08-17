@@ -89,7 +89,7 @@ const SkipDeliverModal = ({ isOpen, onClose, item, customers, products, godowns,
   );
 
   const productOptions = useMemo(() =>
-    (products || []).filter(p => p.is_active !== false).map(p => ({ value: p.product_id, label: `${p.name} (${p.unit})` })),
+    (products || []).filter(p => p.is_active !== false).map(p => ({ value: p.product_id, label: p.name })),
     [products],
   );
 

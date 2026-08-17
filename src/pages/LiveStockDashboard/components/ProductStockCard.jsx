@@ -16,13 +16,16 @@ const ProductStockCard = ({ product: p }) => (
       {p.godowns
         .filter((g) => g.current !== 0)
         .sort((a, b) => b.current - a.current)
-        .map((g) => (
-          <div key={g.godownId} className="flex items-center justify-between gap-3 text-xs leading-5">
-            <span className="text-slate-500 truncate max-w-[100px]">{g.godownName}</span>
-            <span className="font-semibold text-slate-900">{formatNum(g.current)}</span>
-          </div>
-        ))}
-      {p.godowns.every((g) => g.current === 0) && (
+        .map((g) => {
+          const isTransport = g.godownType === 'Transporter';
+          return (
+            <div key={g.godownId} className="flex items-center justify-between gap-3 text-xs leading-5">
+              <span className={`truncate max-w-[100px] ${isTransport ? 'text-amber-600' : 'text-slate-500'}`}>{g.godownName}</span>
+              <span className={`font-semibold ${isTransport ? 'text-amber-600' : 'text-slate-900'}`}>{formatNum(g.current)}</span>
+            </div>
+          );
+        })}
+      {(p.totals?.current === 0 || !p.totals?.current) && (
         <span className="text-xs text-slate-400">No stock</span>
       )}
     </td>

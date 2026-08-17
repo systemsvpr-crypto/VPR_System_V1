@@ -100,9 +100,9 @@ const TransactionTable = ({ transactions, totalItems, loading, onEdit, onVoid })
                 {t.txn_type === 'PURCHASE_IN' ? (t.lifting_number || '—') : (t.dispatch_number || t.lr_number || '—')}
               </td>
               <td className={`px-4 py-3 text-right font-medium tabular-nums ${
-                ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN'].includes(t.txn_type) ? 'text-green-600' : 'text-red-600'
+                ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? 'text-green-600' : 'text-red-600'
               }`}>
-                {['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN'].includes(t.txn_type) ? '+' : '-'}
+                {['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? '+' : '-'}
                 {Number(t.qty).toFixed(0)}
               </td>
               <td className="px-4 py-3 text-center">

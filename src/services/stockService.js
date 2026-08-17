@@ -20,7 +20,7 @@ export const getStockBalanceBeforeTxn = async (productId, godownId, txnId, txnDa
   let balance = 0;
   for (const row of data || []) {
     if (row.txn_id === txnId) return balance;
-    const inc = ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
+    const inc = ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
     balance += inc;
   }
   return balance;
@@ -171,7 +171,7 @@ export const runFSG = async (productId, godownId, fromDate, { removeTxnIds = [],
     .lt('txn_date', fromDate);
 
   const anchorBalance = (anchorRows || []).reduce((sum, r) => {
-    return sum + (['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN'].includes(r.txn_type) ? Number(r.qty) : -Number(r.qty));
+    return sum + (['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(r.txn_type) ? Number(r.qty) : -Number(r.qty));
   }, 0);
 
   const { data: futureRows } = await supabase
@@ -197,7 +197,7 @@ export const runFSG = async (productId, godownId, fromDate, { removeTxnIds = [],
 
   let running = anchorBalance;
   for (const row of merged) {
-    const inc = ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
+    const inc = ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
     running += inc;
     if (running < 0 && !product.allow_negative_stock) {
       return {
@@ -223,7 +223,7 @@ export const getAffectedTransactionsImpact = async (productId, godownId, fromDat
     .lt('txn_date', fromDate);
 
   const anchorBalance = (anchorRows || []).reduce((sum, r) => {
-    return sum + (['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN'].includes(r.txn_type) ? Number(r.qty) : -Number(r.qty));
+    return sum + (['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(r.txn_type) ? Number(r.qty) : -Number(r.qty));
   }, 0);
 
   const { data: futureRows } = await supabase
@@ -250,7 +250,7 @@ export const getAffectedTransactionsImpact = async (productId, godownId, fromDat
   const rows = [];
   let running = anchorBalance;
   for (const row of merged) {
-    const inc = ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
+    const inc = ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
     running += inc;
     rows.push({
       txn_id: row.txn_id,

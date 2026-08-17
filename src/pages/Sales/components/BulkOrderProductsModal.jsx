@@ -70,7 +70,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
   const activeGodowns = useMemo(() => godowns.filter(g => g.is_active), [godowns]);
 
   const productOptions = useMemo(() => {
-    return products.map(p => ({ value: p.product_id, label: `${p.name} (${p.unit || 'units'})` }));
+    return products.map(p => ({ value: p.product_id, label: p.name }));
   }, [products]);
 
   const godownOptions = useMemo(() => {

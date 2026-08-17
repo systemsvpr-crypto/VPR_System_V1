@@ -27,6 +27,50 @@ const normalizeHeader = (header) => {
   return String(header).trim();
 };
 
+// Case doesn't matter and neither does spacing/punctuation — only the actual
+// letters and numbers need to line up (so "Yatra Milky 13*16 (30 Kg)" matches
+// "yatra milky 13-16 30kg" etc.) for both exact matching and similarity scoring.
+const normalizeKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// Edit distance between two strings, used to score how close an unmatched
+// file value is to an existing product name.
+const levenshtein = (a, b) => {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[m][n];
+};
+
+const similarity = (a, b) => {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshtein(a, b) / maxLen;
+};
+
+// Finds the closest-named existing products for a file value that didn't
+// match exactly, so the user can pick the intended one with one click
+// instead of searching the whole product list.
+const getProductSuggestions = (rawName, allProducts, limit = 3) => {
+  const raw = normalizeKey(rawName);
+  if (!raw) return [];
+  return allProducts
+    .map(p => ({ product: p, score: similarity(raw, normalizeKey(p.name)) }))
+    .filter(x => x.score >= 0.4)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(x => x.product);
+};
+
 const getTodayLocal = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -68,10 +112,12 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
   const [rawRows, setRawRows] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
-  const activeGodowns = useMemo(() => godowns.filter(g => g.is_active), [godowns]);
+  // Only real (Own) godowns are valid delivery destinations for an indent —
+  // Transporter-type godowns are just stock-tracking placeholders.
+  const activeGodowns = useMemo(() => godowns.filter(g => g.is_active && (g.godown_type || 'Own') === 'Own'), [godowns]);
 
   const productOptions = useMemo(() => {
-    return products.map(p => ({ value: p.product_id, label: `${p.name} (${p.unit || 'units'})` }));
+    return products.map(p => ({ value: p.product_id, label: p.name }));
   }, [products]);
 
   const godownOptions = useMemo(() => {
@@ -81,6 +127,18 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
   const vendorOptions = useMemo(() => {
     return vendors.map(v => ({ value: v.vendor_id, label: v.name }));
   }, [vendors]);
+
+  // For every unmatched product name in the file, precompute the closest
+  // existing products so we can offer one-click "Did you mean...?" picks.
+  const productSuggestionsMap = useMemo(() => {
+    const map = {};
+    rawRows.forEach(row => {
+      if (!row.product_id && row.rawProductName && !map[row.rawProductName]) {
+        map[row.rawProductName] = getProductSuggestions(row.rawProductName, products, 3);
+      }
+    });
+    return map;
+  }, [rawRows, products]);
 
   const reset = () => {
     setStep('upload');
@@ -149,9 +207,9 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
           const rawRemarks = remarksKey ? String(row[remarksKey] || '').trim() : '';
 
           const parsedDate = parseExcelDate(rawDate) || defaultDate;
-          const matchedProd = products.find(p => p.name.trim().toLowerCase() === rawProd.toLowerCase());
-          const matchedVendor = vendors.find(v => v.name.trim().toLowerCase() === rawVendor.toLowerCase());
-          const matchedGodown = activeGodowns.find(g => g.name.trim().toLowerCase() === rawGodown.toLowerCase());
+          const matchedProd = products.find(p => normalizeKey(p.name) === normalizeKey(rawProd));
+          const matchedVendor = vendors.find(v => normalizeKey(v.name) === normalizeKey(rawVendor));
+          const matchedGodown = activeGodowns.find(g => normalizeKey(g.name) === normalizeKey(rawGodown));
 
           return {
             id: idx,
@@ -193,21 +251,21 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
     e.preventDefault();
   };
 
-  const handleUpdateRow = (index, field, value) => {
-    const updated = [...rawRows];
-    updated[index][field] = value;
-    setRawRows(updated);
+  // Rows are identified by their stable `id` (assigned once when the file was
+  // parsed) rather than array position — array position shifts every time a
+  // row is removed, which was causing the wrong row to be targeted.
+  const handleUpdateRow = (id, field, value) => {
+    setRawRows(prev => prev.map(row => (row.id === id ? { ...row, [field]: value } : row)));
   };
 
-  const handleRemoveRow = (index) => {
-    const updated = rawRows.filter((_, i) => i !== index);
-    setRawRows(updated);
+  const handleRemoveRow = (id) => {
+    setRawRows(prev => prev.filter(row => row.id !== id));
   };
 
   // Group rows by unique (Date, Vendor, Product) combination
   const groupedOrders = useMemo(() => {
     const groups = {};
-    rawRows.forEach((row, idx) => {
+    rawRows.forEach(row => {
       const vendorKey = row.vendor_id || row.rawVendorName || 'unassigned';
       const prodKey = row.product_id || row.rawProductName || 'unassigned';
       const key = `${row.indent_date}_${vendorKey}_${prodKey}`;
@@ -224,7 +282,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
           items: [],
         };
       }
-      groups[key].items.push({ ...row, originalIndex: idx });
+      groups[key].items.push(row);
     });
     return Object.values(groups);
   }, [rawRows, vendors]);
@@ -507,7 +565,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {group.items.map((row, i) => {
-                            const origIdx = row.originalIndex;
+                            const origIdx = row.id;
                             const isMatched = !!row.product_id;
                             return (
                               <tr key={origIdx} className={isMatched ? 'hover:bg-slate-50' : 'bg-amber-50/40 hover:bg-amber-50/70'}>
@@ -522,9 +580,26 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                                     align="start"
                                   />
                                   {!row.product_id && row.rawProductName && (
-                                    <span className="text-[10px] text-amber-600 font-medium block mt-0.5">
-                                      File value: "{row.rawProductName}" (Not matched)
-                                    </span>
+                                    <div className="mt-0.5">
+                                      <span className="text-[10px] text-amber-600 font-medium block">
+                                        File value: "{row.rawProductName}" (Not matched)
+                                      </span>
+                                      {productSuggestionsMap[row.rawProductName]?.length > 0 && (
+                                        <div className="flex flex-wrap items-center gap-1 mt-1">
+                                          <span className="text-[10px] text-slate-400">Did you mean:</span>
+                                          {productSuggestionsMap[row.rawProductName].map(p => (
+                                            <button
+                                              key={p.product_id}
+                                              type="button"
+                                              onClick={() => handleUpdateRow(origIdx, 'product_id', p.product_id)}
+                                              className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 font-medium transition-colors"
+                                            >
+                                              {p.name}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
                                   )}
                                 </td>
                                 <td className="px-3 py-1.5">

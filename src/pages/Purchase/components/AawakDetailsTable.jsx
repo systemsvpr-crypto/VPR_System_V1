@@ -1,500 +1,517 @@
 import { useState, useEffect, useMemo } from 'react';
-import {
-  Search, ShoppingCart, ChevronDown, ChevronUp, Truck,
-  Package, CheckCircle2, AlertCircle, Hash, Zap, Timer, MapPin, Flag,
-} from 'lucide-react';
+import { ShoppingCart, Clock, History, Search, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getDirectItemsForAawak, getDeliveriesForItem, updateDeliveryStatus } from '../../../services/purchaseService';
+import { getAawakDeliveries, updateAawakLift } from '../../../services/purchaseService';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import Pagination from '@/components/ui/pagination';
-import ReceiveModal from './ReceiveModal';
-import ArriveConfirmModal from './ArriveConfirmModal';
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 15;
 
-const StatusBadge = ({ status }) => {
-  const map = {
-    Pending:   'bg-slate-100 text-slate-500 border-slate-200',
-    Partial:   'bg-blue-50 text-blue-700 border-blue-100',
-    Completed: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${map[status] || map.Pending}`}>
-      {status}
-    </span>
-  );
-};
+// A lift is only truly finalized (fully locked) once Arrived/Received — that's
+// when its stock has landed in the real destination godown for good.
+const isRowLocked = (del) => del?.status === 'Arrived' || del?.status === 'Received';
 
-const QtyPill = ({ value, color, label }) => {
-  const colors = {
-    blue:    'bg-blue-50 text-blue-700 border-blue-100',
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-    amber:   'bg-amber-50 text-amber-700 border-amber-100',
-    slate:   'bg-slate-100 text-slate-500 border-slate-200',
-  };
-  return (
-    <div className={`flex flex-col items-center justify-center rounded-lg border px-2.5 py-1.5 min-w-[56px] ${colors[color] || colors.slate}`}>
-      <span className="text-base font-bold tabular-nums leading-tight">{value}</span>
-      <span className="text-[9px] font-medium uppercase tracking-wide opacity-70 leading-tight mt-0.5">{label}</span>
-    </div>
-  );
-};
-
-const ProgressBar = ({ ordered, received }) => {
-  if (!ordered) return null;
-  const pct = Math.min((received / ordered) * 100, 100);
-  return (
-    <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden mt-2">
-      <div className="h-full bg-emerald-400 float-left rounded-l-full" style={{ width: `${pct}%` }} />
-    </div>
-  );
-};
-
-const AawakDetailsTable = ({ transporters, user, godowns }) => {
-  const [items, setItems] = useState([]);
+const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [], vendors = [] }) => {
+  const [activeSubTab, setActiveSubTab] = useState('pending'); // 'pending' ('In Transit') | 'history' ('AT TPT GDN', 'Arrived' & 'Received')
+  const [deliveries, setDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
+  const [productFilter, setProductFilter] = useState('');
+  const [transporterFilter, setTransporterFilter] = useState('');
+  const [expDateFilter, setExpDateFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [expandedItems, setExpandedItems] = useState(new Set());
-  const [deliveryHistory, setDeliveryHistory] = useState({});
-  const [loadingHistory, setLoadingHistory] = useState(new Set());
-  const [updatingStatus, setUpdatingStatus] = useState(new Set());
-  const [receiveItem, setReceiveItem] = useState(null);
-  const [activeStatusDropdown, setActiveStatusDropdown] = useState(null);
-  const [arriveConfirmDelivery, setArriveConfirmDelivery] = useState(null);
+  const [selectedLifts, setSelectedLifts] = useState(new Set());
+  const [editingRows, setEditingRows] = useState({});
+  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    const handleOutsideClick = (e) => {
-      if (!e.target.closest('.status-dropdown-container')) {
-        setActiveStatusDropdown(null);
-      }
-    };
-    document.addEventListener('click', handleOutsideClick);
-    return () => document.removeEventListener('click', handleOutsideClick);
-  }, []);
+  const isHistory = activeSubTab === 'history';
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, dateFilter, productFilter, transporterFilter, expDateFilter, activeSubTab]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await getDirectItemsForAawak();
-      setItems(data);
-    } catch {
-      toast.error('Failed to load aawak items');
-      setItems([]);
+      // Fetch all deliveries for Aawak Details
+      const data = await getAawakDeliveries();
+      setDeliveries(data);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to load aawak deliveries');
+      setDeliveries([]);
     }
     setLoading(false);
   };
 
-  const toggleExpand = async (itemId) => {
-    setExpandedItems(prev => {
-      const next = new Set(prev);
-      next.has(itemId) ? next.delete(itemId) : next.add(itemId);
-      return next;
+  // Pipeline division: Pending = 'In Transit' only (stock not yet recorded).
+  // History = 'In Transport Godown' (AT TPT GDN), 'Arrived' & 'Received' — once a
+  // lift's stock is tracked (even just at the transporter's own godown), it's out
+  // of Pending. Rows here stay editable until Arrived/Received locks them for good.
+  const pendingDeliveries = useMemo(() => {
+    return deliveries.filter(d => d.status === 'In Transit');
+  }, [deliveries]);
+
+  const historyDeliveries = useMemo(() => {
+    return deliveries.filter(d => d.status === 'In Transport Godown' || d.status === 'AT TPT GDN' || d.status === 'Arrived' || d.status === 'Received');
+  }, [deliveries]);
+
+  const activeDeliveriesList = isHistory ? historyDeliveries : pendingDeliveries;
+
+  const productOptions = useMemo(() => {
+    const map = new Map();
+    activeDeliveriesList.forEach(d => {
+      const p = d.purchase_indent_items?.products;
+      if (p?.name) map.set(p.name, p.name);
     });
+    return Array.from(map.values());
+  }, [activeDeliveriesList]);
 
-    if (!expandedItems.has(itemId) && !deliveryHistory[itemId]) {
-      setLoadingHistory(prev => new Set(prev).add(itemId));
-      try {
-        const history = await getDeliveriesForItem(itemId);
-        setDeliveryHistory(prev => ({ ...prev, [itemId]: history }));
-      } catch {
-        toast.error('Failed to load delivery history');
-      }
-      setLoadingHistory(prev => {
-        const next = new Set(prev);
-        next.delete(itemId);
-        return next;
-      });
-    }
-  };
+  const transporterOptions = useMemo(() => {
+    const map = new Map();
+    activeDeliveriesList.forEach(d => {
+      const name = d.transporters?.name;
+      if (name) map.set(name, name);
+    });
+    return Array.from(map.values());
+  }, [activeDeliveriesList]);
 
-  const filteredItems = useMemo(() => {
+  // Only real (Own) godowns are valid final destinations — Transporter-type
+  // godowns are just stock-tracking placeholders used while "AT TPT GDN."
+  const ownGodowns = useMemo(() =>
+    godowns.filter(g => g.is_active && (g.godown_type || 'Own') === 'Own'),
+    [godowns],
+  );
+
+  const filteredDeliveries = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    return items.filter(item => {
-      if (!term) return true;
-      const indent = item.purchase_indents || {};
-      return (
-        indent.indent_number?.toLowerCase().includes(term) ||
-        item.products?.name?.toLowerCase().includes(term) ||
-        indent.vendors?.name?.toLowerCase().includes(term)
-      );
+    return activeDeliveriesList.filter(d => {
+      const dYmd = d.delivery_date ? d.delivery_date.slice(0, 10) : '';
+      const expYmd = d.expected_delivery_date ? d.expected_delivery_date.slice(0, 10) : '';
+
+      const matchDate = !dateFilter || dYmd === dateFilter;
+      const matchExpDate = !expDateFilter || expYmd === expDateFilter;
+
+      const pName = d.purchase_indent_items?.products?.name || '';
+      const matchProduct = !productFilter || pName === productFilter;
+      const tName = d.transporters?.name || '';
+      const matchTransporter = !transporterFilter || tName === transporterFilter;
+
+      const iNum = d.purchase_indent_items?.purchase_indents?.indent_number || '';
+      const liftNum = d.lifting_number || '';
+      const lrNum = d.lr_number || '';
+      const driverNum = d.driver_phone_number || d.transporters?.driver_phone_number || '';
+      const vehicleNum = d.vehicle_number || d.transporters?.vehicle_number || '';
+      const matchSearch = !term ||
+        pName.toLowerCase().includes(term) ||
+        tName.toLowerCase().includes(term) ||
+        iNum.toLowerCase().includes(term) ||
+        liftNum.toLowerCase().includes(term) ||
+        lrNum.toLowerCase().includes(term) ||
+        driverNum.toLowerCase().includes(term) ||
+        vehicleNum.toLowerCase().includes(term);
+
+      return matchDate && matchProduct && matchTransporter && matchExpDate && matchSearch;
     });
-  }, [items, searchTerm]);
+  }, [activeDeliveriesList, dateFilter, productFilter, transporterFilter, expDateFilter, searchTerm]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
-  const currentItems = useMemo(() => {
+  const totalPages = Math.max(1, Math.ceil(filteredDeliveries.length / ITEMS_PER_PAGE));
+  const currentDeliveries = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredItems.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredItems, currentPage]);
+    return filteredDeliveries.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredDeliveries, currentPage]);
 
-  const handleDeliverySaved = () => {
-    const savedItemId = receiveItem?.item_id;
-    setReceiveItem(null);
-    if (savedItemId) {
-      setDeliveryHistory(prev => {
-        const next = { ...prev };
-        delete next[savedItemId];
-        return next;
-      });
+  const getRowVal = (del, field) => {
+    const edit = editingRows[del.delivery_id];
+    if (edit && edit[field] !== undefined) return edit[field];
+    if (field === 'status') return del.status === 'In Transport Godown' ? 'AT TPT GDN' : del.status || '';
+    if (field === 'godown_id') {
+      const currentAlloc = del.purchase_delivery_godowns?.[0]?.godown_id;
+      // While "AT TPT GDN," the allocation points at the transporter's own
+      // godown — not a valid destination pick — so fall back to the indent's
+      // originally-approved godown as the default final destination instead.
+      if (currentAlloc && currentAlloc !== del.transporter_id) return currentAlloc;
+      return del.purchase_indent_items?.purchase_indents?.godown_id || '';
     }
-    loadData();
+    if (field === 'driver_phone_number') return del.driver_phone_number || del.transporters?.driver_phone_number || '';
+    if (field === 'vehicle_number') return del.vehicle_number || del.transporters?.vehicle_number || '';
+    return del[field] || '';
   };
 
-  const handleStatusUpdate = async (delivery_id, newStatus) => {
-    if (updatingStatus.has(delivery_id)) return;
-    setUpdatingStatus(prev => new Set(prev).add(delivery_id));
+  const setRowVal = (deliveryId, field, val) => {
+    setEditingRows(prev => ({
+      ...prev,
+      [deliveryId]: { ...prev[deliveryId], [field]: val },
+    }));
+  };
+
+  const handleSubmit = async () => {
+    if (selectedLifts.size === 0) return;
+
+    setSubmitting(true);
     try {
-      await updateDeliveryStatus({ delivery_id, status: newStatus, user_id: user?.user_id });
-      toast.success(`Status updated to ${newStatus}`);
-      setDeliveryHistory({});
-      loadData();
+      const selectedIds = Array.from(selectedLifts);
+      for (const deliveryId of selectedIds) {
+        const del = deliveries.find(d => String(d.delivery_id) === String(deliveryId));
+        if (!del) continue;
+        const edit = editingRows[deliveryId] || {};
+
+        let dbStatus = edit.status;
+        if (dbStatus === 'AT TPT GDN') dbStatus = 'In Transport Godown';
+
+        await updateAawakLift({
+          delivery_id: del.delivery_id,
+          user_id: user?.user_id,
+          status: dbStatus !== undefined ? dbStatus : (del.status === 'AT TPT GDN' ? 'In Transport Godown' : del.status),
+          lr_number: edit.lr_number !== undefined ? edit.lr_number : (del.lr_number || ''),
+          driver_phone_number: edit.driver_phone_number !== undefined ? edit.driver_phone_number : (del.driver_phone_number || del.transporters?.driver_phone_number || ''),
+          vehicle_number: edit.vehicle_number !== undefined ? edit.vehicle_number : (del.vehicle_number || del.transporters?.vehicle_number || ''),
+          remarks: edit.remarks !== undefined ? edit.remarks : (del.remarks || ''),
+          godown_id: getRowVal(del, 'godown_id') || null,
+          received_quantity: del.received_quantity,
+          transporter_id: del.transporter_id || null,
+        });
+      }
+      toast.success('Changes submitted successfully');
+      setEditingRows({});
+      setSelectedLifts(new Set());
+      await loadData();
     } catch (err) {
-      toast.error(err.message || 'Failed to update status');
+      console.error(err);
+      toast.error(err.message || 'Failed to submit changes');
     }
-    setUpdatingStatus(prev => {
+    setSubmitting(false);
+  };
+
+  const toggleSelect = (deliveryId) => {
+    const del = deliveries.find(d => String(d.delivery_id) === String(deliveryId));
+    if (isRowLocked(del)) return;
+    setSelectedLifts(prev => {
       const next = new Set(prev);
-      next.delete(delivery_id);
+      if (next.has(deliveryId)) next.delete(deliveryId);
+      else next.add(deliveryId);
       return next;
     });
   };
 
-  const handleConfirmArrive = async (delivery_id, actualQty, deliveryDate) => {
-    if (updatingStatus.has(delivery_id)) return;
-    setUpdatingStatus(prev => new Set(prev).add(delivery_id));
-    try {
-      await updateDeliveryStatus({
-        delivery_id,
-        status: 'Arrived',
-        user_id: user?.user_id,
-        received_quantity: actualQty,
-        delivery_date: deliveryDate
-      });
-      toast.success('Status updated to Arrived');
-      setDeliveryHistory({});
-      loadData();
-    } catch (err) {
-      toast.error(err.message || 'Failed to update status');
-      throw err;
-    } finally {
-      setUpdatingStatus(prev => {
+  const toggleSelectAll = () => {
+    const selectable = currentDeliveries.filter(d => !isRowLocked(d));
+    if (selectable.length > 0 && selectable.every(d => selectedLifts.has(d.delivery_id))) {
+      setSelectedLifts(prev => {
         const next = new Set(prev);
-        next.delete(delivery_id);
+        selectable.forEach(d => next.delete(d.delivery_id));
+        return next;
+      });
+    } else {
+      setSelectedLifts(prev => {
+        const next = new Set(prev);
+        selectable.forEach(d => next.add(d.delivery_id));
         return next;
       });
     }
+  };
+
+  const selectableCount = currentDeliveries.filter(d => !isRowLocked(d)).length;
+  const allSelected = selectableCount > 0 && currentDeliveries.filter(d => !isRowLocked(d)).every(d => selectedLifts.has(d.delivery_id));
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setDateFilter('');
+    setProductFilter('');
+    setTransporterFilter('');
+    setExpDateFilter('');
   };
 
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3" />
-        <p className="text-sm text-slate-400">Loading direct receipt items...</p>
-      </div>
-    );
-  }
-
-  if (filteredItems.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
-          <ShoppingCart size={32} className="text-slate-300" />
-        </div>
-        <h3 className="text-base font-semibold text-slate-600 mb-1">No Direct Receipt Items</h3>
-        <p className="text-sm text-slate-400">
-          {searchTerm
-            ? 'No items match your search criteria.'
-            : 'Create a Direct-type indent to see items here for receiving.'}
-        </p>
+        <p className="text-sm text-slate-400">Loading aawak dashboard...</p>
       </div>
     );
   }
 
   return (
-    <>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-        <div className="relative w-full md:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
-          <input type="text" placeholder="Search indent no., product, vendor..."
-            value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-            className="flex h-10 w-full rounded-lg border border-input bg-transparent px-3 pl-9 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 placeholder:text-muted-foreground"
-          />
+    <div className="flex flex-col gap-4 font-sans">
+      {/* Sub-tabs Bar (Pending & History) with Submit button at rightmost position */}
+      <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { setActiveSubTab('pending'); setCurrentPage(1); setSelectedLifts(new Set()); setEditingRows({}); }}
+            className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-2 ${
+              activeSubTab === 'pending'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <Clock size={14} />
+            <span>Pending</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+              activeSubTab === 'pending' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {pendingDeliveries.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setActiveSubTab('history'); setCurrentPage(1); setSelectedLifts(new Set()); setEditingRows({}); }}
+            className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-2 ${
+              activeSubTab === 'history'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <History size={14} />
+            <span>History</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+              activeSubTab === 'history' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {historyDeliveries.length}
+            </span>
+          </button>
         </div>
-        <span className="text-xs text-slate-400 font-medium">{filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}</span>
+
+        <Button
+          type="button"
+          onClick={handleSubmit}
+          disabled={submitting || selectedLifts.size === 0}
+          className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm disabled:opacity-50 transition-all flex items-center gap-1.5"
+        >
+          {submitting && <Loader2 size={14} className="animate-spin" />}
+          {submitting ? 'Submitting...' : 'Submit'}
+        </Button>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-400">
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-300 inline-block" />Ordered</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-300 inline-block" />Allocated</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-300 inline-block" />Received</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block" />Remaining/Pending</span>
-          <span className="ml-auto font-medium text-slate-500">
-            {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
-          </span>
+      {/* Filter Toolbar - Modern layout with Calendar Pickers */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
+        <div className="flex flex-wrap items-center gap-3 flex-1">
+          <div className="relative w-full md:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
+            <Input
+              type="text"
+              placeholder="Search product, transporter, LR..."
+              className="pl-9 h-9 text-xs"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          {/* Calendar Filter for Delivery Date */}
+          <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30">
+            <span className="whitespace-nowrap font-medium text-slate-500">Date:</span>
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={e => setDateFilter(e.target.value)}
+              className="h-7 text-xs bg-transparent focus:outline-none text-slate-700 cursor-pointer"
+            />
+          </div>
+
+          <select
+            value={productFilter}
+            onChange={e => setProductFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[160px]"
+          >
+            <option value="">Product Name (-- All --)</option>
+            {productOptions.map(p => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+
+          <select
+            value={transporterFilter}
+            onChange={e => setTransporterFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[160px]"
+          >
+            <option value="">Transporter Name (-- All --)</option>
+            {transporterOptions.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+
+          {/* Calendar Filter for Expected Receiving Date */}
+          <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30">
+            <span className="whitespace-nowrap font-medium text-slate-500">Exp. Recv Date:</span>
+            <input
+              type="date"
+              value={expDateFilter}
+              onChange={e => setExpDateFilter(e.target.value)}
+              className="h-7 text-xs bg-transparent focus:outline-none text-slate-700 cursor-pointer"
+            />
+          </div>
+
+          {(searchTerm || dateFilter || productFilter || transporterFilter || expDateFilter) && (
+            <Button variant="outline" size="sm" onClick={clearFilters} className="h-9 text-xs border-slate-200 hover:bg-slate-50">
+              Clear
+            </Button>
+          )}
         </div>
 
-        <div className="divide-y divide-slate-100">
-          {currentItems.map(item => {
-            const indent = item.purchase_indents || {};
-            const isExpanded = expandedItems.has(item.item_id);
-            const isCompleted = item.delivery_status === 'Completed';
-            const history = deliveryHistory[item.item_id] || [];
-            const isLoadingHistory = loadingHistory.has(item.item_id);
-            const hasHistory = history.length > 0 || isLoadingHistory;
+        <span className="text-xs text-slate-400 font-medium shrink-0">
+          {filteredDeliveries.length} item{filteredDeliveries.length !== 1 ? 's' : ''}
+        </span>
+      </div>
 
-            return (
-              <div key={item.item_id} className="group">
-                <div
-                  className={`flex items-start gap-4 px-4 py-4 hover:bg-slate-50 transition-colors cursor-pointer ${isCompleted ? 'bg-green-50/30' : ''}`}
-                  onClick={() => toggleExpand(item.item_id)}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <StatusBadge status={item.delivery_status} />
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-100">
-                        <Zap size={10} /> Direct
-                      </span>
-                      <span className="font-semibold text-slate-800 text-sm">
-                        {indent.indent_number || '—'}
-                      </span>
-                      <span className="text-slate-300">·</span>
-                      <span className="text-sm text-slate-600">
-                        {item.products?.name}
-                        <span className="text-xs text-slate-400 ml-1 uppercase">({item.products?.unit})</span>
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <span className="text-xs text-slate-500">
-                        {indent.vendors?.name || '—'}
-                      </span>
-                      {indent.godowns?.name && (
-                        <>
-                          <span className="text-slate-200 text-xs">·</span>
-                          <span className="text-xs text-slate-400">{indent.godowns?.name}</span>
-                        </>
-                      )}
-                    </div>
-                    <ProgressBar ordered={item.quantity} received={item.received_qty} />
-                  </div>
+      {/* Main Table - Modern Rounded-XL Container */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+        {filteredDeliveries.length === 0 ? (
+          <div className="p-12 text-center text-slate-400">
+            <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
+            <p className="text-sm font-medium">
+              {activeSubTab === 'pending' ? 'No pending lifts found.' : 'No arrived lifts found.'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
+                <tr>
+                  <th className="w-10 px-2 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      disabled={selectableCount === 0}
+                      className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                  </th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Name</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">LR No.</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Driver No.</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">Vehicle No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Exp. Recv. Date</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Recv. Qty</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Godown Name</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Review</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {currentDeliveries.map(del => {
+                  const isSelected = selectedLifts.has(del.delivery_id);
+                  const prod = del.purchase_indent_items?.products || {};
+                  const qtyKg = Number(del.received_quantity || 0);
+                  const locked = isRowLocked(del);
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <QtyPill value={item.quantity}      color="blue"    label="Ordered" />
-                    <QtyPill value={item.allocated_qty} color="amber"   label="Allocated" />
-                    <QtyPill value={item.received_qty}  color="emerald" label="Received" />
-                    <QtyPill value={item.remaining_qty} color="slate"   label="Remaining/Pending" />
-                  </div>
+                  const uiStatus = getRowVal(del, 'status');
 
-                  <div className="flex flex-col items-end gap-2 shrink-0">
-                    {!isCompleted ? (
-                      <Button size="sm" onClick={(e) => { e.stopPropagation(); setReceiveItem(item); }}
-                        className="gap-1.5 text-xs h-8">
-                        <Truck size={13} />
-                        Receive
-                      </Button>
-                    ) : (
-                      <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
-                        <CheckCircle2 size={13} /> Done
-                      </span>
-                    )}
+                  return (
+                    <tr key={del.delivery_id} className={`hover:bg-slate-50/60 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
+                      <td className="px-2 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(del.delivery_id)}
+                          disabled={locked}
+                          className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap text-slate-500 text-xs">
+                        {del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}
+                      </td>
+                      <td className="px-3 py-3 font-medium text-slate-800">
+                        {prod.name || '—'}
+                      </td>
+                      <td className="px-3 py-3 text-slate-700 font-medium whitespace-nowrap">
+                        {del.transporters?.name || '—'}
+                      </td>
+                      <td className="px-3 py-3">
+                        <Input
+                          type="text"
+                          placeholder="LR No."
+                          disabled={locked}
+                          value={getRowVal(del, 'lr_number')}
+                          onChange={e => setRowVal(del.delivery_id, 'lr_number', e.target.value)}
+                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
+                        />
+                      </td>
+                      <td className="px-3 py-3 min-w-[140px]">
+                        <Input
+                          type="text"
+                          placeholder="Driver No."
+                          disabled={locked}
+                          value={getRowVal(del, 'driver_phone_number')}
+                          onChange={e => setRowVal(del.delivery_id, 'driver_phone_number', e.target.value)}
+                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
+                        />
+                      </td>
+                      <td className="px-3 py-3">
+                        <Input
+                          type="text"
+                          placeholder="Vehicle No."
+                          disabled={locked}
+                          value={getRowVal(del, 'vehicle_number')}
+                          onChange={e => setRowVal(del.delivery_id, 'vehicle_number', e.target.value)}
+                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
+                        />
+                      </td>
+                      <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap">
+                        {del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-center font-bold text-emerald-700">
+                        {qtyKg}
+                      </td>
+                      <td className="px-3 py-3">
+                        <select
+                          disabled={locked}
+                          value={getRowVal(del, 'godown_id')}
+                          onChange={e => setRowVal(del.delivery_id, 'godown_id', e.target.value)}
+                          className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
+                        >
+                          <option value="">Select godown...</option>
+                          {ownGodowns.map(g => (
+                            <option key={g.godown_id} value={g.godown_id}>{g.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-3">
+                        <Input
+                          type="text"
+                          placeholder="Review..."
+                          disabled={locked}
+                          value={getRowVal(del, 'remarks')}
+                          onChange={e => setRowVal(del.delivery_id, 'remarks', e.target.value)}
+                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
+                        />
+                      </td>
+                      <td className="px-3 py-3">
+                        <select
+                          disabled={locked}
+                          value={uiStatus}
+                          onChange={e => setRowVal(del.delivery_id, 'status', e.target.value)}
+                          className="w-full h-8 text-xs font-semibold px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
+                        >
+                          <option value="In Transit">In Transit</option>
+                          <option value="AT TPT GDN">AT TPT GDN</option>
+                          <option value="Arrived">Arrived</option>
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-                    {isLoadingHistory ? (
-                      <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                        <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-primary" />
-                        Loading lifts...
-                      </div>
-                    ) : (
-                      <button type="button"
-                        onClick={(e) => { e.stopPropagation(); toggleExpand(item.item_id); }}
-                        className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
-                      >
-                        {isExpanded ? <><ChevronUp size={12} /> Lifts</> : <><ChevronDown size={12} /> Lifts</>}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {isExpanded && hasHistory && (
-                  <div className="bg-slate-50 border-t border-slate-100 px-4 pb-3">
-                    {isLoadingHistory ? (
-                      <div className="flex items-center justify-center py-4">
-                        <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-primary" />
-                      </div>
-                    ) : (
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="text-slate-400 uppercase tracking-wide">
-                            <th className="text-left py-2 pr-4 font-semibold">Lift No.</th>
-                            <th className="text-left py-2 pr-4 font-semibold">Date</th>
-                            <th className="text-left py-2 pr-4 font-semibold">Exp. Del.</th>
-                            <th className="text-left py-2 pr-4 font-semibold">Transporter</th>
-                            <th className="text-left py-2 pr-4 font-semibold">LR No.</th>
-                            <th className="text-left py-2 pr-4 font-semibold">Vehicle</th>
-                            <th className="text-center py-2 pr-4 font-semibold">Qty</th>
-                            <th className="text-left py-2 pr-4 font-semibold">Godown</th>
-                            <th className="text-center py-2 pr-4 font-semibold">Status</th>
-                            <th className="text-left py-2 font-semibold">Remarks</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {history.map(del => {
-                            const statusColors = {
-                              'In Transit':        'bg-amber-50 text-amber-700 border-amber-100',
-                              'In Transport Godown': 'bg-blue-50 text-blue-700 border-blue-100',
-                              'Arrived':           'bg-emerald-50 text-emerald-700 border-emerald-100',
-                              'Received':          'bg-emerald-50 text-emerald-700 border-emerald-100',
-                            };
-                            const statusIcons = {
-                              'In Transit':        Timer,
-                              'In Transport Godown': MapPin,
-                              'Arrived':           CheckCircle2,
-                              'Received':          CheckCircle2,
-                            };
-                            const SIcon = statusIcons[del.status] || Timer;
-                            const isUpdating = updatingStatus.has(del.delivery_id);
-                            return (
-                            <tr key={del.delivery_id} className="hover:bg-white transition-colors">
-                              <td className="py-2 pr-4 font-semibold text-teal-700 whitespace-nowrap">
-                                {del.lifting_number || '—'}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">
-                                {format(new Date(del.delivery_date), 'dd/MM/yyyy')}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">
-                                {del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-600">
-                                {del.transporters?.name || '—'}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-500">
-                                {del.lr_number || '—'}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-500">
-                                {del.vehicle_number || '—'}
-                              </td>
-                              <td className="py-2 pr-4 text-center font-medium text-slate-700">
-                                {del.received_quantity}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-500 max-w-[140px]">
-                                {del.purchase_delivery_godowns?.length > 0 ? (
-                                  <span className="flex flex-wrap gap-1">
-                                    {del.purchase_delivery_godowns.map(g => (
-                                      <span key={g.godown_id} className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-white border border-slate-200 text-[10px]">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-blue-300 inline-block" />
-                                        {g.godowns?.name || '—'} ({g.qty})
-                                      </span>
-                                    ))}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-400">—</span>
-                                )}
-                              </td>
-                              <td className="py-2 pr-4 text-center">
-                                {isUpdating ? (
-                                  <div className="flex items-center justify-center">
-                                    <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-primary" />
-                                  </div>
-                                ) : del.status === 'Arrived' || del.status === 'Received' ? (
-                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${statusColors[del.status] || 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                                    <SIcon size={10} /> {del.status === 'Received' ? 'Arrived' : del.status}
-                                  </span>
-                                ) : (
-                                  <div className="relative status-dropdown-container">
-                                    <span
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setActiveStatusDropdown(prev => prev === del.delivery_id ? null : del.delivery_id);
-                                      }}
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium border cursor-pointer hover:ring-2 hover:ring-primary/30 ${statusColors[del.status] || 'bg-slate-100 text-slate-500 border-slate-200'}`}
-                                    >
-                                      <SIcon size={10} /> {del.status}
-                                    </span>
-                                    {activeStatusDropdown === del.delivery_id && (
-                                      <div className="absolute right-0 top-full mt-1 z-20 min-w-[130px] bg-white rounded-lg border border-slate-200 shadow-lg py-1">
-                                        {['In Transit', 'In Transport Godown', 'Arrived'].map(s => {
-                                          const isActive = del.status === s;
-                                          const sColors = {
-                                            'In Transit': 'text-amber-600',
-                                            'In Transport Godown': 'text-blue-600',
-                                            'Arrived': 'text-emerald-600',
-                                          };
-                                          return (
-                                            <button key={s} type="button"
-                                              onClick={() => {
-                                                setActiveStatusDropdown(null);
-                                                if (s === 'Arrived') {
-                                                  setArriveConfirmDelivery(del);
-                                                } else {
-                                                  handleStatusUpdate(del.delivery_id, s);
-                                                }
-                                              }}
-                                              className={`w-full text-left px-3 py-1.5 text-[11px] flex items-center gap-2 ${
-                                                isActive ? 'bg-slate-50 font-semibold' : 'hover:bg-slate-50'
-                                              } ${sColors[s] || ''}`}>
-                                              {s === 'In Transit' && <Timer size={11} />}
-                                              {s === 'In Transport Godown' && <MapPin size={11} />}
-                                              {s === 'Arrived' && <Flag size={11} />}
-                                              {s}
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="py-2 text-slate-400 max-w-[120px] truncate" title={del.remarks || ''}>
-                                {del.remarks || '—'}
-                              </td>
-                            </tr>
-                          )})}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {filteredItems.length > ITEMS_PER_PAGE && (
+        {filteredDeliveries.length > ITEMS_PER_PAGE && (
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}
-            totalItems={filteredItems.length}
+            totalItems={filteredDeliveries.length}
             startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1}
-            endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredItems.length)}
+            endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredDeliveries.length)}
             onPageChange={setCurrentPage}
             className="border-t border-slate-200"
           />
         )}
       </div>
-
-      {receiveItem && (
-        <ReceiveModal
-          isOpen={!!receiveItem}
-          onClose={() => setReceiveItem(null)}
-          item={receiveItem}
-          transporters={transporters}
-          godowns={godowns}
-          user={user}
-          onSuccess={handleDeliverySaved}
-        />
-      )}
-
-      {arriveConfirmDelivery && (
-        <ArriveConfirmModal
-          isOpen={!!arriveConfirmDelivery}
-          onClose={() => setArriveConfirmDelivery(null)}
-          delivery={arriveConfirmDelivery}
-          onConfirm={handleConfirmArrive}
-        />
-      )}
-    </>
+    </div>
   );
 };
 

@@ -58,10 +58,14 @@ export const TRANSPORTER_CONFIG = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+// Strips spaces/underscores/hyphens so "vehicle_number" (a raw DB export header),
+// "Vehicle Number", and "vehiclenumber" all normalize to the same key and match.
+const normalizeKey = (s) => s.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
 const normalizeHeader = (raw, columns) => {
-  const h = raw.trim().toLowerCase();
+  const h = normalizeKey(raw);
   for (const col of columns) {
-    if (col.aliases.includes(h)) return col.key;
+    if (col.aliases.some(a => normalizeKey(a) === h)) return col.key;
   }
   return null;
 };

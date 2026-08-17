@@ -66,6 +66,7 @@ const Master = () => {
   const [editingGroup, setEditingGroup] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [godownFilter, setGodownFilter] = useState('all');
+  const [godownTypeFilter, setGodownTypeFilter] = useState('Own');
   const [currentPage, setCurrentPage] = useState(1);
 
   const visibleTabs = useMemo(() => {
@@ -88,9 +89,10 @@ const Master = () => {
 
   const filteredGodowns = useMemo(() => {
     return godowns.filter(g =>
-      g.name?.toLowerCase().includes(searchTerm.toLowerCase())
+      g.name?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      (g.godown_type || 'Own') === godownTypeFilter
     );
-  }, [godowns, searchTerm]);
+  }, [godowns, searchTerm, godownTypeFilter]);
 
   const filteredCustomers = useMemo(() => {
     const term = searchTerm.toLowerCase();
@@ -184,7 +186,7 @@ const Master = () => {
   }, [visibleTabs, activeTab]);
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter, godownTypeFilter]);
 
   const loadData = async () => {
     setLoading(true);
@@ -329,6 +331,22 @@ const Master = () => {
                 </Select>
               </div>
             )}
+            {activeTab === 'godowns' && (
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 w-fit shrink-0">
+                <button type="button" onClick={() => setGodownTypeFilter('Own')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                    godownTypeFilter === 'Own' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}>
+                  Own
+                </button>
+                <button type="button" onClick={() => setGodownTypeFilter('Transporter')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                    godownTypeFilter === 'Transporter' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}>
+                  Transporter
+                </button>
+              </div>
+            )}
           </div>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             {!loading && (
@@ -341,16 +359,18 @@ const Master = () => {
                     <FileSpreadsheet size={20} /><span>Import</span>
                   </Button>
                 )}
-                <Button onClick={() => {
-                  if (activeTab === 'products') { setEditingProduct(null); setProductModalOpen(true); }
-                  else if (activeTab === 'godowns') setGodownModalOpen(true);
-                  else if (activeTab === 'customers') { setEditingCustomer(null); setCustomerModalOpen(true); }
-                  else if (activeTab === 'vendors') { setEditingVendor(null); setVendorModalOpen(true); }
-                  else if (activeTab === 'transporters') { setEditingTransporter(null); setTransporterModalOpen(true); }
-                  else if (activeTab === 'product-grouping') { setEditingGroup(null); setGroupModalOpen(true); }
-                }} className="gap-2 px-4 font-medium">
-                  <Plus size={20} /><span>Add {activeTab === 'product-grouping' ? 'Group' : activeTab.charAt(0).toUpperCase() + activeTab.slice(1, -1)}</span>
-                </Button>
+                {!(activeTab === 'godowns' && godownTypeFilter === 'Transporter') && (
+                  <Button onClick={() => {
+                    if (activeTab === 'products') { setEditingProduct(null); setProductModalOpen(true); }
+                    else if (activeTab === 'godowns') setGodownModalOpen(true);
+                    else if (activeTab === 'customers') { setEditingCustomer(null); setCustomerModalOpen(true); }
+                    else if (activeTab === 'vendors') { setEditingVendor(null); setVendorModalOpen(true); }
+                    else if (activeTab === 'transporters') { setEditingTransporter(null); setTransporterModalOpen(true); }
+                    else if (activeTab === 'product-grouping') { setEditingGroup(null); setGroupModalOpen(true); }
+                  }} className="gap-2 px-4 font-medium">
+                    <Plus size={20} /><span>Add {activeTab === 'product-grouping' ? 'Group' : activeTab.charAt(0).toUpperCase() + activeTab.slice(1, -1)}</span>
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -369,7 +389,7 @@ const Master = () => {
           )}
           {activeTab === 'godowns' && (
             <div className="flex flex-col">
-              <GodownTable godowns={currentGodowns} totalItems={filteredGodowns.length} loading={loading} onToggle={handleToggleGodown} searchTerm={searchTerm} user={user} onDelete={handleDeleteGodown} />
+              <GodownTable godowns={currentGodowns} totalItems={filteredGodowns.length} loading={loading} onToggle={handleToggleGodown} searchTerm={searchTerm} user={user} onDelete={handleDeleteGodown} typeFilter={godownTypeFilter} />
               {!loading && filteredGodowns.length > 0 && (
                 <Pagination currentPage={currentPage} totalPages={totalGodownPages} totalItems={filteredGodowns.length}
                   startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1} endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredGodowns.length)}
@@ -432,7 +452,7 @@ const Master = () => {
       <VendorModal isOpen={vendorModalOpen} onClose={handleCloseVendorModal}
         onSuccess={loadData} editingVendor={editingVendor} user={user} />
       <TransporterModal isOpen={transporterModalOpen} onClose={handleCloseTransporterModal}
-        onSuccess={loadData} editingTransporter={editingTransporter} user={user} />
+        onSuccess={loadData} editingTransporter={editingTransporter} user={user} godowns={godowns} />
       <GroupModal isOpen={groupModalOpen} onClose={handleCloseGroupModal}
         user={user} onSuccess={loadData} editingGroup={editingGroup} />
       {entityImportType && (

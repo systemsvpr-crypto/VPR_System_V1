@@ -6,10 +6,11 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 
-const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user, onDelete }) => {
+const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user, onDelete, godowns }) => {
   const [name, setName] = useState('');
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [driverPhoneNumber, setDriverPhoneNumber] = useState('');
+  const [maintainGodown, setMaintainGodown] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -19,14 +20,17 @@ const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user
   useEffect(() => {
     if (!isOpen) {
       if (!editingTransporter) {
-        setName(''); setVehicleNumber(''); setDriverPhoneNumber('');
+        setName(''); setVehicleNumber(''); setDriverPhoneNumber(''); setMaintainGodown(true);
       }
     } else if (editingTransporter) {
       setName(editingTransporter.name || '');
       setVehicleNumber(editingTransporter.vehicle_number || '');
       setDriverPhoneNumber(editingTransporter.driver_phone_number || '');
+      setMaintainGodown((godowns || []).some(g => g.godown_id === editingTransporter.transporter_id && g.is_active));
+    } else {
+      setMaintainGodown(true);
     }
-  }, [isOpen, editingTransporter]);
+  }, [isOpen, editingTransporter, godowns]);
 
   const validatePhone = (phone) => /^\d{10}$/.test(phone);
 
@@ -36,7 +40,7 @@ const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user
     if (driverPhoneNumber && !validatePhone(driverPhoneNumber)) { toast.error('Phone number must be exactly 10 digits.'); return; }
     setSubmitting(true);
     try {
-      const payload = { name: name.trim(), vehicle_number: vehicleNumber.trim(), driver_phone_number: driverPhoneNumber.trim() };
+      const payload = { name: name.trim(), vehicle_number: vehicleNumber.trim(), driver_phone_number: driverPhoneNumber.trim(), maintainGodown };
       if (isEditing) {
         await updateTransporter({ ...payload, transporter_id: editingTransporter.transporter_id });
         toast.success('Transporter updated successfully');
@@ -88,6 +92,18 @@ const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user
                   <Input value={driverPhoneNumber} onChange={(e) => setDriverPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Enter driver phone number" className="pl-12" />
                 </div>
               </div>
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input type="checkbox" checked={maintainGodown} onChange={(e) => setMaintainGodown(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+                <span className="text-sm">
+                  <span className="font-medium text-slate-700">Maintain Godown</span>
+                  <span className="block text-xs text-slate-400">
+                    {maintainGodown
+                      ? 'Also stored as a godown, so it shows up in Live Stock / Godown Summary.'
+                      : "Won't be stored as a godown — this transporter shows in Transporters only."}
+                  </span>
+                </span>
+              </label>
             </div>
           </ModalBody>
           <ModalFooter>

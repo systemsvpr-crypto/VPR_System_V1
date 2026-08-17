@@ -32,9 +32,9 @@ export const PAGE_TABS = {
   ],
   purchase: [
     { id: 'indent', label: 'Indent' },
-    { id: 'vendor-selection', label: 'Vendor Selection' },
-    { id: 'vendor-approval', label: 'Vendor Approval' },
-    { id: 'delivery', label: 'Delivery' },
+    { id: 'vendor-selection', label: 'Vendor Approval' },
+    { id: 'in-transit', label: 'Delivery' },
     { id: 'aawak-details', label: 'Aawak Details' },
+    { id: 'purchase-complete', label: 'Purchase Dashboard' },
   ],
 };

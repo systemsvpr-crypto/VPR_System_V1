@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, FileText, Users, BadgeCheck, Truck, Zap, Download, Upload } from 'lucide-react';
+import { Search, ShoppingCart, Plus, FileText, Users, BadgeCheck, Truck, Zap, Download, Upload, Timer, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllIndents, deleteIndent } from '../../services/purchaseService';
@@ -14,16 +14,16 @@ import IndentTable from './components/IndentTable';
 import IndentModal from './components/IndentModal';
 import BulkIndentProductsModal from './components/BulkIndentProductsModal';
 import VendorSelectionTable from './components/VendorSelectionTable';
-import VendorApprovalTable from './components/VendorApprovalTable';
 import DeliveryTable from './components/DeliveryTable';
 import AawakDetailsTable from './components/AawakDetailsTable';
+import PurchaseCompleteTable from './components/PurchaseCompleteTable';
 
 const TABS = [
   { id: 'indent', label: 'Indent', icon: FileText },
-  { id: 'vendor-selection', label: 'Vendor Selection', icon: Users },
-  { id: 'vendor-approval', label: 'Vendor Approval', icon: BadgeCheck },
-  { id: 'delivery', label: 'Delivery', icon: Truck },
+  { id: 'vendor-selection', label: 'Vendor Approval', icon: Users },
+  { id: 'in-transit', label: 'Delivery', icon: Timer },
   { id: 'aawak-details', label: 'Aawak Details', icon: Zap },
+  { id: 'purchase-complete', label: 'Purchase Dashboard', icon: BadgeCheck },
 ];
 
 const ITEMS_PER_PAGE = 10;
@@ -50,8 +50,13 @@ const Purchase = () => {
 
   const visibleTabs = useMemo(() => {
     const allowedTabs = user?.tab_access?.purchase;
-    if (!allowedTabs || allowedTabs.length === 0) return [];
-    return TABS.filter(tab => allowedTabs.includes(tab.id));
+    if (!allowedTabs || allowedTabs.length === 0) return TABS;
+    return TABS.filter(tab =>
+      allowedTabs.includes(tab.id) ||
+      (allowedTabs.includes('delivery') && tab.id === 'in-transit') ||
+      (allowedTabs.includes('aawak-details') && tab.id === 'purchase-complete') ||
+      tab.id === 'purchase-complete'
+    );
   }, [user]);
 
   const filteredIndents = useMemo(() => {
@@ -250,19 +255,19 @@ const Purchase = () => {
       )}
 
       {activeTab === 'vendor-selection' && (
-        <VendorSelectionTable vendors={vendors} />
+        <VendorSelectionTable vendors={vendors} godowns={godowns} user={user} />
       )}
 
-      {activeTab === 'vendor-approval' && (
-        <VendorApprovalTable vendors={vendors} godowns={godowns} />
-      )}
-
-      {activeTab === 'delivery' && (
-        <DeliveryTable transporters={transporters} user={user} godowns={godowns} />
+      {(activeTab === 'in-transit' || activeTab === 'delivery') && (
+        <DeliveryTable tabMode="in-transit" transporters={transporters} user={user} godowns={godowns} />
       )}
 
       {activeTab === 'aawak-details' && (
-        <AawakDetailsTable transporters={transporters} user={user} godowns={godowns} />
+        <AawakDetailsTable transporters={transporters} user={user} godowns={godowns} products={products} vendors={vendors} />
+      )}
+
+      {activeTab === 'purchase-complete' && (
+        <PurchaseCompleteTable user={user} godowns={godowns} products={products} vendors={vendors} />
       )}
       </div>
       )}

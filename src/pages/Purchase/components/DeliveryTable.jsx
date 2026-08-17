@@ -1,522 +1,683 @@
 import { useState, useEffect, useMemo } from 'react';
-import {
-  Search, ShoppingCart, ChevronDown, ChevronUp, Truck,
-  Package, CheckCircle2, AlertCircle, Hash, Timer, MapPin, Flag,
-} from 'lucide-react';
+import { ShoppingCart, Check, History, Clock, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getApprovedItemsForDelivery, getDeliveriesForItem, updateDeliveryStatus } from '../../../services/purchaseService';
+import {
+  getApprovedItemsForDelivery,
+  getAawakDeliveries,
+  createDelivery,
+  cancelIndentItem,
+  getPackagingSize,
+} from '../../../services/purchaseService';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import Pagination from '@/components/ui/pagination';
-import ReceiveModal from './ReceiveModal';
-import ArriveConfirmModal from './ArriveConfirmModal';
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 15;
 
-/* ─── status badge ──────────────────────────────────────────── */
-const StatusBadge = ({ status }) => {
-  const map = {
-    Pending:   'bg-slate-100 text-slate-500 border-slate-200',
-    Partial:   'bg-blue-50 text-blue-700 border-blue-100',
-    Completed: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${map[status] || map.Pending}`}>
-      {status}
-    </span>
-  );
-};
-
-/* ─── quantity pill ────────────────────────────────────────── */
-const QtyPill = ({ value, color, label }) => {
-  const colors = {
-    blue:    'bg-blue-50 text-blue-700 border-blue-100',
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-    amber:   'bg-amber-50 text-amber-700 border-amber-100',
-    slate:   'bg-slate-100 text-slate-500 border-slate-200',
-  };
-  return (
-    <div className={`flex flex-col items-center justify-center rounded-lg border px-2.5 py-1.5 min-w-[56px] ${colors[color] || colors.slate}`}>
-      <span className="text-base font-bold tabular-nums leading-tight">{value}</span>
-      <span className="text-[9px] font-medium uppercase tracking-wide opacity-70 leading-tight mt-0.5">{label}</span>
-    </div>
-  );
-};
-
-/* ─── progress bar ─────────────────────────────────────────── */
-const ProgressBar = ({ ordered, received }) => {
-  if (!ordered) return null;
-  const receivedPct = Math.min((received / ordered) * 100, 100);
-  return (
-    <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden mt-2">
-      <div
-        className="h-full bg-emerald-400 float-left rounded-l-full"
-        style={{ width: `${receivedPct}%` }}
-      />
-    </div>
-  );
-};
-
-/* ────────────────────────────────────────────────────────────
-   Main component
-───────────────────────────────────────────────────────────── */
-const DeliveryTable = ({ transporters, user, godowns }) => {
+const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
+  const [activeSubTab, setActiveSubTab] = useState('pending'); // 'pending' | 'history'
   const [items, setItems] = useState([]);
+  const [historyItems, setHistoryItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [indentFilter, setIndentFilter] = useState('');
+  const [productFilter, setProductFilter] = useState('');
+  const [vendorFilter, setVendorFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [expandedItems, setExpandedItems] = useState(new Set());
-  const [deliveryHistory, setDeliveryHistory] = useState({});
-  const [loadingHistory, setLoadingHistory] = useState(new Set());
-  const [updatingStatus, setUpdatingStatus] = useState(new Set());
-  const [receiveItem, setReceiveItem] = useState(null);
-  const [activeStatusDropdown, setActiveStatusDropdown] = useState(null);
-  const [arriveConfirmDelivery, setArriveConfirmDelivery] = useState(null);
-
-  useEffect(() => {
-    const handleOutsideClick = (e) => {
-      if (!e.target.closest('.status-dropdown-container')) {
-        setActiveStatusDropdown(null);
-      }
-    };
-    document.addEventListener('click', handleOutsideClick);
-    return () => document.removeEventListener('click', handleOutsideClick);
-  }, []);
+  const [selectedItems, setSelectedItems] = useState(new Set());
+  const [rowEdits, setRowEdits] = useState({});
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, indentFilter, productFilter, vendorFilter, activeSubTab]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await getApprovedItemsForDelivery();
-      setItems(data);
-    } catch {
-      toast.error('Failed to load approved items');
+      const [approvedData, historyData] = await Promise.all([
+        getApprovedItemsForDelivery(),
+        getAawakDeliveries(),
+      ]);
+      setItems(approvedData.filter(i =>
+        i.planning_status !== 'Cancelled' && Number(i.remaining_alloc_qty ?? i.remaining_qty ?? 0) > 0
+      ));
+      setHistoryItems(historyData || []);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to load delivery data');
       setItems([]);
+      setHistoryItems([]);
     }
     setLoading(false);
   };
 
-  const toggleExpand = async (itemId) => {
-    setExpandedItems(prev => {
-      const next = new Set(prev);
-      next.has(itemId) ? next.delete(itemId) : next.add(itemId);
-      return next;
+  const indentOptions = useMemo(() => {
+    const map = new Map();
+    const targetList = activeSubTab === 'pending' ? items : historyItems;
+    targetList.forEach(i => {
+      const num = activeSubTab === 'pending'
+        ? i.purchase_indents?.indent_number
+        : i.purchase_indent_items?.purchase_indents?.indent_number;
+      if (num) map.set(num, num);
     });
+    return Array.from(map.values());
+  }, [items, historyItems, activeSubTab]);
 
-    if (!expandedItems.has(itemId) && !deliveryHistory[itemId]) {
-      setLoadingHistory(prev => new Set(prev).add(itemId));
-      try {
-        const history = await getDeliveriesForItem(itemId);
-        setDeliveryHistory(prev => ({ ...prev, [itemId]: history }));
-      } catch {
-        toast.error('Failed to load delivery history');
-      }
-      setLoadingHistory(prev => {
-        const next = new Set(prev);
-        next.delete(itemId);
-        return next;
+  const productOptions = useMemo(() => {
+    const map = new Map();
+    if (activeSubTab === 'pending') {
+      items.forEach(i => {
+        if (i.product_id && i.products?.name) {
+          map.set(String(i.product_id), i.products.name);
+        }
+      });
+    } else {
+      historyItems.forEach(h => {
+        const p = h.purchase_indent_items?.products;
+        if (p?.name) map.set(p.name, p.name);
       });
     }
-  };
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [items, historyItems, activeSubTab]);
+
+  const vendorOptions = useMemo(() => {
+    const map = new Map();
+    items.forEach(i => {
+      const vId = i.item_vendor?.vendor_id || i.vendor_id || i.purchase_indents?.vendor_id;
+      const vName = i.item_vendor?.name || i.purchase_indents?.vendors?.name;
+      if (vId && vName) map.set(String(vId), vName);
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [items]);
 
   const filteredItems = useMemo(() => {
     const term = searchTerm.toLowerCase();
     return items.filter(item => {
-      if (!term) return true;
       const indent = item.purchase_indents || {};
-      return (
-        indent.indent_number?.toLowerCase().includes(term) ||
-        item.products?.name?.toLowerCase().includes(term) ||
-        indent.vendors?.name?.toLowerCase().includes(term)
-      );
+      const matchIndent = !indentFilter || indent.indent_number === indentFilter;
+      const matchProduct = !productFilter || String(item.product_id) === productFilter;
+      const itemVendorId = item.item_vendor?.vendor_id || item.vendor_id || indent.vendor_id;
+      const matchVendor = !vendorFilter || String(itemVendorId) === vendorFilter;
+      const pName = item.products?.name?.toLowerCase() || '';
+      const vName = (item.item_vendor?.name || indent.vendors?.name || '').toLowerCase();
+      const iNum = (indent.indent_number || '').toLowerCase();
+      const matchSearch = !term || iNum.includes(term) || pName.includes(term) || vName.includes(term);
+      return matchIndent && matchProduct && matchVendor && matchSearch;
     });
-  }, [items, searchTerm]);
+  }, [items, indentFilter, productFilter, vendorFilter, searchTerm]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
-  const currentItems = useMemo(() => {
+  const filteredHistoryItems = useMemo(() => {
+    const term = searchTerm.toLowerCase();
+    return historyItems.filter(h => {
+      const indent = h.purchase_indent_items?.purchase_indents || {};
+      const matchIndent = !indentFilter || indent.indent_number === indentFilter;
+      const pName = h.purchase_indent_items?.products?.name || '';
+      const matchProduct = !productFilter || pName === productFilter || String(h.purchase_indent_items?.product_id) === productFilter;
+      const tName = h.transporters?.name || '';
+      const matchVendor = !vendorFilter || tName === vendorFilter;
+      const vName = h.purchase_indent_items?.item_vendor?.name || indent.vendors?.name || '';
+      const iNum = indent.indent_number || h.lifting_number || '';
+      const matchSearch = !term || iNum.toLowerCase().includes(term) || pName.toLowerCase().includes(term) || vName.toLowerCase().includes(term) || tName.toLowerCase().includes(term);
+      return matchIndent && matchProduct && matchVendor && matchSearch;
+    });
+  }, [historyItems, indentFilter, productFilter, vendorFilter, searchTerm]);
+
+  const currentList = activeSubTab === 'pending' ? filteredItems : filteredHistoryItems;
+  const totalPages = Math.max(1, Math.ceil(currentList.length / ITEMS_PER_PAGE));
+  const currentPageItems = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredItems.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredItems, currentPage]);
+    return currentList.slice(start, start + ITEMS_PER_PAGE);
+  }, [currentList, currentPage]);
 
-  const handleDeliverySaved = () => {
-    const savedItemId = receiveItem?.item_id;
-    setReceiveItem(null);
-    if (savedItemId) {
-      setDeliveryHistory(prev => {
-        const next = { ...prev };
-        delete next[savedItemId];
-        return next;
-      });
-    }
-    loadData();
+  const getRowVal = (itemId, field, defaultVal = '') => {
+    const edit = rowEdits[itemId];
+    if (edit && edit[field] !== undefined) return edit[field];
+    return defaultVal;
   };
 
-  const handleStatusUpdate = async (delivery_id, newStatus) => {
-    if (updatingStatus.has(delivery_id)) return;
-    setUpdatingStatus(prev => new Set(prev).add(delivery_id));
-    try {
-      await updateDeliveryStatus({ delivery_id, status: newStatus, user_id: user?.user_id });
-      toast.success(`Status updated to ${newStatus}`);
-      setDeliveryHistory({});
-      loadData();
-    } catch (err) {
-      toast.error(err.message || 'Failed to update status');
-    }
-    setUpdatingStatus(prev => {
+  const setRowVal = (itemId, field, value) => {
+    setRowEdits(prev => ({
+      ...prev,
+      [itemId]: { ...prev[itemId], [field]: value },
+    }));
+  };
+
+  const handleTransporterChange = (itemId, transporterId) => {
+    const selectedTransporter = transporters.find(t => String(t.transporter_id) === String(transporterId));
+    setRowEdits(prev => {
+      const current = prev[itemId] || {};
+      return {
+        ...prev,
+        [itemId]: {
+          ...current,
+          transporter_id: transporterId,
+          vehicle_number: transporterId ? (selectedTransporter?.vehicle_number || current.vehicle_number || '') : '',
+          driver_phone_number: transporterId ? (selectedTransporter?.driver_phone_number || current.driver_phone_number || '') : '',
+          lr_number: transporterId ? (current.lr_number || '') : '',
+        },
+      };
+    });
+  };
+
+  const hasAnyTransporterSelected = useMemo(() => {
+    return currentPageItems.some(item => !!getRowVal(item.item_id, 'transporter_id'));
+  }, [currentPageItems, rowEdits]);
+
+  const handleReceivedQtyChange = (item, val) => {
+    setRowEdits(prev => ({
+      ...prev,
+      [item.item_id]: {
+        ...prev[item.item_id],
+        del_qty_kg: val,
+      },
+    }));
+  };
+
+  const toggleSelect = (itemId) => {
+    setSelectedItems(prev => {
       const next = new Set(prev);
-      next.delete(delivery_id);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
       return next;
     });
   };
 
-  const handleConfirmArrive = async (delivery_id, actualQty, deliveryDate) => {
-    if (updatingStatus.has(delivery_id)) return;
-    setUpdatingStatus(prev => new Set(prev).add(delivery_id));
-    try {
-      await updateDeliveryStatus({
-        delivery_id,
-        status: 'Arrived',
-        user_id: user?.user_id,
-        received_quantity: actualQty,
-        delivery_date: deliveryDate
-      });
-      toast.success('Status updated to Arrived');
-      setDeliveryHistory({});
-      loadData();
-    } catch (err) {
-      toast.error(err.message || 'Failed to update status');
-      throw err;
-    } finally {
-      setUpdatingStatus(prev => {
+  const toggleSelectAll = () => {
+    if (currentPageItems.length > 0 && currentPageItems.every(i => selectedItems.has(i.item_id))) {
+      setSelectedItems(prev => {
         const next = new Set(prev);
-        next.delete(delivery_id);
+        currentPageItems.forEach(i => next.delete(i.item_id));
+        return next;
+      });
+    } else {
+      setSelectedItems(prev => {
+        const next = new Set(prev);
+        currentPageItems.forEach(i => next.add(i.item_id));
         return next;
       });
     }
+  };
+
+  const allSelected = activeSubTab === 'pending' && currentPageItems.length > 0 && currentPageItems.every(i => selectedItems.has(i.item_id));
+
+  const handleSubmitDeliveries = async () => {
+    const toSubmitIds = [...selectedItems];
+    if (toSubmitIds.length === 0) {
+      toast.error('Please select at least one item using the checkbox to submit delivery.');
+      return;
+    }
+
+    setSubmitting(true);
+    let successCount = 0;
+
+    for (const itemId of toSubmitIds) {
+      const item = items.find(i => i.item_id === itemId);
+      if (!item) continue;
+      const edit = rowEdits[itemId] || {};
+      const delQty = Number(edit.del_qty_kg || 0);
+
+      if (delQty <= 0) {
+        toast.error(`Please enter valid Del. Qty for indent ${item.purchase_indents?.indent_number}`);
+        continue;
+      }
+
+      const defaultGodownId = item.approved_godown_id || item.purchase_indents?.godown_id || godowns[0]?.godown_id;
+
+      const selectedTransporter = transporters.find(t => String(t.transporter_id) === String(edit.transporter_id));
+
+      try {
+        await createDelivery({
+          item_id: item.item_id,
+          indent_id: item.purchase_indents?.indent_id,
+          delivery_date: new Date().toISOString().slice(0, 10),
+          expected_delivery_date: edit.exp_date !== undefined ? edit.exp_date : (item.planning_date || null),
+          godown_allocations: defaultGodownId ? [{ godown_id: defaultGodownId, qty: delQty }] : [],
+          transporter_id: edit.transporter_id || null,
+          lr_number: edit.lr_number || null,
+          vehicle_number: edit.vehicle_number || selectedTransporter?.vehicle_number || null,
+          driver_phone_number: edit.driver_phone_number || selectedTransporter?.driver_phone_number || null,
+          remarks: edit.remarks || null,
+          created_by: user?.user_id,
+          // Newly dispatched lifts start "In Transit" so they land in Aawak
+          // Details' Pending tab for review — "AT TPT GDN" (which records
+          // stock at the transporter's godown) is set explicitly from there.
+          status: 'In Transit',
+        });
+        successCount++;
+      } catch (err) {
+        toast.error(`Failed for ${item.purchase_indents?.indent_number}: ${err.message}`);
+      }
+    }
+
+    setSubmitting(false);
+    if (successCount > 0) {
+      toast.success(`${successCount} delivery lift${successCount !== 1 ? 's' : ''} submitted successfully!`);
+      setSelectedItems(new Set());
+      setRowEdits({});
+      loadData();
+    }
+  };
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setIndentFilter('');
+    setProductFilter('');
+    setVendorFilter('');
+  };
+
+  const renderStatusBadge = (status) => {
+    if (status === 'In Transit') {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-100">
+          In Transit
+        </span>
+      );
+    }
+    if (status === 'In Transport Godown' || status === 'AT TPT GDN') {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+          AT TPT GDN
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+        Arrived
+      </span>
+    );
   };
 
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3" />
-        <p className="text-sm text-slate-400">Loading delivery items...</p>
-      </div>
-    );
-  }
-
-  if (filteredItems.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
-          <ShoppingCart size={32} className="text-slate-300" />
-        </div>
-        <h3 className="text-base font-semibold text-slate-600 mb-1">No Deliveries Pending</h3>
-        <p className="text-sm text-slate-400">
-          {searchTerm
-            ? 'No items match your search criteria.'
-            : 'No approved items found. Approve items in Vendor Approval to see them here.'}
-        </p>
+        <p className="text-sm text-slate-400">Loading delivery data...</p>
       </div>
     );
   }
 
   return (
-    <>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-        <div className="relative w-full md:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
-          <input type="text" placeholder="Search indent no., product, vendor..."
-            value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-            className="flex h-10 w-full rounded-lg border border-input bg-transparent px-3 pl-9 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 placeholder:text-muted-foreground"
-          />
-        </div>
-        <span className="text-xs text-slate-400 font-medium">{filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}</span>
+    <div className="flex flex-col gap-4 font-sans">
+      {/* Sub-tabs Bar (Pending & History) styled like Dispatch Day */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+        <button
+          type="button"
+          onClick={() => { setActiveSubTab('pending'); setCurrentPage(1); setSelectedItems(new Set()); }}
+          className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-2 ${
+            activeSubTab === 'pending'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          <Clock size={14} />
+          <span>Pending</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+            activeSubTab === 'pending' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+          }`}>
+            {items.length}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setActiveSubTab('history'); setCurrentPage(1); setSelectedItems(new Set()); }}
+          className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-2 ${
+            activeSubTab === 'history'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          <History size={14} />
+          <span>History</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+            activeSubTab === 'history' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+          }`}>
+            {historyItems.length}
+          </span>
+        </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        {/* ── legend ── */}
-        <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-400">
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-300 inline-block" />Ordered</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-300 inline-block" />Allocated</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-300 inline-block" />Received</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block" />Remaining/Pending</span>
-          <span className="ml-auto font-medium text-slate-500">
-            {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
-          </span>
+      {/* Search & Filter Toolbar */}
+      <div className="flex flex-row items-center justify-between gap-4 shrink-0 overflow-x-auto">
+        <div className="flex flex-nowrap items-center gap-3 flex-1 min-w-0">
+          <div className="relative w-64 shrink-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
+            <Input
+              type="text"
+              placeholder="Search indent no., product, vendor..."
+              className="pl-9 h-9 text-xs"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          <select
+            value={indentFilter}
+            onChange={e => setIndentFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[150px] shrink-0"
+          >
+            <option value="">-- All Indents --</option>
+            {indentOptions.map(num => (
+              <option key={num} value={num}>{num}</option>
+            ))}
+          </select>
+
+          <select
+            value={productFilter}
+            onChange={e => setProductFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[150px] shrink-0"
+          >
+            <option value="">-- All Products --</option>
+            {productOptions.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+
+          {activeSubTab === 'pending' ? (
+            <select
+              value={vendorFilter}
+              onChange={e => setVendorFilter(e.target.value)}
+              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[150px] shrink-0"
+            >
+              <option value="">-- All Vendors --</option>
+              {vendorOptions.map(v => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+          ) : (
+            <select
+              value={vendorFilter}
+              onChange={e => setVendorFilter(e.target.value)}
+              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[150px] shrink-0"
+            >
+              <option value="">-- All Transporters --</option>
+              {transporters.map(t => (
+                <option key={t.transporter_id} value={t.name}>{t.name}</option>
+              ))}
+            </select>
+          )}
+
+          {(searchTerm || indentFilter || productFilter || vendorFilter) && (
+            <Button variant="outline" size="sm" onClick={clearFilters} className="h-9 text-xs border-slate-200 hover:bg-slate-50 shrink-0">
+              Clear
+            </Button>
+          )}
         </div>
 
-        {/* ── item cards ── */}
-        <div className="divide-y divide-slate-100">
-          {currentItems.map(item => {
-            const indent = item.purchase_indents || {};
-            const isExpanded = expandedItems.has(item.item_id);
-            const isCompleted = item.delivery_status === 'Completed';
-            const history = deliveryHistory[item.item_id] || [];
-            const isLoadingHistory = loadingHistory.has(item.item_id);
-            const hasHistory = history.length > 0 || isLoadingHistory;
+        <div className="flex items-center gap-3 shrink-0">
+          <span className="text-xs text-slate-400 font-medium whitespace-nowrap">{currentList.length} item{currentList.length !== 1 ? 's' : ''}</span>
+          {activeSubTab === 'pending' && (
+            <Button onClick={handleSubmitDeliveries} disabled={submitting} size="sm" className="h-9 px-4 text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium gap-1.5 shadow-sm">
+              {submitting ? (
+                <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white" />
+              ) : (
+                <Check size={14} />
+              )}
+              Submit
+            </Button>
+          )}
+        </div>
+      </div>
 
-            return (
-              <div key={item.item_id} className="group">
+      {/* Main Table - Modern Dispatch Day Container */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+        {currentList.length === 0 ? (
+          <div className="p-12 text-center text-slate-400">
+            <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
+            <p className="text-sm font-medium">
+              {activeSubTab === 'pending' ? 'No approved deliveries available.' : 'No delivery history found.'}
+            </p>
+          </div>
+        ) : activeSubTab === 'pending' ? (
+          /* PENDING TABLE */
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
+                <tr>
+                  <th className="w-10 px-2 py-3 text-center">
+                    <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+                  </th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">UOM</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Qty</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Rate</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pkg/Bag</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Remarks</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Exp. Date</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Actual Date</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Received Qty</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Transporter</th>
+                  {hasAnyTransporterSelected && (
+                    <>
+                      <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] whitespace-nowrap">LR No.</th>
+                      <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Vehicle No.</th>
+                      <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Driver No.</th>
+                    </>
+                  )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {currentPageItems.map(item => {
+                  const indent = item.purchase_indents || {};
+                  const isSelected = selectedItems.has(item.item_id);
+                  const pkgSize = getPackagingSize(item.products);
+                  const transpId = getRowVal(item.item_id, 'transporter_id');
+                  const selectedTransporter = transporters.find(t => String(t.transporter_id) === String(transpId));
 
-                {/* ─ main row ─ */}
-                <div
-                  className={`flex items-start gap-4 px-4 py-4 hover:bg-slate-50 transition-colors cursor-pointer ${isCompleted ? 'bg-green-50/30' : ''}`}
-                  onClick={() => toggleExpand(item.item_id)}
-                >
-
-                  {/* Left: indent + product info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <StatusBadge status={item.delivery_status} />
-                      <span className="font-semibold text-slate-800 text-sm">
+                  return (
+                    <tr key={item.item_id} className={`hover:bg-slate-50/60 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
+                      <td className="px-2 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(item.item_id)}
+                          className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                        />
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap text-slate-500 text-xs">
+                        {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
+                      </td>
+                      <td className="px-3 py-3 font-semibold text-slate-800 whitespace-nowrap">
                         {indent.indent_number || '—'}
-                      </span>
-                      <span className="text-slate-300">·</span>
-                      <span className="text-sm text-slate-600">
-                        {item.products?.name}
-                        <span className="text-xs text-slate-400 ml-1 uppercase">({item.products?.unit})</span>
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <span className="text-xs text-slate-500">
+                      </td>
+                      <td className="px-3 py-3 font-medium text-slate-700 whitespace-nowrap">
                         {item.item_vendor?.name || indent.vendors?.name || '—'}
-                      </span>
-                      {indent.godowns?.name && (
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className="text-slate-800 font-medium">{item.products?.name || '—'}</span>
+                      </td>
+                      <td className="px-3 py-3 text-center text-slate-500 uppercase text-xs">
+                        {item.products?.unit || '—'}
+                      </td>
+                      <td className="px-3 py-3 text-center font-semibold text-slate-700">
+                        {item.quantity}
+                      </td>
+                      <td className="px-3 py-3 text-center font-semibold text-amber-600">
+                        {item.remaining_alloc_qty ?? item.remaining_qty}
+                      </td>
+                      <td className="px-3 py-3 text-center text-slate-600">
+                        {item.rate ? Number(item.rate).toFixed(2) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-center text-slate-500">
+                        {pkgSize}
+                      </td>
+                      <td className="px-3 py-3">
+                        <Input
+                          type="text"
+                          placeholder="Remarks..."
+                          value={getRowVal(item.item_id, 'remarks')}
+                          onChange={e => setRowVal(item.item_id, 'remarks', e.target.value)}
+                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
+                        />
+                      </td>
+                      <td className="px-3 py-3">
+                        <Input
+                          type="date"
+                          value={getRowVal(item.item_id, 'exp_date', item.planning_date || '')}
+                          onChange={e => setRowVal(item.item_id, 'exp_date', e.target.value)}
+                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
+                        />
+                      </td>
+                      <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap">
+                        {format(new Date(), 'dd/MM/yyyy')}
+                      </td>
+                      <td className="px-3 py-3">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="Received Qty"
+                          value={getRowVal(item.item_id, 'del_qty_kg')}
+                          onChange={e => handleReceivedQtyChange(item, e.target.value)}
+                          className="h-8 text-xs font-semibold text-center bg-slate-50/50 border-slate-200 focus:bg-white"
+                        />
+                      </td>
+                      <td className="px-3 py-3">
+                        <select
+                          value={transpId}
+                          onChange={e => handleTransporterChange(item.item_id, e.target.value)}
+                          className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px]"
+                        >
+                          <option value="">Select transp...</option>
+                          {transporters.map(t => (
+                            <option key={t.transporter_id} value={t.transporter_id}>{t.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      {hasAnyTransporterSelected && (
                         <>
-                          <span className="text-slate-200 text-xs">·</span>
-                          <span className="text-xs text-slate-400">{indent.godowns?.name}</span>
+                          <td className="px-3 py-3">
+                            {transpId ? (
+                              <Input
+                                type="text"
+                                placeholder="LR No."
+                                value={getRowVal(item.item_id, 'lr_number')}
+                                onChange={e => setRowVal(item.item_id, 'lr_number', e.target.value)}
+                                className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[110px]"
+                              />
+                            ) : (
+                              <span className="text-slate-300 text-center block">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3">
+                            {transpId ? (
+                              <Input
+                                type="text"
+                                placeholder="Vehicle No."
+                                value={getRowVal(item.item_id, 'vehicle_number', selectedTransporter?.vehicle_number || '')}
+                                onChange={e => setRowVal(item.item_id, 'vehicle_number', e.target.value)}
+                                className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
+                              />
+                            ) : (
+                              <span className="text-slate-300 text-center block">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3">
+                            {transpId ? (
+                              <Input
+                                type="text"
+                                placeholder="Driver No."
+                                value={getRowVal(item.item_id, 'driver_phone_number', selectedTransporter?.driver_phone_number || '')}
+                                onChange={e => setRowVal(item.item_id, 'driver_phone_number', e.target.value)}
+                                className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
+                              />
+                            ) : (
+                              <span className="text-slate-300 text-center block">—</span>
+                            )}
+                          </td>
                         </>
                       )}
-                    </div>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          /* HISTORY TABLE */
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
+                <tr>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">LR No.</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Driver No.</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vehicle No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {currentPageItems.map(del => {
+                  const prod = del.purchase_indent_items?.products || {};
+                  const qtyKg = Number(del.received_quantity || 0);
+                  const indentNum = del.purchase_indent_items?.purchase_indents?.indent_number || '—';
+                  const vendorName = del.purchase_indent_items?.item_vendor?.name || del.purchase_indent_items?.purchase_indents?.vendors?.name || '—';
 
-                    {/* Progress bar */}
-                    <ProgressBar ordered={item.quantity} received={item.received_qty} />
-                  </div>
+                  return (
+                    <tr key={del.delivery_id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-3 py-3 whitespace-nowrap text-slate-500 text-xs">
+                        {del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}
+                      </td>
+                      <td className="px-3 py-3 font-semibold text-slate-800 whitespace-nowrap">
+                        {del.lifting_number || '—'}
+                      </td>
+                      <td className="px-3 py-3 font-semibold text-slate-700 whitespace-nowrap">
+                        {indentNum}
+                      </td>
+                      <td className="px-3 py-3 text-slate-700 font-medium whitespace-nowrap">
+                        {vendorName}
+                      </td>
+                      <td className="px-3 py-3 font-medium text-slate-800">
+                        {prod.name || '—'}
+                      </td>
+                      <td className="px-3 py-3 text-center font-bold text-emerald-700">
+                        {qtyKg}
+                      </td>
+                      <td className="px-3 py-3 text-slate-700 whitespace-nowrap">
+                        {del.transporters?.name || '—'}
+                      </td>
+                      <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                        {del.lr_number || '—'}
+                      </td>
+                      <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                        {del.driver_phone_number || '—'}
+                      </td>
+                      <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                        {del.vehicle_number || '—'}
+                      </td>
+                      <td className="px-3 py-3 text-center whitespace-nowrap">
+                        {renderStatusBadge(del.status)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-                  {/* Centre: quantity pills */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    <QtyPill value={item.quantity}      color="blue"    label="Ordered" />
-                    <QtyPill value={item.allocated_qty} color="amber"   label="Allocated" />
-                    <QtyPill value={item.received_qty}  color="emerald" label="Received" />
-                    <QtyPill value={item.remaining_qty} color="slate"   label="Remaining/Pending" />
-                  </div>
-
-                  {/* Right: actions */}
-                  <div className="flex flex-col items-end gap-2 shrink-0">
-                    {!isCompleted ? (
-                      <Button size="sm" onClick={(e) => { e.stopPropagation(); setReceiveItem(item); }}
-                        className="gap-1.5 text-xs h-8">
-                        <Truck size={13} />
-                        Receive
-                      </Button>
-                    ) : (
-                      <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
-                        <CheckCircle2 size={13} /> Done
-                      </span>
-                    )}
-
-                    {isLoadingHistory ? (
-                      <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                        <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-primary" />
-                        Loading lifts...
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); toggleExpand(item.item_id); }}
-                        className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
-                      >
-                        {isExpanded ? (
-                          <><ChevronUp size={12} /> Lifts</>
-                        ) : (
-                          <><ChevronDown size={12} /> Lifts</>
-                        )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* ─ expanded: delivery history sub-table ─ */}
-                {isExpanded && hasHistory && (
-                  <div className="bg-slate-50 border-t border-slate-100 px-4 pb-3">
-                    {isLoadingHistory ? (
-                      <div className="flex items-center justify-center py-4">
-                        <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-primary" />
-                      </div>
-                    ) : (
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="text-slate-400 uppercase tracking-wide">
-                            <th className="text-left py-2 pr-4 font-semibold">Lift No.</th>
-                            <th className="text-left py-2 pr-4 font-semibold">Date</th>
-                            <th className="text-left py-2 pr-4 font-semibold">Exp. Del.</th>
-                            <th className="text-left py-2 pr-4 font-semibold">Transporter</th>
-                            <th className="text-left py-2 pr-4 font-semibold">LR No.</th>
-                            <th className="text-left py-2 pr-4 font-semibold">Vehicle</th>
-                            <th className="text-center py-2 pr-4 font-semibold">Qty</th>
-                            <th className="text-left py-2 pr-4 font-semibold">Godown</th>
-                            <th className="text-center py-2 pr-4 font-semibold">Status</th>
-                            <th className="text-left py-2 font-semibold">Remarks</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {history.map(del => {
-                            const statusColors = {
-                              'In Transit':        'bg-amber-50 text-amber-700 border-amber-100',
-                              'In Transport Godown': 'bg-blue-50 text-blue-700 border-blue-100',
-                              'Arrived':           'bg-emerald-50 text-emerald-700 border-emerald-100',
-                              'Received':          'bg-emerald-50 text-emerald-700 border-emerald-100',
-                            };
-                            const statusIcons = {
-                              'In Transit':        Timer,
-                              'In Transport Godown': MapPin,
-                              'Arrived':           CheckCircle2,
-                              'Received':          CheckCircle2,
-                            };
-                            const SIcon = statusIcons[del.status] || Timer;
-                            const isUpdating = updatingStatus.has(del.delivery_id);
-                            return (
-                            <tr key={del.delivery_id} className="hover:bg-white transition-colors">
-                              <td className="py-2 pr-4 font-semibold text-teal-700 whitespace-nowrap">
-                                {del.lifting_number || '—'}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">
-                                {format(new Date(del.delivery_date), 'dd/MM/yyyy')}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">
-                                {del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-600">
-                                {del.transporters?.name || '—'}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-500">
-                                {del.lr_number || '—'}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-500">
-                                {del.vehicle_number || '—'}
-                              </td>
-                              <td className="py-2 pr-4 text-center font-medium text-slate-700">
-                                {del.received_quantity}
-                              </td>
-                              <td className="py-2 pr-4 text-slate-500 max-w-[140px]">
-                                {del.purchase_delivery_godowns?.length > 0 ? (
-                                  <span className="flex flex-wrap gap-1">
-                                    {del.purchase_delivery_godowns.map(g => (
-                                      <span key={g.godown_id} className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-white border border-slate-200 text-[10px]">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-blue-300 inline-block" />
-                                        {g.godowns?.name || '—'} ({g.qty})
-                                      </span>
-                                    ))}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-400">—</span>
-                                )}
-                              </td>
-                              <td className="py-2 pr-4 text-center">
-                                {isUpdating ? (
-                                  <div className="flex items-center justify-center">
-                                    <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-primary" />
-                                  </div>
-                                ) : del.status === 'Arrived' || del.status === 'Received' ? (
-                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${statusColors[del.status] || 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                                    <SIcon size={10} /> {del.status === 'Received' ? 'Arrived' : del.status}
-                                  </span>
-                                ) : (
-                                  <div className="relative status-dropdown-container">
-                                    <span
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setActiveStatusDropdown(prev => prev === del.delivery_id ? null : del.delivery_id);
-                                      }}
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium border cursor-pointer hover:ring-2 hover:ring-primary/30 ${statusColors[del.status] || 'bg-slate-100 text-slate-500 border-slate-200'}`}
-                                    >
-                                      <SIcon size={10} /> {del.status}
-                                    </span>
-                                    {activeStatusDropdown === del.delivery_id && (
-                                      <div className="absolute right-0 top-full mt-1 z-20 min-w-[130px] bg-white rounded-lg border border-slate-200 shadow-lg py-1">
-                                        {['In Transit', 'In Transport Godown', 'Arrived'].map(s => {
-                                          const isActive = del.status === s;
-                                          const sColors = {
-                                            'In Transit': 'text-amber-600',
-                                            'In Transport Godown': 'text-blue-600',
-                                            'Arrived': 'text-emerald-600',
-                                          };
-                                          return (
-                                            <button key={s} type="button"
-                                              onClick={() => {
-                                                setActiveStatusDropdown(null);
-                                                if (s === 'Arrived') {
-                                                  setArriveConfirmDelivery(del);
-                                                } else {
-                                                  handleStatusUpdate(del.delivery_id, s);
-                                                }
-                                              }}
-                                              className={`w-full text-left px-3 py-1.5 text-[11px] flex items-center gap-2 ${
-                                                isActive ? 'bg-slate-50 font-semibold' : 'hover:bg-slate-50'
-                                              } ${sColors[s] || ''}`}>
-                                              {s === 'In Transit' && <Timer size={11} />}
-                                              {s === 'In Transport Godown' && <MapPin size={11} />}
-                                              {s === 'Arrived' && <CheckCircle2 size={11} />}
-                                              {s}
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="py-2 text-slate-400 max-w-[120px] truncate" title={del.remarks || ''}>
-                                {del.remarks || '—'}
-                              </td>
-                            </tr>
-                          )})}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {filteredItems.length > ITEMS_PER_PAGE && (
+        {currentList.length > ITEMS_PER_PAGE && (
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}
-            totalItems={filteredItems.length}
+            totalItems={currentList.length}
             startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1}
-            endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredItems.length)}
+            endIndex={Math.min(currentPage * ITEMS_PER_PAGE, currentList.length)}
             onPageChange={setCurrentPage}
             className="border-t border-slate-200"
           />
         )}
       </div>
-
-      {receiveItem && (
-        <ReceiveModal
-          isOpen={!!receiveItem}
-          onClose={() => setReceiveItem(null)}
-          item={receiveItem}
-          transporters={transporters}
-          godowns={godowns}
-          user={user}
-          onSuccess={handleDeliverySaved}
-        />
-      )}
-
-      {arriveConfirmDelivery && (
-        <ArriveConfirmModal
-          isOpen={!!arriveConfirmDelivery}
-          onClose={() => setArriveConfirmDelivery(null)}
-          delivery={arriveConfirmDelivery}
-          onConfirm={handleConfirmArrive}
-        />
-      )}
-    </>
+    </div>
   );
 };
 

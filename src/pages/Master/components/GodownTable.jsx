@@ -1,6 +1,6 @@
 import { ToggleLeft, ToggleRight, Warehouse, Trash2 } from 'lucide-react';
 
-const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user, onDelete }) => {
+const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user, onDelete, typeFilter }) => {
   const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
   if (loading) {
     return (
@@ -19,7 +19,11 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user,
         </div>
         <h3 className="text-base font-semibold text-slate-600 mb-1">No Godowns Found</h3>
         <p className="text-sm text-slate-400">
-          {searchTerm ? 'No godowns match your search criteria.' : 'Click "Add Godown" above to create your first godown.'}
+          {searchTerm
+            ? 'No godowns match your search criteria.'
+            : typeFilter === 'Transporter'
+              ? 'No transporter godowns yet — these are created automatically from Master > Transporters.'
+              : 'Click "Add Godown" above to create your first godown.'}
         </p>
       </div>
     );
@@ -31,6 +35,7 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user,
           <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Godown Type</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
             </tr>
@@ -39,6 +44,9 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user,
             {godowns.map(g => (
               <tr key={g.godown_id} className="hover:bg-slate-50 transition-colors group">
                 <td className="px-4 py-3 font-medium text-slate-800">{g.name}</td>
+                <td className="px-4 py-3">
+                  <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{g.godown_type || 'Own'}</span>
+                </td>
                 <td className="px-4 py-3 text-center">
                   {g.is_active
                     ? <span className="text-green-600 bg-green-50 px-2 py-0.5 rounded-full text-xs font-medium">Active</span>

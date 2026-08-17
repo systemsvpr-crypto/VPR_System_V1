@@ -15,7 +15,14 @@ export const getGodownSummary = async (date, signal) => {
   prevDate.setDate(prevDate.getDate() - 1);
   const prevDateStr = prevDate.toISOString().split('T')[0];
 
-  const [godowns, { data: balances }, { data: stockIns }, { data: stockOuts }, { data: openingStocks }] = await Promise.all([
+  const [
+    godowns,
+    { data: balances },
+    { data: stockIns },
+    { data: stockOuts },
+    { data: openingStocks },
+    { data: transportDeliveries },
+  ] = await Promise.all([
     getAllGodowns(),
     supabase
       .from('transactions')
@@ -43,6 +50,11 @@ export const getGodownSummary = async (date, signal) => {
       .eq('is_void', false)
       .eq('txn_date', date)
       .eq('txn_type', 'OPEN_STOCK')
+      .abortSignal(signal),
+    supabase
+      .from('purchase_deliveries')
+      .select('received_quantity, transporters:transporter_id(name)')
+      .in('status', ['In Transport Godown', 'AT TPT GDN'])
       .abortSignal(signal),
   ]);
 
@@ -73,11 +85,19 @@ export const getGodownSummary = async (date, signal) => {
   const rows = godowns.map(g => ({
     godownId: g.godown_id,
     godownName: g.name,
+    godownType: g.godown_type || '',
     opening: openingMap[g.godown_id] || 0,
     stockIn: stockInMap[g.godown_id] || 0,
     stockOut: stockOutMap[g.godown_id] || 0,
     closing: (openingMap[g.godown_id] || 0) + (stockInMap[g.godown_id] || 0) - (stockOutMap[g.godown_id] || 0),
   }));
+
+  // Transport Godown stock is shown on its own "Transport Godown Stock" tab —
+  // it isn't a real godown, so it's excluded from this Godown Summary table/totals.
+  let totalTransportQty = 0;
+  for (const d of transportDeliveries || []) {
+    totalTransportQty += Number(d.received_quantity || 0);
+  }
 
   const totals = rows.reduce((acc, r) => ({
     opening: acc.opening + r.opening,
@@ -86,7 +106,7 @@ export const getGodownSummary = async (date, signal) => {
     closing: acc.closing + r.closing,
   }), { opening: 0, stockIn: 0, stockOut: 0, closing: 0 });
 
-  return { godowns: rows, totals };
+  return { godowns: rows, totals, transportTotal: totalTransportQty };
 };
 
 export const getDashboardData = async (date, signal, options = {}) => {
@@ -223,6 +243,7 @@ export const getDashboardData = async (date, signal, options = {}) => {
       godownRows.push({
         godownId: godown.godown_id,
         godownName: godown.name,
+        godownType: godown.godown_type || '',
         opening,
         stockIn,
         stockOut,
