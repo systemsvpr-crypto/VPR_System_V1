@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Store, Search, Download, FileText, Loader2, RotateCcw, ChevronLeft, ChevronRight, Package, UserCheck, Clock, CheckCircle2, Truck } from 'lucide-react';
+import { Store, Search, Download, FileText, Loader2, RotateCcw, ChevronLeft, ChevronRight, ArrowLeft, Package, UserCheck, Clock, CheckCircle2, Truck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
@@ -27,6 +27,12 @@ const VendorDashboard = () => {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
+
+  // The vendor currently being viewed in the dedicated detail page — null
+  // means the vendor list is showing. Clicking a vendor row navigates into
+  // its detail page rather than expanding inline.
+  const [detailVendorName, setDetailVendorName] = useState(null);
+  const [detailSearch, setDetailSearch] = useState('');
 
   useEffect(() => {
     loadData();
@@ -92,6 +98,67 @@ const VendorDashboard = () => {
     );
   }, [filteredData]);
 
+  // Group the flat indent-item rows by vendor — the table shows one summary
+  // row per vendor, and clicking it navigates into a dedicated detail page
+  // with the full indent-wise breakdown (the rows that used to be shown flat,
+  // one per indent+product).
+  const groupedByVendor = useMemo(() => {
+    const map = new Map();
+    for (const row of filteredData) {
+      const key = row.vendorName || 'Unassigned Vendor';
+      if (!map.has(key)) {
+        map.set(key, {
+          vendorName: key,
+          rows: [],
+          indentNumbers: new Set(),
+          totalQty: 0,
+          pendingQty: 0,
+          liftQty: 0,
+          deliveryQty: 0,
+        });
+      }
+      const group = map.get(key);
+      group.rows.push(row);
+      if (row.indentNo) group.indentNumbers.add(row.indentNo);
+      group.totalQty += row.totalQty || 0;
+      group.pendingQty += row.pendingQty || 0;
+      group.liftQty += row.liftQty || 0;
+      group.deliveryQty += row.deliveryQty || 0;
+    }
+    return Array.from(map.values())
+      .map((g) => ({ ...g, indentCount: g.indentNumbers.size }))
+      .sort((a, b) => a.vendorName.localeCompare(b.vendorName));
+  }, [filteredData]);
+
+  const openVendorDetail = (vendorName) => {
+    setDetailVendorName(vendorName);
+    setDetailSearch('');
+  };
+
+  const closeVendorDetail = () => {
+    setDetailVendorName(null);
+    setDetailSearch('');
+  };
+
+  // The vendor group currently open in detail view (if any), and its rows
+  // narrowed by the detail page's own search box.
+  const detailVendor = useMemo(
+    () => groupedByVendor.find((g) => g.vendorName === detailVendorName) || null,
+    [groupedByVendor, detailVendorName]
+  );
+
+  const detailRows = useMemo(() => {
+    if (!detailVendor) return [];
+    const query = detailSearch.trim().toLowerCase();
+    if (!query) return detailVendor.rows;
+    return detailVendor.rows.filter((row) =>
+      row.indentNo?.toLowerCase().includes(query) ||
+      row.productName?.toLowerCase().includes(query) ||
+      row.approvedBy?.toLowerCase().includes(query) ||
+      row.remark?.toLowerCase().includes(query)
+    );
+  }, [detailVendor, detailSearch]);
+
   // Reset filters
   const handleResetFilters = () => {
     setSelectedIndent('');
@@ -103,13 +170,14 @@ const VendorDashboard = () => {
 
   const hasActiveFilters = Boolean(selectedIndent || selectedVendor || selectedProduct || searchQuery);
 
-  // Pagination calculations
-  const totalItems = filteredData.length;
+  // Pagination now walks vendor groups, not individual indent-item rows —
+  // each page shows N vendors, and expanding one reveals all of its rows.
+  const totalItems = groupedByVendor.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
-  const paginatedData = useMemo(() => {
+  const paginatedVendors = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return filteredData.slice(start, start + pageSize);
-  }, [filteredData, currentPage, pageSize]);
+    return groupedByVendor.slice(start, start + pageSize);
+  }, [groupedByVendor, currentPage, pageSize]);
 
   const rangeStart = totalItems > 0 ? (currentPage - 1) * pageSize + 1 : 0;
   const rangeEnd = Math.min(currentPage * pageSize, totalItems);
@@ -326,6 +394,148 @@ const VendorDashboard = () => {
     );
   }
 
+  // Dedicated vendor detail page — replaces the vendor list entirely while a
+  // vendor row is open, rather than expanding inline underneath it.
+  if (detailVendor) {
+    return (
+      <div className="flex flex-col gap-6 font-sans">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+          <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={closeVendorDetail}
+                className="flex items-center gap-1.5 px-3 h-9 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shrink-0 shadow-sm"
+              >
+                <ArrowLeft size={14} />
+                Back to Vendors
+              </button>
+              <div className="bg-blue-50 p-2 rounded-lg text-blue-600">
+                <Store size={20} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-800 text-lg">{detailVendor.vendorName}</h3>
+                <p className="text-xs text-slate-500">
+                  {detailVendor.indentCount} indent{detailVendor.indentCount !== 1 ? 's' : ''} · {detailVendor.rows.length} item{detailVendor.rows.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Vendor Stats Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-slate-50/50 border-b border-slate-100">
+            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-50 text-blue-600"><Package size={16} /></div>
+              <div>
+                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Total Qty</p>
+                <p className="text-base font-bold text-slate-800">{formatNum(detailVendor.totalQty)}</p>
+              </div>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-amber-50 text-amber-600"><Truck size={16} /></div>
+              <div>
+                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Lift Qty</p>
+                <p className="text-base font-bold text-amber-700">{formatNum(detailVendor.liftQty)}</p>
+              </div>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-green-50 text-green-600"><CheckCircle2 size={16} /></div>
+              <div>
+                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Delivery Qty</p>
+                <p className="text-base font-bold text-green-700">{formatNum(detailVendor.deliveryQty)}</p>
+              </div>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-red-50 text-red-600"><Clock size={16} /></div>
+              <div>
+                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Pending Qty</p>
+                <p className="text-base font-bold text-red-600">{formatNum(detailVendor.pendingQty)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Detail Search */}
+          <div className="p-4 bg-white border-b border-slate-100">
+            <div className="relative w-full sm:w-72">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Input
+                placeholder="Search indent, product, remark..."
+                value={detailSearch}
+                onChange={(e) => setDetailSearch(e.target.value)}
+                className="pl-8 h-8 text-xs w-full"
+              />
+            </div>
+          </div>
+
+          {/* Indent-wise Detail Table */}
+          <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[200px]">Product Name</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Approved By</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-red-600 uppercase tracking-wider whitespace-nowrap">Pending</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-amber-600 uppercase tracking-wider whitespace-nowrap">Lift Qty</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-green-600 uppercase tracking-wider whitespace-nowrap">Delivery Qty</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Delivery Expected Date</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[180px]">Remark</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {detailRows.map((row) => (
+                  <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-4 py-3 font-semibold text-primary whitespace-nowrap">{row.indentNo}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-800">{row.productName}</span>
+                        {row.unit && (
+                          <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{row.unit}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-slate-900 tabular-nums">{formatNum(row.totalQty)}</td>
+                    <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <UserCheck size={13} className="text-slate-400 shrink-0" />
+                        <span>{row.approvedBy}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-red-600 tabular-nums">
+                      {row.pendingQty > 0 ? formatNum(row.pendingQty) : <span className="text-slate-300">0</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium text-amber-700 tabular-nums">
+                      {row.liftQty > 0 ? formatNum(row.liftQty) : <span className="text-slate-300">0</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-green-700 tabular-nums">
+                      {row.deliveryQty > 0 ? formatNum(row.deliveryQty) : <span className="text-slate-300">0</span>}
+                    </td>
+                    <td className="px-4 py-3 text-center text-xs text-slate-600 tabular-nums whitespace-nowrap">
+                      {row.expectedDate !== '—' ? (
+                        <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">{row.expectedDate}</span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-500 max-w-[250px] truncate" title={row.remark}>{row.remark}</td>
+                  </tr>
+                ))}
+                {detailRows.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">
+                      No items match your search.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6 font-sans">
       {/* Top Header / Action Card */}
@@ -509,25 +719,21 @@ const VendorDashboard = () => {
           )}
         </div>
 
-        {/* Data Table */}
+        {/* Data Table — one row per vendor; click a row to open its
+            dedicated detail page with the full indent-wise breakdown. */}
         <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                  Indent No
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[160px]">
+                <th className="w-10 px-2 py-3" />
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[200px]">
                   Vendor Name
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[200px]">
-                  Product Name
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                  Indents
                 </th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">
                   Total Qty
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">
-                  Approved By
                 </th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-red-600 uppercase tracking-wider whitespace-nowrap">
                   Pending
@@ -538,96 +744,61 @@ const VendorDashboard = () => {
                 <th className="text-right px-4 py-3 text-xs font-semibold text-green-600 uppercase tracking-wider whitespace-nowrap">
                   Delivery Qty
                 </th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">
-                  Delivery Expected Date
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[180px]">
-                  Remark
-                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {paginatedData.map((row) => (
-                <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="px-4 py-3 font-semibold text-primary whitespace-nowrap">
-                    {row.indentNo}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-700">
-                    {row.vendorName}
+              {paginatedVendors.map((vendor) => (
+                <tr
+                  key={vendor.vendorName}
+                  className="hover:bg-slate-50 transition-colors cursor-pointer"
+                  onClick={() => openVendorDetail(vendor.vendorName)}
+                >
+                  <td className="px-2 py-3 text-center">
+                    <ChevronRight size={16} className="text-slate-400" />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-slate-800">{row.productName}</span>
-                      {row.unit && (
-                        <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                          {row.unit}
-                        </span>
-                      )}
+                      <Store size={14} className="text-blue-500 shrink-0" />
+                      <span className="font-semibold text-slate-800">{vendor.vendorName}</span>
                     </div>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                      {vendor.indentCount}
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-900 tabular-nums">
-                    {formatNum(row.totalQty)}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
-                    <div className="flex items-center gap-1.5">
-                      <UserCheck size={13} className="text-slate-400 shrink-0" />
-                      <span>{row.approvedBy}</span>
-                    </div>
+                    {formatNum(vendor.totalQty)}
                   </td>
                   <td className="px-4 py-3 text-right font-semibold text-red-600 tabular-nums">
-                    {row.pendingQty > 0 ? (
-                      formatNum(row.pendingQty)
-                    ) : (
-                      <span className="text-slate-300">0</span>
-                    )}
+                    {vendor.pendingQty > 0 ? formatNum(vendor.pendingQty) : <span className="text-slate-300">0</span>}
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-amber-700 tabular-nums">
-                    {row.liftQty > 0 ? (
-                      formatNum(row.liftQty)
-                    ) : (
-                      <span className="text-slate-300">0</span>
-                    )}
+                    {vendor.liftQty > 0 ? formatNum(vendor.liftQty) : <span className="text-slate-300">0</span>}
                   </td>
                   <td className="px-4 py-3 text-right font-semibold text-green-700 tabular-nums">
-                    {row.deliveryQty > 0 ? (
-                      formatNum(row.deliveryQty)
-                    ) : (
-                      <span className="text-slate-300">0</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-center text-xs text-slate-600 tabular-nums whitespace-nowrap">
-                    {row.expectedDate !== '—' ? (
-                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
-                        {row.expectedDate}
-                      </span>
-                    ) : (
-                      <span className="text-slate-300">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-500 max-w-[250px] truncate" title={row.remark}>
-                    {row.remark}
+                    {vendor.deliveryQty > 0 ? formatNum(vendor.deliveryQty) : <span className="text-slate-300">0</span>}
                   </td>
                 </tr>
               ))}
-              {filteredData.length === 0 && (
+              {groupedByVendor.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-sm text-slate-400">
+                  <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">
                     No vendor indent records match your filters.
                   </td>
                 </tr>
               )}
             </tbody>
-            {filteredData.length > 0 && (
+            {groupedByVendor.length > 0 && (
               <tfoot>
                 <tr className="bg-slate-50 font-bold border-t border-slate-200">
-                  <td className="px-4 py-3 text-slate-800">Total</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs font-normal" colSpan={2}>
-                    {filteredData.length} item(s)
+                  <td className="px-4 py-3 text-slate-800" colSpan={2}>Total</td>
+                  <td className="px-4 py-3 text-center text-slate-500 text-xs font-normal whitespace-nowrap">
+                    {groupedByVendor.length} vendor(s)
                   </td>
                   <td className="px-4 py-3 text-right text-slate-900 tabular-nums">
                     {formatNum(totals.totalQty)}
                   </td>
-                  <td className="px-4 py-3"></td>
                   <td className="px-4 py-3 text-right text-red-600 tabular-nums">
                     {formatNum(totals.pendingQty)}
                   </td>
@@ -637,7 +808,6 @@ const VendorDashboard = () => {
                   <td className="px-4 py-3 text-right text-green-700 tabular-nums">
                     {formatNum(totals.deliveryQty)}
                   </td>
-                  <td className="px-4 py-3" colSpan={2}></td>
                 </tr>
               </tfoot>
             )}
@@ -647,7 +817,7 @@ const VendorDashboard = () => {
         {/* Pagination Footer */}
         <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500">Rows per page:</span>
+            <span className="text-xs text-slate-500">Vendors per page:</span>
             <select
               value={pageSize}
               onChange={(e) => {
@@ -663,7 +833,7 @@ const VendorDashboard = () => {
               ))}
             </select>
             <span className="text-xs text-slate-500 whitespace-nowrap">
-              {rangeStart}-{rangeEnd} of {totalItems}
+              {rangeStart}-{rangeEnd} of {totalItems} vendors
             </span>
           </div>
 

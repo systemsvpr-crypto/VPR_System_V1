@@ -5,6 +5,9 @@ import {
 } from '@/components/ui/Select';
 import { Dropdown } from '@/components/ui/dropdown';
 
+// Transactions are only ever filtered by a real "own" godown, not a
+// transporter's auto-created stock-tracking godown — so keep those out of
+// the filter dropdown.
 const TransactionFilters = ({ filters, onChange, products, godowns }) => (
   <div className="flex flex-col md:flex-row md:items-center gap-3">
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3 w-full">
@@ -15,7 +18,7 @@ const TransactionFilters = ({ filters, onChange, products, godowns }) => (
           <SelectGroup>
             <SelectLabel>Godowns</SelectLabel>
             <SelectItem value="all">All Godowns</SelectItem>
-            {godowns.map(g => <SelectItem key={g.godown_id} value={g.godown_id}>{g.name}</SelectItem>)}
+            {godowns.filter(g => (g.godown_type || 'Own') === 'Own').map(g => <SelectItem key={g.godown_id} value={g.godown_id}>{g.name}</SelectItem>)}
           </SelectGroup>
         </SelectContent>
       </Select>

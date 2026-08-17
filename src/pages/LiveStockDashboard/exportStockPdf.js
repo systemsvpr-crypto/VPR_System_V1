@@ -16,33 +16,88 @@ const formatNum = (n) => {
   return val === 0 ? '-' : val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 };
 
+// Products with NEITHER a Category NOR a Size (Product Type) are too sparse
+// for the Type x Brand matrix — grouping them by "type" would just fall back
+// to one row per product name. Those are pulled out into a flat Brand -> qty
+// total instead, rendered as a compact 2-row Brand Name / Current Stock table.
 const buildCategoryPivots = (products) => {
   const categories = new Map();
+  const noSizeBrandTotals = new Map();
 
   for (const p of products) {
-    const category = p.category?.trim() || UNCATEGORIZED;
-    const type = p.productType?.trim() || p.productName;
+    const category = p.category?.trim();
+    const type = p.productType?.trim();
     const brand = p.brandName?.trim() || 'Unbranded';
     const qty = p.totals?.current || 0;
 
-    if (!categories.has(category)) {
-      categories.set(category, { types: new Set(), brands: new Set(), matrix: new Map() });
+    if (!category && !type) {
+      noSizeBrandTotals.set(brand, (noSizeBrandTotals.get(brand) || 0) + qty);
+      continue;
     }
-    const bucket = categories.get(category);
-    bucket.types.add(type);
+
+    const categoryKey = category || UNCATEGORIZED;
+    const typeKey = type || p.productName;
+
+    if (!categories.has(categoryKey)) {
+      categories.set(categoryKey, { types: new Set(), brands: new Set(), matrix: new Map() });
+    }
+    const bucket = categories.get(categoryKey);
+    bucket.types.add(typeKey);
     bucket.brands.add(brand);
-    const key = `${type} ${brand}`;
+    const key = `${typeKey} ${brand}`;
     bucket.matrix.set(key, (bucket.matrix.get(key) || 0) + qty);
   }
 
-  return categories;
+  return { categories, noSizeBrandTotals };
+};
+
+// Renders the "no Category / no Size" card: a vertical Brand Name / Current
+// Stock list — no header row — split into two side-by-side columns of
+// roughly equal length instead of one row of brand headers with one row of
+// values (which got unreadable once there were more than a handful of brands).
+const buildBrandStockCard = (brandTotals) => {
+  const sortedBrands = [...brandTotals.keys()].sort((a, b) => a.localeCompare(b));
+  if (sortedBrands.length === 0) return '';
+
+  const mid = Math.ceil(sortedBrands.length / 2);
+  const halves = [sortedBrands.slice(0, mid), sortedBrands.slice(mid)];
+
+  const buildHalf = (brands) => {
+    if (brands.length === 0) return '';
+    return `
+      <table class="report-table category-table no-size-table">
+        <tbody>
+          ${brands
+      .map((brand) => {
+        const val = brandTotals.get(brand) || 0;
+        return `
+              <tr>
+                <td class="text-left font-medium no-size-brand" title="${brand}">${brand}</td>
+                <td class="text-right ${val > 0 ? 'font-medium' : 'text-muted'}">${formatNum(val)}</td>
+              </tr>
+            `;
+      })
+      .join('')}
+        </tbody>
+      </table>
+    `;
+  };
+
+  return `
+    <div class="category-card table-full-span">
+      <div class="no-size-split">
+        <div class="no-size-col">${buildHalf(halves[0])}</div>
+        ${halves[1].length > 0 ? `<div class="no-size-col">${buildHalf(halves[1])}</div>` : ''}
+      </div>
+    </div>
+  `;
 };
 
 /**
  * Generates the complete HTML/CSS printable report string
  */
 export const generatePrintableHtml = (products, summaryData, date) => {
-  const categoriesMap = buildCategoryPivots(products);
+  const { categories: categoriesMap, noSizeBrandTotals } = buildCategoryPivots(products);
   const categoryNames = [...categoriesMap.keys()].sort((a, b) => {
     if (a === UNCATEGORIZED) return 1;
     if (b === UNCATEGORIZED) return -1;
@@ -154,6 +209,8 @@ export const generatePrintableHtml = (products, summaryData, date) => {
     })
     .join('');
 
+  const noSizeCardHtml = buildBrandStockCard(noSizeBrandTotals);
+
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -165,7 +222,7 @@ export const generatePrintableHtml = (products, summaryData, date) => {
        PRINT LAYOUT & ENGINE COMPATIBILITY RULES
        ============================================================ */
     @page {
-      size: A4 landscape;
+      size: A4 portrait;
       margin: 0mm; /* Eliminates browser default headers & footers (URL, title, date) */
     }
 
@@ -238,21 +295,35 @@ export const generatePrintableHtml = (products, summaryData, date) => {
     /* ============================================================
        DYNAMIC STREAM MULTI-COLUMN CONTAINER
        ============================================================ */
+    /* Single column in portrait — A4's ~190mm usable width can't fit two
+       side-by-side pivot tables legibly the way landscape's ~285mm could. */
     .stream-container {
-      column-count: 2;
+      column-count: 1;
       column-gap: 8px;
       column-fill: auto;
       width: 100%;
     }
 
     /* FULL-WIDTH SPANNING SECTIONS */
-    .full-width,
-    .table-full-span {
+    /* Godown Summary is the only thing that uses .full-width without also
+       being a category table, and it's meant to flow normally, so it keeps
+       break-inside: auto. Category tables (.table-full-span) now avoid
+       breaking too — a wide table splitting mid-way with its header
+       repeating on the next page left a lone dangling row on either side of
+       the break, which read as broken/duplicated rather than one table. */
+    .full-width {
       column-span: all;
       width: 100% !important;
       margin-bottom: 8px;
       break-inside: auto;
       page-break-inside: auto;
+    }
+    .table-full-span {
+      column-span: all;
+      width: 100% !important;
+      margin-bottom: 8px;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     /* COMPACT SIDE-BY-SIDE SPANNING SECTIONS */
@@ -309,6 +380,15 @@ export const generatePrintableHtml = (products, summaryData, date) => {
       width: 100%;
       border-collapse: collapse;
       font-size: 7.5px;
+    }
+
+    /* Belt-and-braces: some print engines only reliably honor break-inside
+       on the table element itself, not just the wrapping .category-card /
+       .table-*-span div — set it here too so a category table can't split
+       mid-way even if the wrapper's hint gets ignored. */
+    .category-table {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     thead {
@@ -390,6 +470,24 @@ export const generatePrintableHtml = (products, summaryData, date) => {
       max-width: 24px;
     }
 
+    /* "NO CATEGORY / NO SIZE" CARD — two side-by-side vertical Brand/Qty lists */
+    .no-size-split {
+      display: flex;
+      gap: 8px;
+    }
+    .no-size-col {
+      flex: 1;
+      min-width: 0;
+    }
+    .no-size-table {
+      table-layout: fixed;
+    }
+    .no-size-brand {
+      max-width: none;
+      white-space: normal;
+      word-break: break-word;
+    }
+
     /* FOOTER */
     .page-footer {
       border-top: 1px solid #cbd5e1;
@@ -425,6 +523,7 @@ export const generatePrintableHtml = (products, summaryData, date) => {
   <!-- Dynamic Multi-Column Stream Container -->
   <div class="stream-container">
     ${categoryTablesHtml}
+    ${noSizeCardHtml}
   </div>
 
 

@@ -104,9 +104,13 @@ const LiveStockDashboard = () => {
 
   const handleExportExcel = async () => {
     setExporting(true);
+    const t0 = performance.now();
     try {
       const result = await getDashboardData(date, null, { all: true });
+      const t1 = performance.now();
       await exportStockReport(result.data, date);
+      const t2 = performance.now();
+      console.info(`[Excel export] fetch: ${(t1 - t0).toFixed(0)}ms, build+download: ${(t2 - t1).toFixed(0)}ms, total: ${(t2 - t0).toFixed(0)}ms`);
     } catch (err) {
       toast.error('Failed to export data');
     }
@@ -115,9 +119,13 @@ const LiveStockDashboard = () => {
 
   const handleExportPdf = async () => {
     setExportingPdf(true);
+    const t0 = performance.now();
     try {
       const result = await getDashboardData(date, null, { all: true });
+      const t1 = performance.now();
       await exportStockPdf(result.data, summaryData, date);
+      const t2 = performance.now();
+      console.info(`[PDF export] fetch: ${(t1 - t0).toFixed(0)}ms, build+handoff to print: ${(t2 - t1).toFixed(0)}ms, total: ${(t2 - t0).toFixed(0)}ms (the browser's own print dialog opens after this, outside our control)`);
       toast.success('PDF exported successfully');
     } catch (err) {
       console.error(err);

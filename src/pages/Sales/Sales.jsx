@@ -56,6 +56,14 @@ const Sales = () => {
     return TABS.filter(tab => allowedTabs.includes(tab.id));
   }, [user]);
 
+  // Orders are only ever fulfilled from a real "own" godown, not a
+  // transporter's auto-created stock-tracking godown — so keep those out of
+  // the filter dropdown.
+  const ownGodowns = useMemo(() =>
+    godowns.filter(g => (g.godown_type || 'Own') === 'Own'),
+    [godowns],
+  );
+
   const filteredOrders = useMemo(() => {
     const term = searchTerm.toLowerCase();
     return orders.filter(o => {
@@ -189,7 +197,7 @@ const Sales = () => {
                 className="h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px]"
               >
                 <option value="">All Godowns</option>
-                {godowns.map(g => (
+                {ownGodowns.map(g => (
                   <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
                 ))}
               </select>

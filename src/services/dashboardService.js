@@ -129,87 +129,115 @@ export const getDashboardData = async (date, signal, options = {}) => {
     productsQuery = productsQuery.range((page - 1) * pageSize, page * pageSize - 1);
   }
 
-  const [godowns, { data: products, count }] = await Promise.all([
-    getAllGodowns(),
-    productsQuery,
-  ]);
+  // `allBalances` (everything up to the day before the report date) and what
+  // used to be a separate `currentBalances` query (everything up to today)
+  // are near-duplicate full-history scans — todayStr is normally >= prevDateStr,
+  // so the old currentBalances query re-fetched almost all of allBalances on
+  // top of it. Fetching the wider range once (up to whichever cutoff is later)
+  // and splitting it client-side by txn_date halves that transfer/scan cost.
+  const balanceCutoffStr = prevDateStr > todayStr ? prevDateStr : todayStr;
+
+  // Builds the 4 transaction queries, optionally scoped to a specific list of
+  // product_ids. When exporting "all" with no search, every product is
+  // included anyway, so scoping by product_id is a no-op that only bloats the
+  // query string — passing `null` skips it entirely, which also means these
+  // queries don't need to wait on the products query to know which IDs to
+  // filter by, so they can be fired in the SAME round trip (see below)
+  // instead of a second one after products resolves.
+  const buildTxnQueries = (productIds) => {
+    const scoped = (q) => (productIds ? q.in('product_id', productIds) : q);
+    return [
+      scoped(
+        supabase
+          .from('transactions')
+          .select('product_id, godown_id, qty, txn_type, txn_date')
+          .eq('is_void', false)
+          .lte('txn_date', balanceCutoffStr)
+      ).abortSignal(signal),
+      scoped(
+        supabase
+          .from('transactions')
+          .select('product_id, godown_id, qty')
+          .eq('is_void', false)
+          .eq('txn_date', date)
+          .in('txn_type', ['IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'])
+      ).abortSignal(signal),
+      scoped(
+        supabase
+          .from('transactions')
+          .select('product_id, godown_id, qty')
+          .eq('is_void', false)
+          .eq('txn_date', date)
+          .in('txn_type', ['OUT_GODOWN', 'TRANSFER_OUT', 'ADJUSTMENT_OUT'])
+      ).abortSignal(signal),
+      scoped(
+        supabase
+          .from('transactions')
+          .select('product_id, godown_id, qty')
+          .eq('is_void', false)
+          .eq('txn_date', date)
+          .eq('txn_type', 'OPEN_STOCK')
+      ).abortSignal(signal),
+    ];
+  };
+
+  let godowns, products, count, allBalances, allStockIns, allStockOuts, openingStocks;
+
+  if (all && !search) {
+    // Export path: nothing downstream needs to wait on the product list, so
+    // fire every query in one concurrent wave — cuts a full network
+    // round-trip versus fetching products first, then transactions.
+    const [godownsRes, productsRes, balancesRes, stockInsRes, stockOutsRes, openingRes] = await Promise.all([
+      getAllGodowns(),
+      productsQuery,
+      ...buildTxnQueries(null),
+    ]);
+    godowns = godownsRes;
+    products = productsRes.data;
+    count = productsRes.count;
+    allBalances = balancesRes.data;
+    allStockIns = stockInsRes.data;
+    allStockOuts = stockOutsRes.data;
+    openingStocks = openingRes.data;
+  } else {
+    // Paginated / searched dashboard view — the transaction queries must be
+    // scoped to this page's exact product_id list, which isn't known until
+    // the products query resolves, so this stays two sequential round trips.
+    const [godownsRes, productsRes] = await Promise.all([getAllGodowns(), productsQuery]);
+    godowns = godownsRes;
+    products = productsRes.data;
+    count = productsRes.count;
+
+    if (!products || products.length === 0) {
+      return { data: [], hasMore: false, total: 0 };
+    }
+
+    const productIds = products.map(p => p.product_id);
+    const [balancesRes, stockInsRes, stockOutsRes, openingRes] = await Promise.all(buildTxnQueries(productIds));
+    allBalances = balancesRes.data;
+    allStockIns = stockInsRes.data;
+    allStockOuts = stockOutsRes.data;
+    openingStocks = openingRes.data;
+  }
 
   if (!products || products.length === 0) {
     return { data: [], hasMore: false, total: 0 };
   }
 
-  const productIds = products.map(p => p.product_id);
-
-  const [
-    { data: allBalances },
-    { data: allStockIns },
-    { data: allStockOuts },
-    { data: openingStocks },
-    { data: currentBalances },
-  ] = await Promise.all([
-    supabase
-      .from('transactions')
-      .select('product_id, godown_id, qty, txn_type')
-      .eq('is_void', false)
-      .lte('txn_date', prevDateStr)
-      .in('product_id', productIds)
-      .abortSignal(signal),
-    supabase
-      .from('transactions')
-      .select('product_id, godown_id, qty')
-      .eq('is_void', false)
-      .eq('txn_date', date)
-      .in('txn_type', ['IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'])
-      .in('product_id', productIds)
-      .abortSignal(signal),
-    supabase
-      .from('transactions')
-      .select('product_id, godown_id, qty')
-      .eq('is_void', false)
-      .eq('txn_date', date)
-      .in('txn_type', ['OUT_GODOWN', 'TRANSFER_OUT', 'ADJUSTMENT_OUT'])
-      .in('product_id', productIds)
-      .abortSignal(signal),
-    supabase
-      .from('transactions')
-      .select('product_id, godown_id, qty')
-      .eq('is_void', false)
-      .eq('txn_date', date)
-      .eq('txn_type', 'OPEN_STOCK')
-      .in('product_id', productIds)
-      .abortSignal(signal),
-    supabase
-      .from('transactions')
-      .select('product_id, godown_id, qty, txn_type')
-      .eq('is_void', false)
-      .lte('txn_date', todayStr)
-      .in('product_id', productIds)
-      .abortSignal(signal),
-  ]);
-
   const balanceMap = {};
+  const currentBalanceMap = {};
   for (const txn of allBalances || []) {
     const key = `${txn.product_id}|${txn.godown_id}`;
-    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'].includes(txn.txn_type)) {
-      balanceMap[key] = (balanceMap[key] || 0) + Number(txn.qty);
-    } else {
-      balanceMap[key] = (balanceMap[key] || 0) - Number(txn.qty);
-    }
+    const delta = ['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'].includes(txn.txn_type)
+      ? Number(txn.qty)
+      : -Number(txn.qty);
+    if (txn.txn_date <= prevDateStr) balanceMap[key] = (balanceMap[key] || 0) + delta;
+    if (txn.txn_date <= todayStr) currentBalanceMap[key] = (currentBalanceMap[key] || 0) + delta;
   }
 
   for (const txn of openingStocks || []) {
     const key = `${txn.product_id}|${txn.godown_id}`;
     balanceMap[key] = (balanceMap[key] || 0) + Number(txn.qty);
-  }
-
-  const currentBalanceMap = {};
-  for (const txn of currentBalances || []) {
-    const key = `${txn.product_id}|${txn.godown_id}`;
-    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'].includes(txn.txn_type)) {
-      currentBalanceMap[key] = (currentBalanceMap[key] || 0) + Number(txn.qty);
-    } else {
-      currentBalanceMap[key] = (currentBalanceMap[key] || 0) - Number(txn.qty);
-    }
   }
 
   const stockInMap = {};

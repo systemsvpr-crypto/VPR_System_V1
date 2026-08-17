@@ -20,48 +20,61 @@ const naturalCompare = (a, b) => {
 
 // Groups products (matched by product_id from the products table) into
 // Category -> { Product Type (rows) x Brand Name (columns) -> current stock qty }
+//
+// Products with NEITHER a Category NOR a Size (Product Type) are too sparse
+// for that matrix — grouping them by "type" would just fall back to one row
+// per product name. Those are pulled out into a flat Brand -> qty total
+// instead, rendered as a compact 2-row Brand Name / Current Stock table.
 const buildCategoryPivots = (products) => {
   const categories = new Map();
+  const noSizeBrandTotals = new Map();
 
   for (const p of products) {
-    const category = p.category?.trim() || UNCATEGORIZED;
-    const type = p.productType?.trim() || p.productName;
+    const category = p.category?.trim();
+    const type = p.productType?.trim();
     const brand = p.brandName?.trim() || 'Unbranded';
     const qty = p.totals?.current || 0;
 
-    if (!categories.has(category)) {
-      categories.set(category, { types: new Set(), brands: new Set(), matrix: new Map() });
+    if (!category && !type) {
+      noSizeBrandTotals.set(brand, (noSizeBrandTotals.get(brand) || 0) + qty);
+      continue;
     }
-    const bucket = categories.get(category);
-    bucket.types.add(type);
+
+    const categoryKey = category || UNCATEGORIZED;
+    const typeKey = type || p.productName;
+
+    if (!categories.has(categoryKey)) {
+      categories.set(categoryKey, { types: new Set(), brands: new Set(), matrix: new Map() });
+    }
+    const bucket = categories.get(categoryKey);
+    bucket.types.add(typeKey);
     bucket.brands.add(brand);
-    const key = `${type} ${brand}`;
+    const key = `${typeKey} ${brand}`;
     bucket.matrix.set(key, (bucket.matrix.get(key) || 0) + qty);
   }
 
-  return categories;
+  return { categories, noSizeBrandTotals };
 };
 
 const EMPTY_BUCKET = { types: new Set(), brands: new Set(), matrix: new Map() };
 
 // Writes one category's pivot table into `sheet` starting at `startRow`.
-// Returns the row number right after the block (before any gap the caller adds).
+// Returns the row number right after the block (before any gap the caller
+// adds), or `null` if there was nothing to show — the caller should then
+// leave the sheet blank rather than write a "no products" placeholder.
 const writePivotBlock = (sheet, startRow, categoryName, date, { types, brands, matrix }) => {
   const sortedTypes = [...types].sort(naturalCompare);
   const sortedBrands = [...brands].sort((a, b) => a.localeCompare(b));
+
+  if (sortedTypes.length === 0 || sortedBrands.length === 0) {
+    return null;
+  }
 
   const titleRow = sheet.getRow(startRow);
   titleRow.getCell(1).value = `${categoryName} — Live Stock (as of ${date})`;
   sheet.mergeCells(startRow, 1, startRow, Math.max(sortedBrands.length + 2, 2));
   titleRow.getCell(1).font = { bold: true, size: 13, color: { argb: 'FF1F2937' } };
   titleRow.height = 24;
-
-  if (sortedTypes.length === 0 || sortedBrands.length === 0) {
-    const emptyRow = sheet.getRow(startRow + 1);
-    emptyRow.getCell(1).value = `No products found for ${categoryName}.`;
-    emptyRow.getCell(1).font = { italic: true, color: { argb: 'FF94A3B8' } };
-    return startRow + 2;
-  }
 
   const headerRow = sheet.getRow(startRow + 1);
   headerRow.values = [categoryName, ...sortedBrands, 'Total'];
@@ -132,6 +145,58 @@ const writePivotBlock = (sheet, startRow, categoryName, date, { types, brands, m
   return rowNum;
 };
 
+// Writes the compact "no Category / no Size" block: just 2 rows — Brand Name
+// across the top and Current Stock beneath it — instead of the Type x Brand
+// matrix, since there's no Size to pivot by. Returns `null` (writing nothing)
+// when there's no such data, rather than a "no products" placeholder.
+const writeBrandStockBlock = (sheet, startRow, date, brandTotals) => {
+  const sortedBrands = [...brandTotals.keys()].sort((a, b) => a.localeCompare(b));
+
+  if (sortedBrands.length === 0) {
+    return null;
+  }
+
+  const titleRow = sheet.getRow(startRow);
+  titleRow.getCell(1).value = `No Category / No Size — Live Stock (as of ${date})`;
+  sheet.mergeCells(startRow, 1, startRow, Math.max(sortedBrands.length + 1, 2));
+  titleRow.getCell(1).font = { bold: true, size: 13, color: { argb: 'FF1F2937' } };
+  titleRow.height = 24;
+
+  const brandRow = sheet.getRow(startRow + 1);
+  brandRow.values = ['Brand Name', ...sortedBrands];
+  brandRow.eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: 'FF1F2937' } };
+    cell.fill = HEADER_FILL;
+    cell.border = BORDER_ALL;
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
+  brandRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' };
+  brandRow.height = 20;
+
+  const stockRow = sheet.getRow(startRow + 2);
+  stockRow.values = ['Current Stock', ...sortedBrands.map((brand) => brandTotals.get(brand) || 0)];
+  stockRow.getCell(1).font = { bold: true, color: { argb: 'FF1F2937' } };
+  stockRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' };
+  stockRow.getCell(1).border = BORDER_ALL;
+  sortedBrands.forEach((brand, i) => {
+    const cell = stockRow.getCell(i + 2);
+    const qty = brandTotals.get(brand) || 0;
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.border = BORDER_ALL;
+    cell.font = qty === 0
+      ? { color: { argb: 'FFB0B7C3' } }
+      : { bold: true, color: { argb: 'FF111827' } };
+  });
+
+  sheet.getColumn(1).width = Math.max(sheet.getColumn(1).width || 0, 16);
+  sortedBrands.forEach((brand, i) => {
+    const col = sheet.getColumn(i + 2);
+    col.width = Math.max(col.width || 12, brand.length + 2);
+  });
+
+  return startRow + 3;
+};
+
 // Stacks every named category's pivot table into a single sheet, one block after another.
 const addCombinedCategoriesSheet = (workbook, categories, date) => {
   const sheet = workbook.addWorksheet('Categories', { views: [{ state: 'frozen', xSplit: 1, ySplit: 0 }] });
@@ -147,14 +212,20 @@ const addCombinedCategoriesSheet = (workbook, categories, date) => {
 
   let row = 1;
   for (const categoryName of categoryNames) {
-    row = writePivotBlock(sheet, row, categoryName, date, categories.get(categoryName));
-    row += 1; // blank gap row between category blocks
+    const end = writePivotBlock(sheet, row, categoryName, date, categories.get(categoryName));
+    if (end !== null) row = end + 1; // blank gap row between category blocks
   }
 };
 
-const addUncategorizedSheet = (workbook, categories, date) => {
+// Both blocks return `null` when they have nothing to show — if neither has
+// data, the sheet is left completely blank rather than showing a "no
+// products" placeholder; if only one has data, it starts right at row 1
+// instead of leaving a leading gap for the other, empty one.
+const addUncategorizedSheet = (workbook, categories, noSizeBrandTotals, date) => {
   const sheet = workbook.addWorksheet('Uncategorized', { views: [{ state: 'frozen', xSplit: 1, ySplit: 2 }] });
-  writePivotBlock(sheet, 1, UNCATEGORIZED, date, categories.get(UNCATEGORIZED) || EMPTY_BUCKET);
+  const pivotEnd = writePivotBlock(sheet, 1, UNCATEGORIZED, date, categories.get(UNCATEGORIZED) || EMPTY_BUCKET);
+  const nextRow = pivotEnd !== null ? pivotEnd + 1 : 1;
+  writeBrandStockBlock(sheet, nextRow, date, noSizeBrandTotals);
 };
 
 const addDetailSheet = (workbook, products) => {
@@ -205,10 +276,10 @@ export const exportStockReport = async (products, date) => {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'VPR Systems';
 
-  const categories = buildCategoryPivots(products);
+  const { categories, noSizeBrandTotals } = buildCategoryPivots(products);
 
   addCombinedCategoriesSheet(workbook, categories, date);
-  addUncategorizedSheet(workbook, categories, date);
+  addUncategorizedSheet(workbook, categories, noSizeBrandTotals, date);
   addDetailSheet(workbook, products);
 
   const buffer = await workbook.xlsx.writeBuffer();
