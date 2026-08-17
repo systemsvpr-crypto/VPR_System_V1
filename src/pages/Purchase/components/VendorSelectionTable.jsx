@@ -378,6 +378,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
                 <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Unit</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Qty</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Godown</th>
@@ -409,9 +410,9 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
                     </td>
                     <td className="px-3 py-3">
                       <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>
-                      {item.products?.unit && (
-                        <span className="text-xs text-slate-400 ml-1 uppercase">({item.products.unit})</span>
-                      )}
+                    </td>
+                    <td className="px-3 py-3 text-center text-xs text-slate-500 uppercase whitespace-nowrap">
+                      {item.products?.unit || '—'}
                     </td>
                     <td className="px-3 py-3 text-center">
                       <div className="w-20 mx-auto">

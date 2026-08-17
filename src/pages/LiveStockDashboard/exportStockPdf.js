@@ -1,5 +1,13 @@
 const UNCATEGORIZED = 'Uncategorized';
 
+// The 3 factory godowns shown in the "Factory Stock List" section, matched
+// against product.godowns[].godownName (case-insensitively). These are 3 of
+// several "Own"-type godowns (which also include e.g. "Godown" and "LP"), so
+// matching by name rather than godownType is what actually scopes it to just
+// these 3 — spelling must match the real godowns table exactly: "Darba" and
+// "Dusera" (not "Darbha"/"Dussera").
+const FACTORY_GODOWNS = ['Darba', 'DP', 'Dusera'];
+
 const naturalCompare = (a, b) => {
   const numsA = String(a).match(/\d+(\.\d+)?/g)?.map(Number) || [];
   const numsB = String(b).match(/\d+(\.\d+)?/g)?.map(Number) || [];
@@ -93,6 +101,65 @@ const buildBrandStockCard = (brandTotals) => {
   `;
 };
 
+// For each of the 3 FACTORY_GODOWNS, collects every product with non-zero
+// current stock at that specific godown, sorted by product name. Products
+// not stocked at a given factory are left out of that factory's list rather
+// than padding it out with "-" rows.
+const buildFactoryStockLists = (products) => {
+  return FACTORY_GODOWNS.map((factoryName) => {
+    const rows = [];
+    for (const p of products) {
+      const g = p.godowns?.find((gd) => gd.godownName?.trim().toLowerCase() === factoryName.toLowerCase());
+      const qty = g?.current || 0;
+      if (qty !== 0) rows.push({ productName: p.productName, qty });
+    }
+    rows.sort((a, b) => a.productName.localeCompare(b.productName));
+    return { factoryName, rows };
+  });
+};
+
+// Renders the "Factory Stock List" section: one vertical Product Name / Qty
+// list per factory, placed side by side — 3 factories x (Product Name + Qty)
+// = 6 columns across the page.
+const buildFactoryStockCard = (factoryLists) => {
+  if (!factoryLists.some((f) => f.rows.length > 0)) return '';
+
+  const buildColumn = ({ factoryName, rows }) => `
+    <div class="factory-col">
+      <table class="report-table category-table factory-table">
+        <thead>
+          <tr><th colspan="2" class="text-center">${factoryName}</th></tr>
+          <tr>
+            <th class="text-left">Product Name</th>
+            <th class="text-right">Qty</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+      .map(
+        (r) => `
+            <tr>
+              <td class="text-left font-medium factory-product">${r.productName}</td>
+              <td class="text-right font-medium">${formatNum(r.qty)}</td>
+            </tr>
+          `
+      )
+      .join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  return `
+    <div class="summary-section full-width">
+      <div class="section-title">Factory Stock List</div>
+      <div class="factory-split">
+        ${factoryLists.map(buildColumn).join('')}
+      </div>
+    </div>
+  `;
+};
+
 /**
  * Generates the complete HTML/CSS printable report string
  */
@@ -104,53 +171,7 @@ export const generatePrintableHtml = (products, summaryData, date) => {
     return a.localeCompare(b);
   });
 
-  const godowns = summaryData?.godowns || [];
-  const godownTotals = summaryData?.totals || { opening: 0, stockIn: 0, stockOut: 0, closing: 0 };
-
-  // Render Godown Summary Table
-  const godownSummaryHtml = `
-    <div class="summary-section full-width">
-      <div class="section-title">Godown Summary</div>
-      <table class="report-table summary-table">
-        <thead>
-          <tr>
-            <th class="text-left" style="width: 30%;">Godown</th>
-            <th class="text-left" style="width: 15%;">Type</th>
-            <th class="text-right">Opening</th>
-            <th class="text-right">Stock In</th>
-            <th class="text-right">Stock Out</th>
-            <th class="text-right">Closing</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${godowns
-      .map(
-        (g) => `
-            <tr>
-              <td class="font-bold text-left">${g.godownName}</td>
-              <td class="text-left">${g.godownType || '-'}</td>
-              <td class="text-right">${formatNum(g.opening)}</td>
-              <td class="text-right text-success">+${formatNum(g.stockIn)}</td>
-              <td class="text-right text-danger">-${formatNum(g.stockOut)}</td>
-              <td class="text-right font-bold text-primary">${formatNum(g.closing)}</td>
-            </tr>
-          `
-      )
-      .join('')}
-        </tbody>
-        <tfoot>
-          <tr class="total-row">
-            <td class="font-bold text-left">Total</td>
-            <td class="text-left"></td>
-            <td class="text-right">${formatNum(godownTotals.opening)}</td>
-            <td class="text-right text-success">+${formatNum(godownTotals.stockIn)}</td>
-            <td class="text-right text-danger">-${formatNum(godownTotals.stockOut)}</td>
-            <td class="text-right font-bold text-primary">${formatNum(godownTotals.closing)}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  `;
+  const factoryStockHtml = buildFactoryStockCard(buildFactoryStockLists(products));
 
   // Render Category Tables in Dynamic Stream Layout
   const categoryTablesHtml = categoryNames
@@ -161,11 +182,19 @@ export const generatePrintableHtml = (products, summaryData, date) => {
 
       if (sortedTypes.length === 0 || sortedBrands.length === 0) return '';
 
+      // Uncategorized is transposed relative to every other category: rows
+      // are Brand Name and columns are Product Type, instead of the usual
+      // rows-are-Type / columns-are-Brand layout.
+      const isUncategorized = categoryName === UNCATEGORIZED;
+      const rowItems = isUncategorized ? sortedBrands : sortedTypes;
+      const colItems = isUncategorized ? sortedTypes : sortedBrands;
+      const cellValue = (row, col) => matrix.get(isUncategorized ? `${col} ${row}` : `${row} ${col}`) || 0;
+
       // Determine if Wide Table or Compact Table:
-      // Small/Compact Table: <= 4 brand columns (flows side-by-side in 2-column stream)
-      // Large/Wide Table: > 4 brand columns (spans full width across both columns)
-      const isWideTable = sortedBrands.length > 4;
-      const isUltraWide = sortedBrands.length > 12;
+      // Small/Compact Table: <= 4 columns (flows side-by-side in 2-column stream)
+      // Large/Wide Table: > 4 columns (spans full width across both columns)
+      const isWideTable = colItems.length > 4;
+      const isUltraWide = colItems.length > 12;
 
       return `
         <div class="category-card ${isWideTable ? 'table-full-span' : 'table-compact-span'}">
@@ -174,11 +203,11 @@ export const generatePrintableHtml = (products, summaryData, date) => {
               <thead>
                 <tr>
                   <th class="text-left type-col">${categoryName}</th>
-                  ${sortedBrands
+                  ${colItems
           .map(
-            (brand) => `
-                    <th class="text-center brand-col ${isUltraWide ? 'vertical-header' : ''}" title="${brand}">
-                      <span>${brand}</span>
+            (col) => `
+                    <th class="text-center brand-col ${isUltraWide ? 'vertical-header' : ''}" title="${col}">
+                      <span>${col}</span>
                     </th>
                   `
           )
@@ -186,14 +215,14 @@ export const generatePrintableHtml = (products, summaryData, date) => {
                 </tr>
               </thead>
               <tbody>
-                ${sortedTypes
-          .map((type) => {
+                ${rowItems
+          .map((row) => {
             return `
                     <tr>
-                      <td class="text-left font-bold type-col">${type}</td>
-                      ${sortedBrands
-                .map((brand) => {
-                  const val = matrix.get(`${type} ${brand}`) || 0;
+                      <td class="text-left font-bold type-col">${row}</td>
+                      ${colItems
+                .map((col) => {
+                  const val = cellValue(row, col);
                   return `<td class="text-center ${val > 0 ? 'font-medium' : 'text-muted'}">${formatNum(val)}</td>`;
                 })
                 .join('')}
@@ -231,7 +260,7 @@ export const generatePrintableHtml = (products, summaryData, date) => {
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
         color-adjust: exact !important;
-        padding: 8mm 6mm 8mm 6mm;
+        padding: 0mm 6mm 0mm 6mm;
       }
       .page-footer {
         position: fixed;
@@ -249,11 +278,11 @@ export const generatePrintableHtml = (products, summaryData, date) => {
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      font-size: 8px;
+      font-size: 10px;
       line-height: 1.15;
       color: #1e293b;
       background: #ffffff;
-      padding: 8mm 6mm 8mm 6mm;
+      padding: 0mm 6mm 0mm 6mm;
     }
 
     /* HEADER BANNER */
@@ -269,12 +298,12 @@ export const generatePrintableHtml = (products, summaryData, date) => {
       column-span: all;
     }
     .report-header h1 {
-      font-size: 13px;
+      font-size: 15px;
       font-weight: 700;
       letter-spacing: 0.5px;
     }
     .report-header .sub-title {
-      font-size: 7px;
+      font-size: 9px;
       color: #94a3b8;
       font-weight: 500;
       text-transform: uppercase;
@@ -284,11 +313,11 @@ export const generatePrintableHtml = (products, summaryData, date) => {
       text-align: right;
     }
     .report-header .report-name {
-      font-size: 11px;
+      font-size: 13px;
       font-weight: 700;
     }
     .report-header .as-of-date {
-      font-size: 7.5px;
+      font-size: 9.5px;
       color: #cbd5e1;
     }
 
@@ -305,10 +334,9 @@ export const generatePrintableHtml = (products, summaryData, date) => {
     }
 
     /* FULL-WIDTH SPANNING SECTIONS */
-    /* Godown Summary is the only thing that uses .full-width without also
-       being a category table, and it's meant to flow normally, so it keeps
-       break-inside: auto. Category tables (.table-full-span) now avoid
-       breaking too — a wide table splitting mid-way with its header
+    /* .full-width is meant to flow normally (used by the section title),
+       so it keeps break-inside: auto. Category tables (.table-full-span)
+       avoid breaking — a wide table splitting mid-way with its header
        repeating on the next page left a lone dangling row on either side of
        the break, which read as broken/duplicated rather than one table. */
     .full-width {
@@ -337,7 +365,7 @@ export const generatePrintableHtml = (products, summaryData, date) => {
 
     /* SECTION HEADERS */
     .section-title {
-      font-size: 9px;
+      font-size: 11px;
       font-weight: 700;
       color: #0f172a;
       margin-bottom: 3px;
@@ -363,12 +391,12 @@ export const generatePrintableHtml = (products, summaryData, date) => {
       border-bottom: 1px solid #cbd5e1;
     }
     .category-name {
-      font-size: 8.5px;
+      font-size: 10.5px;
       font-weight: 700;
       color: #1e293b;
     }
     .category-meta {
-      font-size: 7px;
+      font-size: 9px;
       color: #64748b;
       font-weight: 600;
     }
@@ -379,7 +407,7 @@ export const generatePrintableHtml = (products, summaryData, date) => {
     .report-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 7.5px;
+      font-size: 9.5px;
     }
 
     /* Belt-and-braces: some print engines only reliably honor break-inside
@@ -406,13 +434,46 @@ export const generatePrintableHtml = (products, summaryData, date) => {
       page-break-inside: avoid;
     }
 
+    /* ============================================================
+       PAGE-GAP FRAME
+       ============================================================ */
+    /* body's own top/bottom padding only ever lands on the very first and
+       very last printed page — a print engine doesn't repeat an element's
+       padding at every page break, so page 2+ started flush against the
+       paper edge with none of the breathing room the left/right padding
+       gives every page. Wrapping the whole report in a table and using
+       thead/tfoot as spacer rows reuses the table-header/footer-group
+       repeat-on-every-page behavior above to get that same gap on every
+       page, not just the first/last. */
+    .page-frame {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .page-frame > thead > tr > td,
+    .page-frame > tfoot > tr > td {
+      height: 8mm;
+      padding: 0;
+      border: none;
+    }
+    /* The single row holding all real content must be allowed to break
+       across pages — override the generic tr break-inside: avoid rule
+       above, which would otherwise force the entire report onto one page. */
+    .page-frame > tbody > tr {
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+    .page-frame > tbody > tr > td {
+      padding: 0;
+      border: none;
+    }
+
     .report-table th {
       background: #dbeafe;
       color: #1e293b;
       font-weight: 700;
       padding: 2.5px 3px;
       border: 1px solid #94a3b8;
-      font-size: 7px;
+      font-size: 9px;
       white-space: normal;
       word-break: break-word;
       line-height: 1.1;
@@ -465,7 +526,7 @@ export const generatePrintableHtml = (products, summaryData, date) => {
 
     /* ULTRA WIDE TABLES (12+ BRANDS) ROTATED/ANGLED HEADERS */
     .ultra-wide th.brand-col {
-      font-size: 6.5px;
+      font-size: 8.5px;
       padding: 3px 1px;
       max-width: 24px;
     }
@@ -488,12 +549,31 @@ export const generatePrintableHtml = (products, summaryData, date) => {
       word-break: break-word;
     }
 
+    /* "FACTORY STOCK LIST" CARD — 3 side-by-side vertical Product/Qty lists,
+       one per factory godown (Darbha, DP, Dussera) */
+    .factory-split {
+      display: flex;
+      gap: 8px;
+    }
+    .factory-col {
+      flex: 1;
+      min-width: 0;
+    }
+    .factory-table {
+      table-layout: fixed;
+    }
+    .factory-product {
+      max-width: none;
+      white-space: normal;
+      word-break: break-word;
+    }
+
     /* FOOTER */
     .page-footer {
       border-top: 1px solid #cbd5e1;
       padding-top: 3px;
       margin-top: 10px;
-      font-size: 7px;
+      font-size: 9px;
       color: #94a3b8;
       display: flex;
       justify-content: space-between;
@@ -503,30 +583,44 @@ export const generatePrintableHtml = (products, summaryData, date) => {
 </head>
 <body>
 
-  <!-- Report Header Banner -->
-  <div class="report-header">
-    <div>
-      <h1>VPR SYSTEMS</h1>
-      <div class="sub-title">Enterprise Inventory Suite</div>
-    </div>
-    <div class="meta-info">
-      <div class="report-name">LIVE STOCK REPORT</div>
-      <div class="as-of-date">As of ${date}</div>
-    </div>
-  </div>
+  <!-- Wraps the entire report in a table so thead/tfoot spacer rows repeat
+       an 8mm gap at the top and bottom of EVERY printed page (see the
+       PAGE-GAP FRAME rules above) — not just the first page's top and the
+       last page's bottom, which is all body's own padding can reach. -->
+  <table class="page-frame">
+    <thead><tr><td></td></tr></thead>
+    <tfoot><tr><td></td></tr></tfoot>
+    <tbody>
+      <tr>
+        <td>
 
-  <!-- Godown Summary (Full Width) -->
-  ${godownSummaryHtml}
+          <!-- Report Header Banner -->
+          <div class="report-header">
+            <div>
+              <h1>VPR SYSTEMS</h1>
+              <div class="sub-title">Enterprise Inventory Suite</div>
+            </div>
+            <div class="meta-info">
+              <div class="report-name">LIVE STOCK REPORT</div>
+              <div class="as-of-date">As of ${date}</div>
+            </div>
+          </div>
 
-  <div class="section-title full-width" style="margin-top: 6px;">Product Stock Breakdown by Category</div>
+          <div class="section-title full-width" style="margin-top: 6px;">Product Stock Breakdown by Category</div>
 
-  <!-- Dynamic Multi-Column Stream Container -->
-  <div class="stream-container">
-    ${categoryTablesHtml}
-    ${noSizeCardHtml}
-  </div>
+          <!-- Dynamic Multi-Column Stream Container -->
+          <div class="stream-container">
+            ${categoryTablesHtml}
+            ${noSizeCardHtml}
+          </div>
 
+          <!-- Factory Stock List (Full Width, shown last) -->
+          ${factoryStockHtml}
 
+        </td>
+      </tr>
+    </tbody>
+  </table>
 
 </body>
 </html>

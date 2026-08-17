@@ -242,7 +242,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                           align="start" disabled={itemLocked} />
                       </div>
                       <div className="col-span-2">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">UoM</label>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Unit</label>
                         <Input value={selectedProduct?.unit || ''} readOnly placeholder="-" className="bg-slate-100/70 text-slate-600 cursor-not-allowed" disabled={itemLocked} />
                       </div>
                       <div className="col-span-2">
