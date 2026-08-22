@@ -18,6 +18,7 @@ import {
   ClipboardList,
   DollarSign,
   ShoppingCart,
+  Boxes,
 } from 'lucide-react';
 import vprLogo from '../../assets/vpr_logo.png';
 
@@ -88,6 +89,7 @@ const Sidebar = ({ onClose }) => {
     'master': Package,
     'sales': DollarSign,
     'purchase': ShoppingCart,
+    'ultimate-ims': Boxes,
     'settings': Settings,
     'my-profile': User,
   };
@@ -102,6 +104,7 @@ const Sidebar = ({ onClose }) => {
 
   // Helper: Check if user has access to a specific page ID
   const hasAccess = (pageId) => {
+    if (user?.role === 'SUPER ADMIN') return true;
     if (!user?.page_access || !Array.isArray(user?.page_access)) {
       return DEFAULT_USER_PAGES.includes(pageId);
     }
@@ -128,7 +131,6 @@ const Sidebar = ({ onClose }) => {
   }, []);
 
   const menuItems = baseMenuItems;
-
 
   return (
     <>

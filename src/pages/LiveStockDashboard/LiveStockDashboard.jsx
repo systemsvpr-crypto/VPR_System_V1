@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { BarChart3, Package, Warehouse, Truck, Store, ChevronLeft, ChevronRight, Search, Download, FileText, Loader2 } from 'lucide-react';
+import { BarChart3, Package, Warehouse, Truck, Store, Users, ChevronLeft, ChevronRight, Search, Download, FileText, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getDashboardData, getGodownSummary } from '../../services/dashboardService';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -9,13 +9,16 @@ import GodownSummaryTable from './components/GodownSummaryTable';
 import ProductStockCard from './components/ProductStockCard';
 import TransportGodownStock from './components/TransportGodownStock';
 import VendorDashboard from './components/VendorDashboard';
+import SalesDashboard from './components/SalesDashboard';
 import { exportStockReport } from './exportStockReport';
 import { exportStockPdf } from './exportStockPdf';
+import DataTable from '@/components/DataTable';
+import { TabSwitcher } from '@/components/StandardButtons';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
 const LiveStockDashboard = () => {
-  const [activeView, setActiveView] = useState('live'); // 'live' | 'transport' | 'vendor'
+  const [activeView, setActiveView] = useState('live'); // 'live' | 'transport' | 'vendor' | 'sales'
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [data, setData] = useState([]);
   const [summaryData, setSummaryData] = useState({ godowns: [], totals: { opening: 0, stockIn: 0, stockOut: 0, closing: 0 } });
@@ -159,49 +162,25 @@ const LiveStockDashboard = () => {
   const showTables = !showSpinner && !showEmpty;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 pb-8">
       {/* Top View Switcher Bar */}
-      <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200 w-fit shrink-0">
-        <button
-          type="button"
-          onClick={() => setActiveView('live')}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-all ${
-            activeView === 'live'
-              ? 'bg-white text-blue-600 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Warehouse size={15} />
-          <span>Godown Live Stock</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveView('transport')}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-all ${
-            activeView === 'transport'
-              ? 'bg-white text-blue-600 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Truck size={15} />
-          <span>Transport Godown Stock</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveView('vendor')}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-all ${
-            activeView === 'vendor'
-              ? 'bg-white text-blue-600 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Store size={15} />
-          <span>Vendor Dashboard</span>
-        </button>
+      <div className="flex justify-center w-full shrink-0">
+        <TabSwitcher
+          activeTab={activeView}
+          onTabChange={setActiveView}
+          tabs={[
+            { id: 'live', label: <div className="flex items-center gap-2"><Warehouse size={15} /><span>Godown Live Stock</span></div> },
+            { id: 'transport', label: <div className="flex items-center gap-2"><Truck size={15} /><span>Transport Godown Stock</span></div> },
+            { id: 'vendor', label: <div className="flex items-center gap-2"><Store size={15} /><span>Vendor Dashboard</span></div> },
+            { id: 'sales', label: <div className="flex items-center gap-2"><Users size={15} /><span>Sales Dashboard</span></div> },
+          ]}
+        />
       </div>
 
       {activeView === 'vendor' ? (
         <VendorDashboard />
+      ) : activeView === 'sales' ? (
+        <SalesDashboard />
       ) : activeView === 'transport' ? (
         <TransportGodownStock />
       ) : (
@@ -215,16 +194,16 @@ const LiveStockDashboard = () => {
                 <h3 className="font-semibold text-slate-800 text-lg whitespace-nowrap">Godown Summary</h3>
               </div>
 
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 w-fit shrink-0">
+              <div className="flex items-center gap-2 w-fit shrink-0">
                 <button type="button" onClick={() => setGodownTypeFilter('Own')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
-                    godownTypeFilter === 'Own' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  className={`px-3 py-1.5 h-[32px] text-xs font-medium rounded-lg border ${
+                    godownTypeFilter === 'Own' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900'
                   }`}>
                   Own
                 </button>
                 <button type="button" onClick={() => setGodownTypeFilter('Transporter')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
-                    godownTypeFilter === 'Transporter' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  className={`px-3 py-1.5 h-[32px] text-xs font-medium rounded-lg border ${
+                    godownTypeFilter === 'Transporter' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900'
                   }`}>
                   Transporter
                 </button>
@@ -253,7 +232,7 @@ const LiveStockDashboard = () => {
                   <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg shrink-0">
                     <span className="text-xs text-blue-600 font-medium">Total Closing:</span>
                     {/* Always the combined Own + Transporter total, regardless of the type filter below */}
-                    <span className="text-sm font-bold text-blue-700">{summaryData.totals.closing.toFixed(0)}</span>
+                    <span className="text-sm font-bold text-blue-700">{summaryData.totals.closing.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                   </div>
                 )}
               </div>
@@ -292,7 +271,7 @@ const LiveStockDashboard = () => {
                     onClick={handleExportExcel}
                     disabled={exporting || exportingPdf}
                     title="Export all products to Excel"
-                    className="flex items-center gap-1.5 px-3 h-9 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
+                    className="flex items-center gap-1.5 px-3 h-9 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
                   >
                     {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                     Export Excel
@@ -302,7 +281,7 @@ const LiveStockDashboard = () => {
                     onClick={handleExportPdf}
                     disabled={exporting || exportingPdf}
                     title="Export all products to PDF (Landscape)"
-                    className="flex items-center gap-1.5 px-3 h-9 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
+                    className="flex items-center gap-1.5 px-3 h-9 text-xs font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
                   >
                     {exportingPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
                     Export PDF
@@ -318,69 +297,37 @@ const LiveStockDashboard = () => {
                   </div>
                 </div>
               </div>
-              <div className="overflow-x-auto overflow-y-auto max-h-[560px]">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 z-10">
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Opening</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-green-600 uppercase tracking-wider">Stock In</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-red-500 uppercase tracking-wider">Stock Out</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider">Closing</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider">Current Stock</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredData.map((product) => (
-                      <ProductStockCard key={product.productId} product={product} />
-                    ))}
-                    {filteredData.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">
-                          No products match your search.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500">Rows per page:</span>
-                  <select
-                    value={pageSize}
-                    onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-                    className="border border-slate-300 rounded-md px-2 py-1 focus:outline-none focus:border-primary bg-white font-medium text-xs shadow-sm"
-                  >
-                    {PAGE_SIZE_OPTIONS.map((val) => (
-                      <option key={val} value={val}>{val}</option>
-                    ))}
-                  </select>
-                  <span className="text-xs text-slate-500 whitespace-nowrap">
-                    {rangeStart}-{rangeEnd} of {totalCount}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => handlePageChange(currentPage - 1)}
-                    disabled={currentPage === 1 || !!trimmedSearch}
-                    className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
-                  >
-                    <ChevronLeft size={16} strokeWidth={2.5} />
-                  </button>
-                  <span className="text-xs font-semibold text-slate-600">
-                    Page {currentPage} of {totalPages}
-                  </span>
-                  <button
-                    onClick={() => handlePageChange(currentPage + 1)}
-                    disabled={currentPage === totalPages || !!trimmedSearch}
-                    className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
-                  >
-                    <ChevronRight size={16} strokeWidth={2.5} />
-                  </button>
-                </div>
+              <div className="flex-1 min-h-0 overflow-hidden flex flex-col max-h-[560px]">
+                <DataTable
+                  headers={[
+                    { label: 'Product Name', className: 'text-center' },
+                    { label: 'Unit', className: 'text-center' },
+                    { label: 'Opening', className: 'text-center' },
+                    { label: 'Stock In', className: 'text-center !text-green-600' },
+                    { label: 'Stock Out', className: 'text-center !text-red-500' },
+                    { label: 'Closing', className: 'text-center !text-primary' },
+                    { label: 'Current Stock', className: 'text-center !text-slate-900' }
+                  ]}
+                  data={filteredData}
+                  renderRow={(product) => <ProductStockCard key={product.productId} product={product} />}
+                  renderCard={(product) => (
+                    <div key={product.productId} className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                      <div className="font-semibold text-slate-800">{product.productName}</div>
+                      <div className="text-sm text-slate-500 mt-1 flex justify-between">
+                        <span>Closing: {product.totals?.closing || 0}</span>
+                        <span className="text-primary font-medium">{product.unit}</span>
+                      </div>
+                    </div>
+                  )}
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  itemsPerPage={pageSize}
+                  onPageChange={handlePageChange}
+                  onItemsPerPageChange={handlePageSizeChange}
+                  totalResults={totalCount}
+                  itemsPerPageOptions={PAGE_SIZE_OPTIONS}
+                  minWidth="800px"
+                />
               </div>
             </div>
           )}

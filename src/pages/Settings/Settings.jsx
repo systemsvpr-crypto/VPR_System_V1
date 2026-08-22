@@ -4,12 +4,9 @@ import toast from 'react-hot-toast';
 import { fetchAllUsers } from '../../services/settingsService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { USER_ROLES, GENDERS, PAGES, DEFAULT_USER_PAGES } from '../../constants';
 import UserModal from './components/UserModal';
-import { UserRow, MobileUserCard, EmptyRow, HeaderCell } from './components/UserTable';
-import Pagination from '@/components/ui/pagination';
-
-const ITEMS_PER_PAGE = 6;
+import { UserRow, MobileUserCard } from './components/UserTable';
+import DataTable from '@/components/DataTable';
 
 const Settings = () => {
   const [users, setUsers] = useState([]);
@@ -18,10 +15,11 @@ const Settings = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [activeTab] = useState('Manage Users');
 
   useEffect(() => { fetchUsers(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, itemsPerPage]);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -44,27 +42,20 @@ const Settings = () => {
     );
   }, [users, searchTerm]);
 
-  const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
   const currentItems = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredUsers.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredUsers, currentPage]);
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredUsers.slice(start, start + itemsPerPage);
+  }, [filteredUsers, currentPage, itemsPerPage]);
 
   const handlePageChange = (page) => {
     if (page >= 1 && page <= totalPages) setCurrentPage(page);
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 h-full min-h-[500px]">
 
-
-      <div className="flex items-center gap-6 border-b border-slate-200">
-        <button className={`pb-3 text-sm font-medium transition-all ${activeTab === 'Manage Users' ? 'text-primary border-b-2 border-primary translate-y-[1px]' : 'text-slate-500 hover:text-slate-700'}`}>
-          Manage Users
-        </button>
-      </div>
-
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 h-full flex-1 min-h-0">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
           <div className="relative w-full md:w-72 order-2 md:order-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
@@ -79,14 +70,14 @@ const Settings = () => {
           </div>
         </div>
 
-        <div className="md:hidden space-y-3">
+        <div className="flex-1 min-h-0 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
           {loading ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+            <div className="p-12 text-center flex-1 flex flex-col justify-center items-center">
               <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3"></div>
               <p className="text-sm text-slate-400">Loading users...</p>
             </div>
           ) : currentItems.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+            <div className="p-12 text-center flex-1 flex flex-col justify-center items-center">
               <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                 <Users size={32} className="text-slate-300" />
               </div>
@@ -95,44 +86,23 @@ const Settings = () => {
                 {searchTerm ? 'No users match your search criteria.' : 'Click "Add User" above to create the first user.'}
               </p>
             </div>
-          ) : currentItems.map((user) => <MobileUserCard key={user.user_id} user={user} onEdit={() => handleOpenModal(user)} />)}
-        </div>
-
-        <div className="hidden md:flex bg-white rounded-xl border border-slate-200 flex-col">
-          <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
-                  <HeaderCell>User Details</HeaderCell>
-                  <HeaderCell>Role & Designation</HeaderCell>
-                  <HeaderCell>Status</HeaderCell>
-                  <HeaderCell align="right">Actions</HeaderCell>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {loading ? <EmptyRow message="Loading users..." />
-                : currentItems.length === 0 ? <EmptyRow message="No users found matching your search." />
-                : currentItems.map((user) => <UserRow key={user.user_id} user={user} onEdit={() => handleOpenModal(user)} />)}
-                {Array.from({ length: Math.max(0, ITEMS_PER_PAGE - currentItems.length) }).map((_, i) => (
-                  <tr key={`empty-${i}`}><td colSpan="4" className="h-16"></td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {!loading && filteredUsers.length > 0 && (
-            <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={filteredUsers.length}
-              startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1} endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredUsers.length)}
-              onPageChange={handlePageChange} className="border-t border-slate-200" />
+          ) : (
+            <DataTable
+              headers={['User Details', 'Role & Designation', 'Status', { label: 'Actions', className: 'text-center' }]}
+              data={currentItems}
+              renderRow={(user) => <UserRow key={user.user_id} user={user} onEdit={() => handleOpenModal(user)} onView={() => handleOpenModal(user)} />}
+              renderCard={(user) => <MobileUserCard key={user.user_id} user={user} onEdit={() => handleOpenModal(user)} />}
+              minWidth="800px"
+              currentPage={currentPage}
+              totalPages={totalPages}
+              itemsPerPage={itemsPerPage}
+              onPageChange={handlePageChange}
+              onItemsPerPageChange={setItemsPerPage}
+              totalResults={filteredUsers.length}
+              itemsPerPageOptions={[10, 20, 50, 100]}
+            />
           )}
         </div>
-
-        {!loading && filteredUsers.length > 0 && (
-          <div className="md:hidden shrink-0 mt-auto">
-            <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={filteredUsers.length}
-              startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1} endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredUsers.length)}
-              onPageChange={handlePageChange} className="bg-white border-t border-slate-200 rounded-b-xl" />
-          </div>
-        )}
       </div>
 
       <UserModal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingUser(null); }}

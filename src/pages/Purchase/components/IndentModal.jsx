@@ -6,9 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
-import { Textarea } from '@/components/ui/textarea';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import BulkIndentProductsModal from './BulkIndentProductsModal';
+import { sanitizeQtyInput } from '@/lib/qty';
 
 const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products, godowns, vendors }) => {
   const [form, setForm] = useState({
@@ -18,7 +18,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     vendor_id: '',
     remarks: '',
     items: [],
-    process_type: 'process',
+    process_type: 'direct',
   });
   const [submitting, setSubmitting] = useState(false);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
@@ -34,7 +34,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         vendor_id: '',
         remarks: '',
         items: [],
-        process_type: 'process',
+        process_type: 'direct',
       });
     } else if (editingIndent) {
       setForm({
@@ -43,7 +43,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         godown_id: editingIndent.godown_id || '',
         vendor_id: editingIndent.vendor_id || '',
         remarks: editingIndent.remarks || '',
-        process_type: editingIndent.process_type || 'process',
+        process_type: editingIndent.process_type || 'direct',
         items: (editingIndent.purchase_indent_items || []).map(item => ({
           item_id: item.item_id,
           product_id: item.product_id,
@@ -65,8 +65,8 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.indent_number.trim()) { toast.error('Indent number is required.'); return; }
-    if (!form.godown_id) { toast.error('Please select a godown.'); return; }
-    if (!form.vendor_id) { toast.error('Please select a vendor.'); return; }
+    // Godown and Vendor are optional here — either can be decided later,
+    // per item, on Vendor Approval instead of upfront at indent creation.
     if (form.items.length === 0) { toast.error('Add at least one product.'); return; }
     for (const [i, item] of form.items.entries()) {
       if (!item.product_id) { toast.error(`Item ${i + 1}: Select a product.`); return; }
@@ -160,7 +160,15 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
 
   // Only real (Own) godowns are valid delivery destinations for an indent —
   // Transporter-type godowns are just stock-tracking placeholders.
-  const activeGodowns = useMemo(() => godowns.filter(g => g.is_active && (g.godown_type || 'Own') === 'Own'), [godowns]);
+  const godownOptions = useMemo(() => {
+    return godowns
+      .filter(g => g.is_active && (g.godown_type || 'Own') === 'Own')
+      .map(g => ({ value: g.godown_id, label: g.name }));
+  }, [godowns]);
+
+  const vendorOptions = useMemo(() => {
+    return vendors.map(v => ({ value: v.vendor_id, label: v.name }));
+  }, [vendors]);
 
   return (
     <>
@@ -178,7 +186,6 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
               </div>
               <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 shrink-0">
                 {[
-                  { id: 'process', label: 'Process', icon: ArrowRightLeft },
                   { id: 'direct', label: 'Direct', icon: Zap },
                 ].map(t => (
                   <button key={t.id} type="button" onClick={() => setForm({ ...form, process_type: t.id })}
@@ -195,7 +202,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
           </ModalHeader>
           <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <ModalBody>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Indent Date <span className="text-red-500">*</span></label>
                   <DatePicker value={form.indent_date} onChange={(e) => setForm({ ...form, indent_date: e.target.value })} />
@@ -205,23 +212,18 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                   <Input value={form.indent_number} onChange={(e) => setForm({ ...form, indent_number: e.target.value })} placeholder="e.g. VPR/IN-001" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Godown <span className="text-red-500">*</span></label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Godown <span className="text-slate-400 font-normal">(optional)</span></label>
                   <Dropdown value={form.godown_id} onValueChange={(v) => setForm({ ...form, godown_id: v })}
-                    options={activeGodowns.map(g => ({ value: g.godown_id, label: g.name }))}
-                    placeholder="Select godown..." searchPlaceholder="Search godowns..." align="start" />
+                    options={godownOptions} placeholder="Decide later..." searchPlaceholder="Search godowns..." align="start" />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mt-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Vendor <span className="text-red-500">*</span></label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Vendor Name <span className="text-slate-400 font-normal">(optional)</span></label>
                   <Dropdown value={form.vendor_id} onValueChange={(v) => setForm({ ...form, vendor_id: v })}
-                    options={vendors.map(c => ({ value: c.vendor_id, label: c.name }))}
-                    placeholder="Select vendor..." searchPlaceholder="Search vendors..." align="start" />
+                    options={vendorOptions} placeholder="Decide later..." searchPlaceholder="Search vendors..." align="start" />
                 </div>
-                <div>
+                <div className="col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
-                  <Textarea value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })}
-                    placeholder="Optional remarks..." className="min-h-[38px]" />
+                  <Input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} placeholder="Remarks..." />
                 </div>
               </div>
 
@@ -252,8 +254,8 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                         </div>
                         <div className="col-span-2">
                           <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
-                          <Input type="number" step="1" min="1" placeholder="1"
-                            value={item.quantity} onChange={(e) => updateItem(i, 'quantity', e.target.value.replace(/\D/g, ''))} />
+                          <Input type="number" step="0.01" min="1" placeholder="1"
+                            value={item.quantity} onChange={(e) => updateItem(i, 'quantity', sanitizeQtyInput(e.target.value))} />
                         </div>
                         <div className="col-span-1 flex items-end pb-0.5">
                           <button type="button" onClick={() => removeItem(i)}

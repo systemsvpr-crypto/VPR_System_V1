@@ -1,7 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import Layout from './components/Layout';
+import Layout from './components/Layout copy';
 import Login from './pages/Login';
 import MyProfile from './pages/MyProfile/MyProfile';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -11,6 +11,7 @@ import Purchase from './pages/Purchase/Purchase';
 import Master from './pages/Master/Master';
 import StockManagement from './pages/StockManagement/StockManagement';
 import LiveStockDashboard from './pages/LiveStockDashboard/LiveStockDashboard';
+import UltimateIMS from './pages/UltimateIMS/UltimateIMS';
 import { PAGES } from './constants';
 
 function App() {
@@ -32,6 +33,7 @@ function App() {
             <Route path="settings" element={<Settings />} />
             <Route path="sales" element={<Sales />} />
             <Route path="purchase" element={<Purchase />} />
+            <Route path="ultimate-ims" element={<UltimateIMS />} />
             <Route path="my-profile" element={<MyProfile />} />
           </Route>
 

@@ -8,6 +8,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import BulkOrderProductsModal from './BulkOrderProductsModal';
+import { sanitizeQtyInput } from '@/lib/qty';
 
 const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, godowns, customers }) => {
   const [form, setForm] = useState({
@@ -259,8 +260,8 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
-                        <Input type="number" step="1" min="1" placeholder="1"
-                          value={item.quantity} onChange={(e) => updateItem(i, 'quantity', e.target.value.replace(/\D/g, ''))} disabled={itemLocked} />
+                        <Input type="number" step="0.01" min="1" placeholder="1"
+                          value={item.quantity} onChange={(e) => updateItem(i, 'quantity', sanitizeQtyInput(e.target.value))} disabled={itemLocked} />
                       </div>
                       <div className="col-span-1 flex items-end pb-0.5">
                         <button type="button" onClick={() => !itemLocked && removeItem(i)}

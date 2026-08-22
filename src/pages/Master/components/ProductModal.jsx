@@ -9,6 +9,7 @@ import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from '@/components/ui/Select';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { sanitizeQtyInput } from '@/lib/qty';
 
 const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduct, onDelete }) => {
   const [form, setForm] = useState({
@@ -26,7 +27,13 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
     .map(v => v.trim())
     .filter(Boolean)
     .join(' ');
-  const computedName = form.mux.trim() ? `${baseName} (${form.mux.trim()})` : baseName;
+
+  let formattedMux = form.mux.trim();
+  if (formattedMux && !/kg$/i.test(formattedMux)) {
+    // If they typed a number but no 'kg' at the end, append ' Kg'
+    formattedMux = `${formattedMux} Kg`;
+  }
+  const computedName = formattedMux ? `${baseName} (${formattedMux})` : baseName;
 
   useEffect(() => {
     if (!isOpen) {
@@ -68,14 +75,14 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
           product_type: form.product_type.trim(),
           brand_name: form.brand_name.trim(),
           category: form.category.trim(),
-          mux: form.mux.trim(),
+          mux: formattedMux,
           allow_negative_stock: form.allow_negative_stock,
         });
         toast.success('Product updated successfully');
       } else {
         await createProduct({
           name: computedName, unit: form.unit, product_type: form.product_type.trim(),
-          brand_name: form.brand_name.trim(), category: form.category.trim(), mux: form.mux.trim(),
+          brand_name: form.brand_name.trim(), category: form.category.trim(), mux: formattedMux,
           allow_negative_stock: form.allow_negative_stock,
           openingEntries: form.entries, as_of_date: form.as_of_date, created_by: user?.user_id,
         });
@@ -207,8 +214,8 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
                           </SelectGroup>
                         </SelectContent>
                       </Select>
-                      <Input type="number" step="1" min="0" placeholder="Qty" className="w-28"
-                        value={entry.qty} onChange={(e) => updateEntry(i, 'qty', e.target.value.replace(/\D/g, ''))} />
+                      <Input type="number" step="0.01" min="0" placeholder="Qty" className="w-28"
+                        value={entry.qty} onChange={(e) => updateEntry(i, 'qty', sanitizeQtyInput(e.target.value))} />
                       <button type="button" onClick={() => removeEntry(i)} className="p-1 text-red-400 hover:text-red-600">
                         <X size={18} />
                       </button>

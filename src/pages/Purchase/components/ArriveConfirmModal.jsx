@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { sanitizeQtyInput } from '@/lib/qty';
 
 const getTodayLocalString = () => {
   const d = new Date();
@@ -109,11 +110,11 @@ const ArriveConfirmModal = ({ isOpen, onClose, delivery, onConfirm }) => {
               </label>
               <Input
                 type="number"
-                step="1"
+                step="0.01"
                 min="1"
                 required
                 value={qty}
-                onChange={(e) => setQty(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) => setQty(sanitizeQtyInput(e.target.value))}
                 placeholder="Enter actual received quantity"
                 className="text-xs"
               />

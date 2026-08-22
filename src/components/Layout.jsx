@@ -16,8 +16,8 @@ const Layout = () => {
         <Header />
 
         {/* Scrollable content area */}
-        <main className={`flex-1 flex flex-col p-4 sm:p-6 lg:p-8 custom-scrollbar ${isFixedPage ? 'overflow-hidden' : 'overflow-y-auto'}`}>
-          <div className="flex-1 w-full max-w-7xl mx-auto flex flex-col">
+        <main className={`flex-1 flex flex-col min-h-0 p-4 sm:p-6 lg:p-8 custom-scrollbar ${isFixedPage ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+          <div className="flex-1 w-full max-w-7xl mx-auto flex flex-col min-h-0">
             <Outlet />
           </div>
         </main>

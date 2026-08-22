@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { hasValidQtyPrecision } from '../lib/qty';
 
 export const getAllGodowns = async () => {
   const { data, error } = await supabase
@@ -80,7 +81,7 @@ export const createProduct = async ({ name, unit, allow_negative_stock, product_
 
   if (openingEntries && openingEntries.length > 0) {
     const openingRows = openingEntries
-      .filter(e => e.godown_id && Number(e.qty) > 0 && Number.isInteger(Number(e.qty)))
+      .filter(e => e.godown_id && Number(e.qty) > 0 && hasValidQtyPrecision(Number(e.qty)))
       .map(e => ({
         product_id: product.product_id,
         godown_id: e.godown_id,
@@ -265,8 +266,8 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
       errors.push({ row: `Row ${i + 1}: ${displayName}`, message: 'Godown name is empty' });
       continue;
     }
-    if (isNaN(qty) || qty < 0 || !Number.isInteger(qty)) {
-      errors.push({ row: `Row ${i + 1}: ${displayName} → ${row.godownName}`, message: 'Quantity must be a valid non-negative whole number' });
+    if (isNaN(qty) || qty < 0 || !hasValidQtyPrecision(qty)) {
+      errors.push({ row: `Row ${i + 1}: ${displayName} → ${row.godownName}`, message: 'Quantity must be a valid non-negative number with at most two decimal places' });
       continue;
     }
 

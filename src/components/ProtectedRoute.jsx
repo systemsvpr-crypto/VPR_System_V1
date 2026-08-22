@@ -10,6 +10,10 @@ const ProtectedRoute = ({ children }) => {
     return <Navigate to="/login" replace />;
   }
 
+  if (user.role === 'SUPER ADMIN') {
+    return <>{children}</>;
+  }
+
   const allowedPages = user.page_access || [];
 
   // Normalize location to match page IDs (remove leading slash)

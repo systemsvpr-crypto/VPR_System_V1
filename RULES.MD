@@ -112,7 +112,7 @@ could reduce stock: OUT entries, TRANSFER_OUT entries, and edits that reduce qty
 | godown_id | FK → godowns | Required |
 | txn_date | DATE | The business date of the movement |
 | txn_type | ENUM | See Section 2.4 |
-| qty | INTEGER | Always non-negative, whole number only |
+| qty | NUMERIC | Always non-negative, at most two decimal places (e.g. 9.99, 2.23) |
 | is_void | BOOLEAN | Default FALSE. Set TRUE to cancel. |
 | void_reason | VARCHAR | Required when is_void = TRUE |
 | ref_txn_id | FK → transactions | Points to original row when this is a correction |
@@ -286,7 +286,7 @@ Effect: godown_stock[product_id][godown_id] -= qty
 ```
 qty must be > 0                    → else reject: "Qty must be greater than zero"
 qty must be ≤ 9,999,999            → configurable upper sanity limit
-qty must be a whole number (integer)  → no decimal places allowed
+qty may have at most two decimal places (e.g. 9.99, 2.23)  → finer than that is rejected, never silently rounded
 ```
 
 ---
@@ -1042,9 +1042,9 @@ Exception: if the edit was to a TRANSFER row, rebuild BOTH godowns.
 These constraints must exist at the database level — not just in application code.
 
 ```sql
--- 1. qty is always non-negative and whole number
+-- 1. qty is always non-negative and has at most two decimal places
 ALTER TABLE transactions ADD CONSTRAINT chk_qty_positive CHECK (qty >= 0);
-ALTER TABLE transactions ADD CONSTRAINT chk_qty_integer CHECK (qty = FLOOR(qty));
+ALTER TABLE transactions ADD CONSTRAINT chk_qty_two_decimals CHECK (qty = ROUND(qty, 2));
 
 -- 2. is_void can only go FALSE → TRUE (enforced via trigger or application)
 -- No DB constraint for this; enforce in app layer (EV-02).
@@ -1136,8 +1136,8 @@ Run these checks in the application before any DB write.
 | FSG-ERR-01 | Forward simulation fails | "This change would make txn #[ID] ([type] of [qty] on [date]) invalid — balance would reach [negative value]. Please resolve that entry first." |
 | BD-ERR-01 | Back-date exceeds limit | "Entry date [D] is more than [N] days in the past. Manager approval required." |
 | OP-ERR-01 | Duplicate OPEN_STOCK attempt | "An opening stock entry already exists for [Product] in [Godown]. Void the existing entry before creating a new one." |
-| TXN-ERR-01 | qty <= 0 or decimal | "Quantity must be greater than zero." |
-| TXN-ERR-04 | qty has decimals | "Quantity must be a whole number." |
+| TXN-ERR-01 | qty <= 0 | "Quantity must be greater than zero." |
+| TXN-ERR-04 | qty has more than two decimal places | "Quantity can have at most two decimal places." |
 | TXN-ERR-02 | Future date | "Transaction date cannot be in the future." |
 | TXN-ERR-03 | Date before opening stock | "Transaction date [D] is before the opening stock date [D2] for this product." |
 | VOID-ERR-01 | Already voided | "This transaction has already been voided and cannot be modified." |

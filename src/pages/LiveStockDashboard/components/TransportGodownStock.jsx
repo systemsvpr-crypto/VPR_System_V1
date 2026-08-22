@@ -15,7 +15,7 @@ const naturalCompare = (a, b) => {
   return String(a).localeCompare(String(b));
 };
 
-const formatNum = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const formatNum = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 const TransportGodownStock = () => {
   const [deliveries, setDeliveries] = useState([]);
@@ -123,7 +123,7 @@ const TransportGodownStock = () => {
   }
 
   return (
-    <div className="flex flex-col gap-6 font-sans">
+    <div className="flex flex-col gap-6 font-sans h-[calc(100vh-160px)] min-h-0">
       {/* Transporter Summary Card Section */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shrink-0 shadow-sm">
         <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -169,8 +169,8 @@ const TransportGodownStock = () => {
       </div>
 
       {/* Product-wise Breakdown Table Section (by Transporter) */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-        <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex-1 flex flex-col min-h-0">
+        <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
             <div className="bg-blue-50 p-2 rounded-lg text-blue-600">
               <Package size={18} />
@@ -188,7 +188,7 @@ const TransportGodownStock = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto overflow-y-auto max-h-[560px]">
+        <div className="overflow-x-auto overflow-y-auto flex-1">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
@@ -252,8 +252,8 @@ const TransportGodownStock = () => {
               )}
             </tbody>
             {filteredProducts.length > 0 && (
-              <tfoot>
-                <tr className="bg-slate-50 font-semibold border-t border-slate-200">
+              <tfoot className="sticky bottom-0 z-10 shadow-[0_-1px_3px_rgba(0,0,0,0.05)]">
+                <tr className="bg-slate-50 font-semibold border-t-2 border-slate-200">
                   <td className="px-4 py-3 text-slate-800">Total</td>
                   {sortedTransporters.map((transporterName) => {
                     const colTotal = sortedProducts.reduce((acc, prodName) => {

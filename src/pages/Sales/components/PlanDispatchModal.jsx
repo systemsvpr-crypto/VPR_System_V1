@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { sanitizeQtyInput } from '@/lib/qty';
 
 /* ─── status badge ───────────────────────────────────────── */
 const StatusBadge = ({ status }) => {
@@ -375,13 +376,13 @@ const PlanDispatchModal = ({ isOpen, onClose, item, godowns, user, onSave }) => 
                       </label>
                       <Input
                         type="number"
-                        step="1"
+                        step="0.01"
                         min="1"
                         max={remainingQty}
                         placeholder={`1 – ${remainingQty}`}
                         value={form.quantity}
                         onChange={e => {
-                          const val = e.target.value.replace(/\D/g, '');
+                          const val = sanitizeQtyInput(e.target.value);
                           if (val && Number(val) > maxAllowed) {
                             if (form.godown_id && Number(val) > effectiveStock) {
                               toast.error(`Cannot exceed godown stock (${effectiveStock}).`);

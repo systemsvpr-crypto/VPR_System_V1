@@ -31,7 +31,6 @@ const ACTIONS = [
   { id: 'dispatch', label: 'Dispatch Out', icon: Truck, color: 'bg-rose-50 text-rose-600 border-rose-200' },
 ];
 
-const ITEMS_PER_PAGE = 10;
 
 const StockManagement = () => {
   const { user } = useAuthStore();
@@ -46,6 +45,7 @@ const StockManagement = () => {
   const [voidLoading, setVoidLoading] = useState(false);
   const [filters, setFilters] = useState({ product_id: '', godown_id: '', txn_type: '', from_date: '', to_date: '' });
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   useEffect(() => {
     Promise.all([getAllProducts(), getAllGodowns(), getAllProductStock()])
@@ -129,17 +129,17 @@ const StockManagement = () => {
 
   const handleSuccess = () => { setActiveModal(null); setEditingTransaction(null); fetchTransactions(); };
 
-  const totalTransactionPages = Math.max(1, Math.ceil(transactions.length / ITEMS_PER_PAGE));
+  const totalTransactionPages = Math.max(1, Math.ceil(transactions.length / pageSize));
   const currentTransactions = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return transactions.slice(start, start + ITEMS_PER_PAGE);
-  }, [transactions, currentPage]);
+    const start = (currentPage - 1) * pageSize;
+    return transactions.slice(start, start + pageSize);
+  }, [transactions, currentPage, pageSize]);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 h-full min-h-0">
 
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
         {ACTIONS.map(action => (
           <button key={action.id} onClick={() => setActiveModal(activeModal === action.id ? null : action.id)}
             className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${
@@ -154,14 +154,25 @@ const StockManagement = () => {
         ))}
       </div>
 
-      <TransactionFilters filters={filters} onChange={handleFilterChange} products={products} godowns={godowns} />
-      <div className="bg-white rounded-xl border border-slate-200 flex-col">
-        <TransactionTable transactions={currentTransactions} totalItems={transactions.length} loading={txnLoading} onEdit={handleEdit} onVoid={handleVoid} />
-        {!txnLoading && transactions.length > 0 && (
-          <Pagination currentPage={currentPage} totalPages={totalTransactionPages} totalItems={transactions.length}
-            startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1} endIndex={Math.min(currentPage * ITEMS_PER_PAGE, transactions.length)}
-            onPageChange={setCurrentPage} className="border-t border-slate-200" />
-        )}
+      <div className="shrink-0">
+        <TransactionFilters filters={filters} onChange={handleFilterChange} products={products} godowns={godowns} />
+      </div>
+      <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
+        <div className="px-5 py-4 border-b border-slate-100 shrink-0">
+          <h3 className="font-semibold text-slate-800">Transaction History</h3>
+        </div>
+        <TransactionTable 
+          transactions={currentTransactions} 
+          totalItems={transactions.length} 
+          loading={txnLoading} 
+          onEdit={handleEdit} 
+          onVoid={handleVoid} 
+          currentPage={currentPage}
+          totalPages={totalTransactionPages}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+        />
       </div>
 
       <FactoryInModal isOpen={activeModal === 'factory-in'} onClose={handleCloseModal}

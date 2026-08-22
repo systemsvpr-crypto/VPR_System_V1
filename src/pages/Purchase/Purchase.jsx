@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, FileText, Users, BadgeCheck, Truck, Zap, Download, Upload, Timer, MapPin } from 'lucide-react';
+import { Search, ShoppingCart, Plus, FileText, Users, CheckCircle, BadgeCheck, Truck, Zap, Download, Upload, Timer, MapPin, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllIndents, deleteIndent } from '../../services/purchaseService';
@@ -9,24 +9,29 @@ import { getAllVendors } from '../../services/vendorService';
 import { getAllTransporters } from '../../services/transporterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import Pagination from '@/components/ui/pagination';
-import IndentTable from './components/IndentTable';
+import IndentPendingHistoryTable from './components/IndentPendingHistoryTable';
 import IndentModal from './components/IndentModal';
 import BulkIndentProductsModal from './components/BulkIndentProductsModal';
 import VendorSelectionTable from './components/VendorSelectionTable';
+import VendorApprovalTable from './components/VendorApprovalTable';
 import DeliveryTable from './components/DeliveryTable';
 import AawakDetailsTable from './components/AawakDetailsTable';
 import PurchaseCompleteTable from './components/PurchaseCompleteTable';
 
+// "Vendor Approval" (VendorSelectionTable) is planning — picking vendor,
+// rate, qty, expected delivery date. "Approval" (VendorApprovalTable) is the
+// separate, final sign-off that actually flips approval_status — only items
+// approved there reach Delivery (getApprovedItemsForDelivery gates on it).
 const TABS = [
   { id: 'indent', label: 'Indent', icon: FileText },
   { id: 'vendor-selection', label: 'Vendor Approval', icon: Users },
+  { id: 'approval', label: 'Approval', icon: CheckCircle },
   { id: 'in-transit', label: 'Delivery', icon: Timer },
   { id: 'aawak-details', label: 'Aawak Details', icon: Zap },
   { id: 'purchase-complete', label: 'Purchase Dashboard', icon: BadgeCheck },
 ];
 
-const ITEMS_PER_PAGE = 10;
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const Purchase = () => {
   const { user } = useAuthStore();
@@ -45,8 +50,13 @@ const Purchase = () => {
   const [editingIndent, setEditingIndent] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
   const [godownFilter, setGodownFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  // Bumped every time loadData() finishes — tells IndentPendingHistoryTable
+  // (which owns its own item-level fetch) to reload after any indent is
+  // created/edited/bulk-uploaded, without touching those popup forms.
+  const [dataVersion, setDataVersion] = useState(0);
 
   const visibleTabs = useMemo(() => {
     const allowedTabs = user?.tab_access?.purchase;
@@ -79,15 +89,15 @@ const Purchase = () => {
     });
   }, [indents, searchTerm, godownFilter, typeFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredIndents.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(filteredIndents.length / pageSize));
 
   const currentIndents = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredIndents.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredIndents, currentPage]);
+    const start = (currentPage - 1) * pageSize;
+    return filteredIndents.slice(start, start + pageSize);
+  }, [filteredIndents, currentPage, pageSize]);
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter, typeFilter]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter, typeFilter, pageSize]);
 
   useEffect(() => {
     if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === activeTab)) {
@@ -110,6 +120,7 @@ const Purchase = () => {
       setIndents([]);
     }
     setLoading(false);
+    setDataVersion(v => v + 1);
   };
 
   const handleEditIndent = (indent) => {
@@ -161,10 +172,10 @@ const Purchase = () => {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 h-full min-h-0">
 
 
-      <div className="flex items-center gap-6 border-b border-slate-200">
+      <div className="flex items-center gap-6 border-b border-slate-200 shrink-0">
         {visibleTabs.map((tab) => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             className={`pb-3 text-sm font-medium transition-all flex items-center gap-2 ${
@@ -186,65 +197,54 @@ const Purchase = () => {
           <p className="text-sm text-slate-400">You don't have access to any Purchase tabs. Contact your administrator.</p>
         </div>
       ) : (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 flex-1 min-h-0">
       {activeTab === 'indent' && (
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-            <div className="flex flex-wrap items-center gap-3 flex-1">
-              <div className="relative w-full md:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
-                <Input type="text" placeholder="Search indents..." className="pl-9"
-                  value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-              </div>
-              <select
-                value={godownFilter}
-                onChange={e => setGodownFilter(e.target.value)}
-                className="h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px]"
-              >
-                <option value="">All Godowns</option>
-                {ownGodowns.map(g => (
-                  <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
-                ))}
-              </select>
-              <select
-                value={typeFilter}
-                onChange={e => setTypeFilter(e.target.value)}
-                className="h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[130px]"
-              >
-                <option value="">All Types</option>
-                <option value="direct">Direct</option>
-                <option value="process">Process</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-3 shrink-0">
-              {!loading && filteredIndents.length > 0 && (
-                <Button variant="outline" onClick={() => exportIndentsCSV(filteredIndents)} className="gap-2 px-4 font-medium text-slate-600 border-slate-200 hover:bg-slate-50">
-                  <Download size={16} /><span>Export</span>
-                </Button>
-              )}
-              {!loading && (
-                <>
-                  <Button variant="outline" onClick={() => setBulkModalOpen(true)} className="gap-2 px-4 font-medium text-slate-700 border-slate-200 hover:bg-slate-50">
-                    <Upload size={18} /><span>Bulk Upload</span>
+        <div className="flex flex-col gap-4 flex-1 min-h-0">
+          <IndentPendingHistoryTable
+            vendors={vendors}
+            user={user}
+            refreshToken={dataVersion}
+            searchTerm={searchTerm}
+            onSearchChange={setSearchTerm}
+            toolbarExtra={
+              <>
+                <select
+                  value={godownFilter}
+                  onChange={e => setGodownFilter(e.target.value)}
+                  className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px] shrink-0"
+                >
+                  <option value="">All Godowns</option>
+                  {ownGodowns.map(g => (
+                    <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
+                  ))}
+                </select>
+                <select
+                  value={typeFilter}
+                  onChange={e => setTypeFilter(e.target.value)}
+                  className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[130px] shrink-0"
+                >
+                  <option value="">All Types</option>
+                  <option value="direct">Direct</option>
+                  <option value="process">Process</option>
+                </select>
+                {!loading && filteredIndents.length > 0 && (
+                  <Button variant="outline" onClick={() => exportIndentsCSV(filteredIndents)} className="gap-2 px-4 font-medium text-xs h-9 text-slate-600 border-slate-200 hover:bg-slate-50 shrink-0">
+                    <Download size={16} /><span>Export</span>
                   </Button>
-                  <Button onClick={() => { setEditingIndent(null); setModalOpen(true); }} className="gap-2 px-4 font-medium">
-                    <Plus size={20} /><span>Add Indent</span>
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 flex-col">
-            <IndentTable indents={currentIndents} totalItems={filteredIndents.length} loading={loading}
-              onEdit={handleEditIndent} onDelete={handleDeleteIndent} searchTerm={searchTerm} />
-            {!loading && filteredIndents.length > 0 && (
-              <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={filteredIndents.length}
-                startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1}
-                endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredIndents.length)}
-                onPageChange={setCurrentPage} className="border-t border-slate-200" />
-            )}
-          </div>
+                )}
+                {!loading && (
+                  <>
+                    <Button variant="outline" onClick={() => setBulkModalOpen(true)} className="gap-2 px-4 font-medium text-xs h-9 text-slate-700 border-slate-200 hover:bg-slate-50 shrink-0">
+                      <Upload size={16} /><span>Bulk Upload</span>
+                    </Button>
+                    <Button onClick={() => { setEditingIndent(null); setModalOpen(true); }} className="gap-2 px-4 font-medium text-xs h-9 shrink-0">
+                      <Plus size={16} /><span>Add Indent</span>
+                    </Button>
+                  </>
+                )}
+              </>
+            }
+          />
 
           <IndentModal isOpen={modalOpen} onClose={handleCloseModal}
             user={user} onSuccess={loadData} editingIndent={editingIndent}
@@ -264,6 +264,10 @@ const Purchase = () => {
 
       {activeTab === 'vendor-selection' && (
         <VendorSelectionTable vendors={vendors} godowns={godowns} user={user} />
+      )}
+
+      {activeTab === 'approval' && (
+        <VendorApprovalTable vendors={vendors} godowns={godowns} user={user} />
       )}
 
       {(activeTab === 'in-transit' || activeTab === 'delivery') && (

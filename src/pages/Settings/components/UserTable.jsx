@@ -1,8 +1,8 @@
-import { Edit2, Users } from 'lucide-react';
+import { Edit2, Users, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const HeaderCell = ({ children, align = "left" }) => (
-  <th className={`px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-${align}`}>{children}</th>
+  <th className={`px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap text-${align}`}>{children}</th>
 );
 
 const EmptyRow = ({ message }) => (
@@ -16,35 +16,46 @@ const EmptyRow = ({ message }) => (
   </td></tr>
 );
 
-const UserRow = ({ user, onEdit }) => (
-  <tr className="hover:bg-slate-50 transition-colors group">
-    <td className="px-4 py-3">
-      <div className="flex items-center gap-3">
+const UserRow = ({ user, onEdit, onView }) => (
+  <tr className="hover:bg-slate-50/80 transition-colors group">
+    <td className="px-4 py-3 text-center">
+      <div className="flex items-center justify-center gap-3 text-left">
         <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs border border-slate-200 overflow-hidden shrink-0">
           {user.profile_picture ? (
             <img src={user.profile_picture} alt={user.full_name} className="w-full h-full object-cover" />
           ) : user.full_name?.charAt(0).toUpperCase()}
         </div>
-        <div className="font-medium text-slate-900 text-sm">{user.full_name}</div>
+        <div className="flex flex-col text-center">
+          <div className="font-semibold text-slate-900 text-sm whitespace-nowrap">{user.full_name}</div>
+          {user.email && <span className="text-xs text-slate-500">{user.email}</span>}
+        </div>
       </div>
     </td>
-    <td className="px-4 py-3">
-      <div className="flex flex-col">
-        <span className="text-sm text-slate-900">{user.role || '-'}</span>
-        <span className="text-xs text-slate-500">{user.designation || '-'}</span>
+    <td className="px-4 py-3 text-center">
+      <div className="flex flex-col items-center gap-1">
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+          {user.role || '-'}
+        </span>
+        <span className="text-xs text-slate-500 font-medium whitespace-nowrap">{user.designation || '-'}</span>
       </div>
     </td>
-    <td className="px-4 py-3">
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${user.is_active ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${user.is_active ? 'bg-green-500' : 'bg-red-500'}`}></span>
-        {user.is_active ? 'Active' : 'Inactive'}
+    <td className="px-4 py-3 text-center">
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide ${user.is_active ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-700 border border-red-100'}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${user.is_active ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+        {user.is_active ? 'ACTIVE' : 'INACTIVE'}
       </span>
     </td>
-    <td className="px-4 py-3 text-right">
-      <Button variant="ghost" size="icon" type="button" onClick={onEdit}
-        className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all opacity-0 group-hover:opacity-100" title="Edit User">
-        <Edit2 size={16} />
-      </Button>
+    <td className="px-4 py-3 text-center">
+      <div className="flex items-center justify-center gap-1">
+        <Button variant="ghost" size="icon" type="button" onClick={onView || onEdit}
+          className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all" title="View Details">
+          <Eye size={16} />
+        </Button>
+        <Button variant="ghost" size="icon" type="button" onClick={onEdit}
+          className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all" title="Edit User">
+          <Edit2 size={16} />
+        </Button>
+      </div>
     </td>
   </tr>
 );
@@ -59,8 +70,9 @@ const MobileUserCard = ({ user, onEdit }) => (
       </div>
       <div>
         <h3 className="font-semibold text-slate-900 text-sm">{user.full_name}</h3>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-xs text-sidebar-foreground/60">{user.role}</span>
+        {user.email && <div className="text-xs text-slate-500">{user.email}</div>}
+        <div className="flex items-center gap-2 mt-1">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] uppercase font-semibold bg-blue-50 text-blue-700 border border-blue-100">{user.role}</span>
         </div>
       </div>
     </div>

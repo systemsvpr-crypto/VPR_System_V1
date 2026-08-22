@@ -1,5 +1,31 @@
 const UNCATEGORIZED = 'Uncategorized';
 
+// Fixed display order for the report's category tables. Any category whose
+// name matches an entry here (case-insensitively) is pinned to the top, in
+// this exact order; categories not listed here fall back to alphabetical
+// order after them, with "Uncategorized" always last regardless.
+const CATEGORY_ORDER = [
+  'China',
+  'NT 200g',
+  'NT 180g',
+  'NT 160g',
+  'NT 150g',
+  'NT 140g',
+  'BLK 200g',
+  'CLR/FC',
+  'D Cut',
+  'Chutney',
+  'Lock Bag',
+  'Milky',
+  'PP Woven',
+  'Ld',
+  'Blue',
+  'NT 800g',
+  'Garbage',
+  'Sutli',
+];
+const CATEGORY_ORDER_INDEX = new Map(CATEGORY_ORDER.map((name, i) => [name.toLowerCase(), i]));
+
 // The 3 factory godowns shown in the "Factory Stock List" section, matched
 // against product.godowns[].godownName (case-insensitively). These are 3 of
 // several "Own"-type godowns (which also include e.g. "Godown" and "LP"), so
@@ -21,7 +47,7 @@ const naturalCompare = (a, b) => {
 
 const formatNum = (n) => {
   const val = Number(n) || 0;
-  return val === 0 ? '-' : val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return val === 0 ? '-' : val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 
 // Products with NEITHER a Category NOR a Size (Product Type) are too sparse
@@ -168,6 +194,14 @@ export const generatePrintableHtml = (products, summaryData, date) => {
   const categoryNames = [...categoriesMap.keys()].sort((a, b) => {
     if (a === UNCATEGORIZED) return 1;
     if (b === UNCATEGORIZED) return -1;
+
+    const idxA = CATEGORY_ORDER_INDEX.get(a.toLowerCase());
+    const idxB = CATEGORY_ORDER_INDEX.get(b.toLowerCase());
+
+    if (idxA !== undefined && idxB !== undefined) return idxA - idxB;
+    if (idxA !== undefined) return -1;
+    if (idxB !== undefined) return 1;
+
     return a.localeCompare(b);
   });
 
@@ -407,7 +441,7 @@ export const generatePrintableHtml = (products, summaryData, date) => {
     .report-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 9.5px;
+      font-size: 10.5px;
     }
 
     /* Belt-and-braces: some print engines only reliably honor break-inside
@@ -473,7 +507,7 @@ export const generatePrintableHtml = (products, summaryData, date) => {
       font-weight: 700;
       padding: 2.5px 3px;
       border: 1px solid #94a3b8;
-      font-size: 9px;
+      font-size: 10px;
       white-space: normal;
       word-break: break-word;
       line-height: 1.1;
@@ -526,7 +560,7 @@ export const generatePrintableHtml = (products, summaryData, date) => {
 
     /* ULTRA WIDE TABLES (12+ BRANDS) ROTATED/ANGLED HEADERS */
     .ultra-wide th.brand-col {
-      font-size: 8.5px;
+      font-size: 9.5px;
       padding: 3px 1px;
       max-width: 24px;
     }

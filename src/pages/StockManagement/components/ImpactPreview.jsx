@@ -1,4 +1,5 @@
 import { Loader2, AlertTriangle, ArrowRight, XCircle } from 'lucide-react';
+import { formatQty } from '@/lib/qty';
 
 const txnTypeLabel = (type) => {
   const map = {
@@ -38,7 +39,7 @@ const VoidedEntry = ({ txn, impact }) => {
           </span>
         </span>
         <span className="text-right font-medium text-red-600 tabular-nums">
-          {isInType(txn.txn_type) ? '+' : '-'}{qty.toFixed(0)}
+          {isInType(txn.txn_type) ? '+' : '-'}{formatQty(qty)}
         </span>
         <span className="text-right text-red-400 text-[10px] uppercase tracking-wider font-semibold">
           Will be removed
@@ -47,18 +48,18 @@ const VoidedEntry = ({ txn, impact }) => {
       <div className="bg-white rounded-lg border border-red-200 p-3 space-y-1.5">
         <div className="flex items-center justify-between text-sm">
           <span className="text-slate-600 font-medium">Current stock (with this entry)</span>
-          <span className="text-lg font-bold text-slate-900 tabular-nums">{currentStock.toFixed(0)}</span>
+          <span className="text-lg font-bold text-slate-900 tabular-nums">{formatQty(currentStock)}</span>
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-slate-600 font-medium">Stock after void</span>
-          <span className="text-lg font-bold text-slate-900 tabular-nums">{afterVoid.toFixed(0)}</span>
+          <span className="text-lg font-bold text-slate-900 tabular-nums">{formatQty(afterVoid)}</span>
         </div>
         <div className="border-t border-slate-100 pt-1.5 flex items-center justify-between text-sm">
           <span className="text-slate-500 text-xs">Effect on stock</span>
           <span className={`text-sm font-bold tabular-nums ${
             effect < 0 ? 'text-red-600' : effect > 0 ? 'text-emerald-600' : 'text-slate-500'
           }`}>
-            {effect > 0 ? '+' : ''}{effect.toFixed(0)}
+            {effect > 0 ? '+' : ''}{formatQty(effect)}
           </span>
         </div>
       </div>
@@ -120,24 +121,24 @@ const ImpactPreview = ({ loading, error, data, productName, deletedTransaction }
                 {deletedTransaction ? (
                   <>
                     <span className="text-slate-500">
-                      Current stock: <span className="font-semibold text-slate-700">{currentStock.toFixed(0)}</span>
+                      Current stock: <span className="font-semibold text-slate-700">{formatQty(currentStock)}</span>
                     </span>
                     <ArrowRight size={12} className="text-slate-300" />
                     <span className="text-slate-500">
-                      After void: <span className="font-semibold text-slate-700">{afterVoid.toFixed(0)}</span>
+                      After void: <span className="font-semibold text-slate-700">{formatQty(afterVoid)}</span>
                     </span>
                   </>
                 ) : (
                   <>
                     <span className="text-slate-500">
-                      Stock before edit: <span className="font-semibold text-slate-700">{impact.anchorBalance.toFixed(0)}</span>
+                      Stock before edit: <span className="font-semibold text-slate-700">{formatQty(impact.anchorBalance)}</span>
                     </span>
                     <ArrowRight size={12} className="text-slate-300" />
                     <span className="text-slate-500">
                       After: <span className="font-semibold text-slate-700">
-                        {impact.rows.length > 0
-                          ? impact.rows[impact.rows.length - 1].simulatedBalance.toFixed(0)
-                          : impact.anchorBalance.toFixed(0)}
+                        {formatQty(impact.rows.length > 0
+                          ? impact.rows[impact.rows.length - 1].simulatedBalance
+                          : impact.anchorBalance)}
                       </span>
                     </span>
                   </>
@@ -147,7 +148,7 @@ const ImpactPreview = ({ loading, error, data, productName, deletedTransaction }
                   netChange < 0 ? 'bg-red-50 text-red-700' :
                   'bg-slate-100 text-slate-500'
                 }`}>
-                  {netChange > 0 ? '+' : ''}{netChange.toFixed(0)}
+                  {netChange > 0 ? '+' : ''}{formatQty(netChange)}
                 </span>
               </div>
             </div>
@@ -184,12 +185,12 @@ const ImpactPreview = ({ loading, error, data, productName, deletedTransaction }
                       <span className={`text-xs font-medium text-right tabular-nums ${
                         row.contribution >= 0 ? 'text-emerald-600' : 'text-red-500'
                       }`}>
-                        {row.contribution >= 0 ? '+' : ''}{row.qty.toFixed(0)}
+                        {row.contribution >= 0 ? '+' : ''}{formatQty(row.qty)}
                       </span>
                       <span className={`text-xs font-semibold text-right tabular-nums flex items-center justify-end gap-1 ${
                         row.wouldFail ? 'text-red-700' : 'text-slate-700'
                       }`}>
-                        {row.simulatedBalance.toFixed(0)}
+                        {formatQty(row.simulatedBalance)}
                         {row.wouldFail && <AlertTriangle size={12} className="text-red-500 shrink-0" />}
                       </span>
                     </div>

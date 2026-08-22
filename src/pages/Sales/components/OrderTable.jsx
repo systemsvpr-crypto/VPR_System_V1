@@ -29,37 +29,38 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm 
     );
   }
 
-  if (totalItems === 0) {
-    return (
-      <div className="p-12 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
-          <ShoppingCart size={32} className="text-slate-300" />
-        </div>
-        <h3 className="text-base font-semibold text-slate-600 mb-1">No Orders Found</h3>
-        <p className="text-sm text-slate-400">
-          {searchTerm ? 'No orders match your search criteria.' : 'Click "Add Order" above to create your first order.'}
-        </p>
-      </div>
-    );
-  }
+
 
   return (
-    <div className="overflow-x-auto custom-scrollbar">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
-          <tr>
+    <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0 flex flex-col">
+      <table className="w-full text-sm relative">
+        <thead className="sticky top-0 z-10 shadow-sm">
+          <tr className="bg-blue-50 border-b border-slate-200">
             <th className="w-10" />
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Order Date</th>
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Order No.</th>
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Customer</th>
-            <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[110px]">Type</th>
-            <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Items</th>
-            <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Amount</th>
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Created</th>
-            <th className="w-16 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Actions</th>
+            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Order Date</th>
+            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Order No.</th>
+            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Customer</th>
+            <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[110px] whitespace-nowrap">Order Type</th>
+            <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Items</th>
+            <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Amount</th>
+            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Created</th>
+            <th className="w-16 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center whitespace-nowrap">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
+          {totalItems === 0 && (
+            <tr>
+              <td colSpan="9" className="p-12 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                  <ShoppingCart size={32} className="text-slate-300" />
+                </div>
+                <h3 className="text-base font-semibold text-slate-600 mb-1">No Orders Found</h3>
+                <p className="text-sm text-slate-400">
+                  {searchTerm ? 'No orders match your search criteria.' : 'Click "Add Order" above to create your first order.'}
+                </p>
+              </td>
+            </tr>
+          )}
           {orders.flatMap(o => {
             const isExpanded = expandedOrders.has(o.order_id);
             const items = o.sales_order_items || [];

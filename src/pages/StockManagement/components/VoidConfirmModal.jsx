@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { getVoidTransactionImpact } from '../../../services/stockService';
 import ImpactPreview from './ImpactPreview';
+import { formatQty } from '@/lib/qty';
 
 const VoidConfirmModal = ({ isOpen, onClose, transaction, onConfirm, loading, products, godowns }) => {
   const [reason, setReason] = useState('');
@@ -68,7 +69,7 @@ const VoidConfirmModal = ({ isOpen, onClose, transaction, onConfirm, loading, pr
                 <div><span className="text-slate-500">Type:</span> <span className="font-medium">{txnType}</span></div>
                 <div><span className="text-slate-500">Product:</span> <span className="font-medium">{productName}</span></div>
                 <div><span className="text-slate-500">Godown:</span> <span className="font-medium">{transaction.godowns?.name || '-'}</span></div>
-                <div><span className="text-slate-500">Quantity:</span> <span className="font-medium">{Number(transaction.qty || 0).toFixed(0)}</span></div>
+                <div><span className="text-slate-500">Quantity:</span> <span className="font-medium">{formatQty(transaction.qty)}</span></div>
                 <div><span className="text-slate-500">Date:</span> <span className="font-medium">{transaction.txn_date}</span></div>
                 {isTransfer && (
                   <div className="text-amber-600 text-xs mt-1">This is part of a transfer — both legs will be voided together.</div>

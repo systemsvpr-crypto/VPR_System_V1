@@ -1,5 +1,5 @@
 // Supabase Edge Function: sends approved WhatsApp templates via the Meta
-// WhatsApp Cloud API (e.g. "order_confirmation", "purchase_delivered", "dispatch_confirmation", "indent_created").
+// WhatsApp Cloud API (e.g. "order_confirmation", "purchase_delivered_2", "dispatch_confirmation", "indent_created").
 //
 // Required secrets (set with `supabase secrets set`):
 //   WHATSAPP_ACCESS_TOKEN   - permanent/system-user access token for the Meta app
@@ -27,8 +27,15 @@ Deno.serve(async (req) => {
   try {
     const { phone, template, language, parameters, headerParameters } = await req.json();
 
-    if (!phone) {
-      return new Response(JSON.stringify({ error: 'phone is required' }), {
+    let targetPhone = phone;
+
+    // Intercept a special placeholder string to use a phone number defined in Supabase secrets
+    if (targetPhone === 'USE_ADMIN_SECRET') {
+      targetPhone = Deno.env.get('ADMIN_PHONE_NUMBER');
+    }
+
+    if (!targetPhone) {
+      return new Response(JSON.stringify({ error: 'phone is required (or ADMIN_PHONE_NUMBER secret is missing)' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -50,7 +57,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const to = normalizePhone(String(phone));
+    const to = normalizePhone(String(targetPhone));
 
     const components: Array<{ type: string; parameters: Array<{ type: string; text: string }> }> = [];
 
@@ -89,10 +96,11 @@ Deno.serve(async (req) => {
     });
 
     const result = await resp.json();
+    console.log(`Meta API responded with status ${resp.status}:`, result);
 
     if (!resp.ok) {
-      return new Response(JSON.stringify({ error: result }), {
-        status: resp.status,
+      return new Response(JSON.stringify({ success: false, error: result, metaStatus: resp.status }), {
+        status: 200, // Return 200 so supabase-js invoke doesn't swallow the JSON body
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }

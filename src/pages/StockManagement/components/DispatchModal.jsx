@@ -11,6 +11,7 @@ import {
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
 import ImpactPreview from './ImpactPreview';
+import { sanitizeQtyInput, formatQty } from '@/lib/qty';
 
 const DispatchModal = ({ isOpen, onClose, onBulkClick, products, godowns, productStockMap = {}, user, onSuccess, editingTransaction }) => {
   const [form, setForm] = useState({
@@ -210,15 +211,15 @@ const DispatchModal = ({ isOpen, onClose, onBulkClick, products, godowns, produc
                 </div>
                 {balance !== null && (
                   <div className={`rounded-lg px-3 py-1.5 text-sm ${sufficient ? 'bg-green-50 text-green-700' : 'bg-rose-50 text-rose-700'}`}>
-                    {isEditing ? 'Stock at time of entry' : 'Available stock'}: <span className="font-semibold">{balance.toFixed(0)}</span>
+                    {isEditing ? 'Stock at time of entry' : 'Available stock'}: <span className="font-semibold">{formatQty(balance)}</span>
                     {!sufficient && Number(form.qty) > 0 && <span className="ml-1">— insufficient</span>}
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label>
-                    <Input type="number" step="1" min="0" placeholder="Qty" value={form.qty}
-                      onChange={(e) => setForm({ ...form, qty: e.target.value.replace(/\D/g, '') })} />
+                    <Input type="number" step="0.01" min="0" placeholder="Qty" value={form.qty}
+                      onChange={(e) => setForm({ ...form, qty: sanitizeQtyInput(e.target.value) })} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>

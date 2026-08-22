@@ -4,6 +4,7 @@ export const GENDERS = ['Male', 'Female', 'Other'];
 
 export const PAGES = [
     { id: 'live-stock-dashboard', label: 'Live Stock Dashboard' },
+    { id: 'ultimate-ims', label: 'Ultimate IMS' },
     { id: 'stock-management', label: 'Stock Management' },
     { id: 'master', label: 'Master' },
     { id: 'sales', label: 'Sales' },

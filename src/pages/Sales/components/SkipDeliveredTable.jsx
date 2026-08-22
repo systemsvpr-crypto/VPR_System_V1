@@ -155,27 +155,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
     );
   }
 
-  if (filteredItems.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
-          <Truck size={32} className="text-slate-300" />
-        </div>
-        <h3 className="text-base font-semibold text-slate-600 mb-1">No Skip Delivered Items</h3>
-        <p className="text-sm text-slate-400">
-          {searchTerm
-            ? 'No items match your search.'
-            : skipFilter === 'pending'
-            ? 'All items have been dispatched.'
-            : skipFilter === 'partial'
-            ? 'No partially dispatched items.'
-            : skipFilter === 'skip-done'
-            ? 'No completed dispatches yet.'
-            : 'No orders marked as Skip Delivered.'}
-        </p>
-      </div>
-    );
-  }
+
 
   return (
     <>
@@ -191,6 +171,25 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
         </div>
 
         <div className="divide-y divide-slate-100">
+          {filteredItems.length === 0 && (
+            <div className="p-12 text-center w-full">
+              <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                <Truck size={32} className="text-slate-300" />
+              </div>
+              <h3 className="text-base font-semibold text-slate-600 mb-1">No Skip Delivered Items</h3>
+              <p className="text-sm text-slate-400">
+                {searchTerm
+                  ? 'No items match your search.'
+                  : skipFilter === 'pending'
+                  ? 'All items have been dispatched.'
+                  : skipFilter === 'partial'
+                  ? 'No partially dispatched items.'
+                  : skipFilter === 'skip-done'
+                  ? 'No completed dispatches yet.'
+                  : 'No orders marked as Skip Delivered.'}
+              </p>
+            </div>
+          )}
           {currentItems.map(item => {
             const isExpanded = expandedItems.has(item.item_id);
             const hasPlans   = item.activePlans.length > 0;

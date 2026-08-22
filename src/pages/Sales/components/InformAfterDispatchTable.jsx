@@ -80,13 +80,24 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
       planIds.push(plan.plan_id);
     }
     try {
-      await batchUpdateInformAfterDispatch(planIds, 'Informed');
+      const { notifyResults } = await batchUpdateInformAfterDispatch(planIds, 'Informed');
       setCheckedRows(new Set());
       setPlans(prev => prev.map(p =>
         planIds.includes(p.plan_id) ? { ...p, inform_after_dispatch: 'Informed' } : p
       ));
       onSave?.();
-      toast.success(`Notified ${planIds.length} dispatch plan(s)`);
+
+      const sentCount = notifyResults.filter(r => r.sent).length;
+      const noPhoneCount = notifyResults.filter(r => !r.sent && r.reason === 'no_phone').length;
+      const failedCount = notifyResults.length - sentCount - noPhoneCount;
+
+      let message = `Marked ${planIds.length} dispatch plan(s) as informed`;
+      if (sentCount > 0) message += ` — ${sentCount} WhatsApp message(s) sent`;
+      if (noPhoneCount > 0) message += `, ${noPhoneCount} skipped (no phone number on file)`;
+      if (failedCount > 0) message += `, ${failedCount} failed to send`;
+
+      if (failedCount > 0) toast.error(message);
+      else toast.success(message);
     } catch (err) {
       toast.error(err.message || 'Failed to update inform status');
     }
@@ -102,19 +113,7 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
     );
   }
 
-  if (filteredPlans.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
-          <Mail size={32} className="text-slate-300" />
-        </div>
-        <h3 className="text-base font-semibold text-slate-600 mb-1">No Completed Dispatches</h3>
-        <p className="text-sm text-slate-400">
-          {searchTerm ? 'No items match your search.' : 'No dispatches have been completed yet.'}
-        </p>
-      </div>
-    );
-  }
+
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 flex-col">
@@ -146,6 +145,19 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
+            {filteredPlans.length === 0 && (
+              <tr>
+                <td colSpan="11" className="p-12 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                    <Mail size={32} className="text-slate-300" />
+                  </div>
+                  <h3 className="text-base font-semibold text-slate-600 mb-1">No Completed Dispatches</h3>
+                  <p className="text-sm text-slate-400">
+                    {searchTerm ? 'No items match your search.' : 'No dispatches have been completed yet.'}
+                  </p>
+                </td>
+              </tr>
+            )}
             {currentPlans.map(plan => {
               const isInformed = plan.inform_after_dispatch === 'Informed';
               return (

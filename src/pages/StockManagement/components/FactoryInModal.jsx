@@ -11,6 +11,7 @@ import {
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
 import ImpactPreview from './ImpactPreview';
+import { sanitizeQtyInput, formatQty } from '@/lib/qty';
 
 const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = {}, user, onSuccess, editingTransaction }) => {
   const [form, setForm] = useState({
@@ -145,7 +146,13 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
     : editingTransaction?.txn_type === 'ADJUSTMENT_IN' ? 'Edit Adjustment In'
     : editingTransaction?.txn_type === 'PURCHASE_IN' ? 'Edit Purchase In'
     : 'Edit Factory Stock In';
+  // Own godowns first (stock normally comes in to one of these), then
+  // Transporter stock-tracking godowns below — each group alphabetical.
   const activeGodowns = godowns.filter(g => g.is_active);
+  const isOwnGodown = (g) => (g.godown_type || 'Own') === 'Own';
+  const byGodownName = (a, b) => a.name.localeCompare(b.name);
+  const ownGodowns = activeGodowns.filter(isOwnGodown).sort(byGodownName);
+  const transporterGodowns = activeGodowns.filter(g => !isOwnGodown(g)).sort(byGodownName);
   const selectedProduct = products.find(p => p.product_id === form.product_id);
   const productName = selectedProduct?.name || '';
 
@@ -204,22 +211,33 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
                     <SelectTrigger className="w-full h-10"><SelectValue placeholder="Select Godown" /></SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectLabel>Godown</SelectLabel>
-                          {activeGodowns.map(g => <SelectItem key={g.godown_id} value={g.godown_id}>{g.name}</SelectItem>)}
+                        <SelectLabel>Own</SelectLabel>
+                        {ownGodowns.map(g => <SelectItem key={g.godown_id} value={g.godown_id}>{g.name}</SelectItem>)}
                       </SelectGroup>
+                      {transporterGodowns.length > 0 && (
+                        <SelectGroup>
+                          <SelectLabel>Transporter</SelectLabel>
+                          {transporterGodowns.map(g => <SelectItem key={g.godown_id} value={g.godown_id}>{g.name}</SelectItem>)}
+                        </SelectGroup>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
                 {stockBalance !== null && (
                   <div className="bg-slate-50 rounded-lg px-3 py-1.5 text-sm text-slate-600">
-                    {isEditing ? 'Stock at time of entry' : 'Current stock'}: <span className="font-semibold">{(stockBalance || 0).toFixed(0)}</span>
+                    {isEditing ? 'Stock at time of entry' : 'Current stock'}: <span className="font-semibold">{formatQty(stockBalance)}</span>
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label>
-                    <Input type="number" step="1" min="0" placeholder="Qty" value={form.qty}
-                      onChange={(e) => setForm({ ...form, qty: e.target.value.replace(/\D/g, '') })} />
+                    <div className="flex gap-2">
+                      <Input type="number" step="0.01" min="0" placeholder="Qty" value={form.qty}
+                        onChange={(e) => setForm({ ...form, qty: sanitizeQtyInput(e.target.value) })} className="flex-1" />
+                      {selectedProduct?.unit && (
+                        <Input type="text" disabled value={selectedProduct.unit} className="w-20 bg-slate-50 text-slate-500 font-semibold text-center border-slate-200 shadow-none shrink-0 disabled:opacity-80" />
+                      )}
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>

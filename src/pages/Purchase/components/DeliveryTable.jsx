@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Check, History, Clock, Search } from 'lucide-react';
+import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import {
@@ -9,11 +9,38 @@ import {
   cancelIndentItem,
   getPackagingSize,
 } from '../../../services/purchaseService';
+import { sendPurchaseDeliveredWhatsapp } from '../../../services/whatsappService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import Pagination from '@/components/ui/pagination';
 
-const ITEMS_PER_PAGE = 15;
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
+// Dispatch Qty is always entered in the product's master unit. Whichever of
+// Bag/Kg matches that master unit just mirrors Dispatch Qty as-is; the other
+// is derived from it using THIS row's own Pkg/Bag figure as the kg-per-bag
+// factor (not a separately re-derived mux). Both values get stored.
+const convertDispatchQty = (qty, masterUnit, targetUnit, pkgSize) => {
+  const amount = Number(qty) || 0;
+  const mux = Number(pkgSize) || 0;
+  const master = (masterUnit || '').toLowerCase();
+  const target = (targetUnit || master).toLowerCase();
+  if (!master || target === master) return amount;
+  if (master === 'bag' && target === 'kg') return mux > 0 ? amount * mux : amount;
+  if (master === 'kg' && target === 'bag') return mux > 0 ? amount / mux : amount;
+  return amount;
+};
+
+const IndentTypeBadge = ({ processType }) => (
+  processType === 'direct' ? (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] uppercase font-medium bg-amber-50 text-amber-700 border border-amber-100">
+      <Zap size={10} /> Direct
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] uppercase font-medium bg-blue-50 text-blue-700 border border-blue-100">
+      <ArrowRightLeft size={10} /> Process
+    </span>
+  )
+);
 
 const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
   const [activeSubTab, setActiveSubTab] = useState('pending'); // 'pending' | 'history'
@@ -25,12 +52,20 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
   const [productFilter, setProductFilter] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [rowEdits, setRowEdits] = useState({});
   const [submitting, setSubmitting] = useState(false);
 
+  // Transporter-type godowns are stock-tracking placeholders, never a valid
+  // fallback final destination — only an Own godown may be defaulted to.
+  const ownGodowns = useMemo(() =>
+    godowns.filter(g => (g.godown_type || 'Own') === 'Own'),
+    [godowns],
+  );
+
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, indentFilter, productFilter, vendorFilter, activeSubTab]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, indentFilter, productFilter, vendorFilter, activeSubTab, pageSize]);
 
   const loadData = async () => {
     setLoading(true);
@@ -84,8 +119,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
   const vendorOptions = useMemo(() => {
     const map = new Map();
     items.forEach(i => {
-      const vId = i.item_vendor?.vendor_id || i.vendor_id || i.purchase_indents?.vendor_id;
-      const vName = i.item_vendor?.name || i.purchase_indents?.vendors?.name;
+      const vId = i.approved_vendor_id || i.item_vendor?.vendor_id || i.vendor_id;
+      const vName = i.approved_vendor?.name || i.item_vendor?.name;
       if (vId && vName) map.set(String(vId), vName);
     });
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
@@ -97,10 +132,10 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
       const indent = item.purchase_indents || {};
       const matchIndent = !indentFilter || indent.indent_number === indentFilter;
       const matchProduct = !productFilter || String(item.product_id) === productFilter;
-      const itemVendorId = item.item_vendor?.vendor_id || item.vendor_id || indent.vendor_id;
+      const itemVendorId = item.approved_vendor_id || item.item_vendor?.vendor_id || item.vendor_id;
       const matchVendor = !vendorFilter || String(itemVendorId) === vendorFilter;
       const pName = item.products?.name?.toLowerCase() || '';
-      const vName = (item.item_vendor?.name || indent.vendors?.name || '').toLowerCase();
+      const vName = (item.approved_vendor?.name || item.item_vendor?.name || '').toLowerCase();
       const iNum = (indent.indent_number || '').toLowerCase();
       const matchSearch = !term || iNum.includes(term) || pName.includes(term) || vName.includes(term);
       return matchIndent && matchProduct && matchVendor && matchSearch;
@@ -116,7 +151,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
       const matchProduct = !productFilter || pName === productFilter || String(h.purchase_indent_items?.product_id) === productFilter;
       const tName = h.transporters?.name || '';
       const matchVendor = !vendorFilter || tName === vendorFilter;
-      const vName = h.purchase_indent_items?.item_vendor?.name || indent.vendors?.name || '';
+      const vName = (h.purchase_indent_items?.approved_vendor?.name || h.purchase_indent_items?.item_vendor?.name || '').toLowerCase();
       const iNum = indent.indent_number || h.lifting_number || '';
       const matchSearch = !term || iNum.toLowerCase().includes(term) || pName.toLowerCase().includes(term) || vName.toLowerCase().includes(term) || tName.toLowerCase().includes(term);
       return matchIndent && matchProduct && matchVendor && matchSearch;
@@ -124,11 +159,11 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
   }, [historyItems, indentFilter, productFilter, vendorFilter, searchTerm]);
 
   const currentList = activeSubTab === 'pending' ? filteredItems : filteredHistoryItems;
-  const totalPages = Math.max(1, Math.ceil(currentList.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(currentList.length / pageSize));
   const currentPageItems = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return currentList.slice(start, start + ITEMS_PER_PAGE);
-  }, [currentList, currentPage]);
+    const start = (currentPage - 1) * pageSize;
+    return currentList.slice(start, start + pageSize);
+  }, [currentList, currentPage, pageSize]);
 
   const getRowVal = (itemId, field, defaultVal = '') => {
     const edit = rowEdits[itemId];
@@ -143,20 +178,38 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
     }));
   };
 
+  // Picking a Transporter for one row applies it to every other row that's
+  // currently checkbox-selected too — same convention as Dispatch Date on
+  // the Dispatch Planning page.
   const handleTransporterChange = (itemId, transporterId) => {
     const selectedTransporter = transporters.find(t => String(t.transporter_id) === String(transporterId));
     setRowEdits(prev => {
-      const current = prev[itemId] || {};
-      return {
-        ...prev,
-        [itemId]: {
+      const next = { ...prev };
+      const targets = new Set(selectedItems);
+      targets.add(itemId);
+      targets.forEach(id => {
+        const current = next[id] || {};
+        next[id] = {
           ...current,
           transporter_id: transporterId,
           vehicle_number: transporterId ? (selectedTransporter?.vehicle_number || current.vehicle_number || '') : '',
           driver_phone_number: transporterId ? (selectedTransporter?.driver_phone_number || current.driver_phone_number || '') : '',
           lr_number: transporterId ? (current.lr_number || '') : '',
-        },
-      };
+        };
+      });
+      return next;
+    });
+  };
+
+  // Same "applies to every selected row" convention for LR No., Vehicle No.
+  // and Driver No.
+  const setFieldForSelected = (itemId, field, value) => {
+    setRowEdits(prev => {
+      const next = { ...prev };
+      const targets = new Set(selectedItems);
+      targets.add(itemId);
+      targets.forEach(id => { next[id] = { ...next[id], [field]: value }; });
+      return next;
     });
   };
 
@@ -210,21 +263,66 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
 
     setSubmitting(true);
     let successCount = 0;
+    const successfulDeliveries = [];
+    // Only a row that actually submits drops out of selection/edits — one
+    // that fails validation or the API call stays checked with whatever was
+    // typed still in place, so the user just fixes that field and retries
+    // instead of redoing every field on the row.
+    const savedIds = new Set();
+
+    // Auto-fallback: if the user only fills out Transporter/LR No on the first row,
+    // apply it to the other selected rows automatically.
+    let fallbackTransporterId = null;
+    let fallbackTransporterName = '-';
+    let fallbackLrNumber = null;
+    
+    for (const itemId of toSubmitIds) {
+      const edit = rowEdits[itemId];
+      if (!fallbackTransporterId && edit?.transporter_id) {
+        fallbackTransporterId = edit.transporter_id;
+        const t = transporters.find(x => String(x.transporter_id) === String(edit.transporter_id));
+        if (t) fallbackTransporterName = t.name;
+      }
+      if (!fallbackLrNumber && edit?.lr_number) {
+        fallbackLrNumber = edit.lr_number;
+      }
+      if (fallbackTransporterId && fallbackLrNumber) break;
+    }
 
     for (const itemId of toSubmitIds) {
       const item = items.find(i => i.item_id === itemId);
       if (!item) continue;
       const edit = rowEdits[itemId] || {};
-      const delQty = Number(edit.del_qty_kg || 0);
+      const pendingQty = Number(item.remaining_alloc_qty ?? item.remaining_qty ?? 0);
+      // Dispatch Qty is prefilled with the Pending Qty on screen even before the
+      // user touches the field — fall back to that same default here so an
+      // untouched row still submits with the value actually shown.
+      const delQty = edit.del_qty_kg !== undefined && edit.del_qty_kg !== '' ? Number(edit.del_qty_kg) : pendingQty;
 
       if (delQty <= 0) {
-        toast.error(`Please enter valid Del. Qty for indent ${item.purchase_indents?.indent_number}`);
+        toast.error(`Please enter valid Dispatch Qty for indent ${item.purchase_indents?.indent_number}`);
         continue;
       }
 
-      const defaultGodownId = item.approved_godown_id || item.purchase_indents?.godown_id || godowns[0]?.godown_id;
+      // Removed validation blocking delQty > pendingQty as requested
+
+
+      const packagingSize = edit.packaging_size !== undefined && edit.packaging_size !== '' ? Number(edit.packaging_size) : getPackagingSize(item.products);
+
+      // Dispatch Qty is always entered in the product's master unit — the
+      // matching Bag/Kg column just mirrors it, the other is derived via
+      // this row's own Pkg/Bag figure. Both get stored.
+      const masterUnit = (item.products?.unit || '').toLowerCase();
+      const dispatchQtyBag = convertDispatchQty(delQty, masterUnit, 'bag', packagingSize);
+      const dispatchQtyKg = convertDispatchQty(delQty, masterUnit, 'kg', packagingSize);
+
+      const defaultGodownId = item.approved_godown_id || item.purchase_indents?.godown_id || ownGodowns[0]?.godown_id;
 
       const selectedTransporter = transporters.find(t => String(t.transporter_id) === String(edit.transporter_id));
+
+      const tId = edit.transporter_id || fallbackTransporterId || null;
+      const tName = edit.transporter_id ? (selectedTransporter?.name || '-') : fallbackTransporterName;
+      const lrNum = edit.lr_number || fallbackLrNumber || null;
 
       try {
         await createDelivery({
@@ -233,28 +331,88 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
           delivery_date: new Date().toISOString().slice(0, 10),
           expected_delivery_date: edit.exp_date !== undefined ? edit.exp_date : (item.planning_date || null),
           godown_allocations: defaultGodownId ? [{ godown_id: defaultGodownId, qty: delQty }] : [],
-          transporter_id: edit.transporter_id || null,
-          lr_number: edit.lr_number || null,
-          vehicle_number: edit.vehicle_number || selectedTransporter?.vehicle_number || null,
-          driver_phone_number: edit.driver_phone_number || selectedTransporter?.driver_phone_number || null,
+          transporter_id: tId,
+          lr_number: lrNum,
+          vehicle_number: edit.vehicle_number || (edit.transporter_id ? selectedTransporter?.vehicle_number : null) || null,
+          driver_phone_number: edit.driver_phone_number || (edit.transporter_id ? selectedTransporter?.driver_phone_number : null) || null,
           remarks: edit.remarks || null,
+          packaging_size: packagingSize,
+          dispatch_qty_bag: dispatchQtyBag,
+          dispatch_qty_kg: dispatchQtyKg,
           created_by: user?.user_id,
-          // Newly dispatched lifts start "In Transit" so they land in Aawak
-          // Details' Pending tab for review — "AT TPT GDN" (which records
-          // stock at the transporter's godown) is set explicitly from there.
           status: 'In Transit',
         });
         successCount++;
+        savedIds.add(itemId);
+        successfulDeliveries.push({
+          lrNumber: lrNum,
+          transporterId: tId,
+          transporterName: tName,
+          date: new Date().toISOString().slice(0, 10),
+          productName: item.products?.name || 'Product',
+          unit: item.products?.unit || '',
+          delQty,
+          dispatchQtyBag,
+          dispatchQtyKg,
+        });
       } catch (err) {
         toast.error(`Failed for ${item.purchase_indents?.indent_number}: ${err.message}`);
+      }
+    }
+
+    if (successfulDeliveries.length > 0) {
+      const groupedByLR = successfulDeliveries.reduce((acc, curr) => {
+        const key = curr.lrNumber || 'NO_LR';
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(curr);
+        return acc;
+      }, {});
+
+      for (const [lrKey, group] of Object.entries(groupedByLR)) {
+        const lrNumber = lrKey === 'NO_LR' ? '-' : lrKey;
+        const transporterName = group[0].transporterName;
+        const date = group[0].date;
+        
+        let productDetails = '';
+        let totalBag = 0;
+        let totalKg = 0;
+        let totalLot = 0;
+
+        group.forEach((p, idx) => {
+          const pBag = Number(p.dispatchQtyBag) || 0;
+          const pKg = Number(p.dispatchQtyKg) || 0;
+          const pLot = Number(p.delQty) || 0;
+          
+          productDetails += `${idx > 0 ? ' , ' : ''}Product ${idx + 1} :- ${p.productName} (${p.delQty}${p.unit ? ' ' + p.unit : ''}) Total Bag : ${pBag}, Total KG: ${pKg}, Total Lot: ${pLot}`;
+          
+          totalBag += pBag;
+          totalKg += pKg;
+          totalLot += pLot;
+        });
+        
+        const totalValuesStr = `Total: ${totalBag} bag, ${totalKg} KG, ${totalLot} Lot`;
+        
+        try {
+          console.log('DeliveryTable - about to call sendPurchaseDeliveredWhatsapp for LR:', lrNumber);
+          console.log('Group details:', { transporterName, date, productDetails: productDetails.trim(), totalValuesStr });
+          await sendPurchaseDeliveredWhatsapp({
+            transporterName,
+            lrNumber,
+            date,
+            productDetails: productDetails.trim(),
+            totalValuesStr,
+          });
+        } catch (err) {
+          console.error('WhatsApp Error:', err);
+        }
       }
     }
 
     setSubmitting(false);
     if (successCount > 0) {
       toast.success(`${successCount} delivery lift${successCount !== 1 ? 's' : ''} submitted successfully!`);
-      setSelectedItems(new Set());
-      setRowEdits({});
+      setSelectedItems(prev => { const next = new Set(prev); savedIds.forEach(id => next.delete(id)); return next; });
+      setRowEdits(prev => { const next = { ...prev }; savedIds.forEach(id => { delete next[id]; }); return next; });
       loadData();
     }
   };
@@ -298,113 +456,110 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
   }
 
   return (
-    <div className="flex flex-col gap-4 font-sans">
-      {/* Sub-tabs Bar (Pending & History) styled like Dispatch Day */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
-        <button
-          type="button"
-          onClick={() => { setActiveSubTab('pending'); setCurrentPage(1); setSelectedItems(new Set()); }}
-          className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-2 ${
-            activeSubTab === 'pending'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-          }`}
-        >
-          <Clock size={14} />
-          <span>Pending</span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-            activeSubTab === 'pending' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
-          }`}>
-            {items.length}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => { setActiveSubTab('history'); setCurrentPage(1); setSelectedItems(new Set()); }}
-          className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all flex items-center gap-2 ${
-            activeSubTab === 'history'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-          }`}
-        >
-          <History size={14} />
-          <span>History</span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-            activeSubTab === 'history' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
-          }`}>
-            {historyItems.length}
-          </span>
-        </button>
-      </div>
-
-      {/* Search & Filter Toolbar */}
-      <div className="flex flex-row items-center justify-between gap-4 shrink-0 overflow-x-auto">
-        <div className="flex flex-nowrap items-center gap-3 flex-1 min-w-0">
-          <div className="relative w-64 shrink-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
-            <Input
-              type="text"
-              placeholder="Search indent no., product, vendor..."
-              className="pl-9 h-9 text-xs"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
-          <select
-            value={indentFilter}
-            onChange={e => setIndentFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[150px] shrink-0"
+    <div className="flex flex-col gap-4 font-sans flex-1 min-h-0">
+      {/* Sub-tabs + Search & Filter Toolbar, all in one wrapping row */}
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => { setActiveSubTab('pending'); setCurrentPage(1); setSelectedItems(new Set()); }}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${
+              activeSubTab === 'pending'
+                ? 'bg-primary/10 text-primary'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+            }`}
           >
-            <option value="">-- All Indents --</option>
-            {indentOptions.map(num => (
-              <option key={num} value={num}>{num}</option>
-            ))}
-          </select>
-
-          <select
-            value={productFilter}
-            onChange={e => setProductFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[150px] shrink-0"
+            <Clock size={14} />
+            Pending
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+              activeSubTab === 'pending' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {items.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setActiveSubTab('history'); setCurrentPage(1); setSelectedItems(new Set()); }}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${
+              activeSubTab === 'history'
+                ? 'bg-primary/10 text-primary'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+            }`}
           >
-            <option value="">-- All Products --</option>
-            {productOptions.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-
-          {activeSubTab === 'pending' ? (
-            <select
-              value={vendorFilter}
-              onChange={e => setVendorFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[150px] shrink-0"
-            >
-              <option value="">-- All Vendors --</option>
-              {vendorOptions.map(v => (
-                <option key={v.id} value={v.id}>{v.name}</option>
-              ))}
-            </select>
-          ) : (
-            <select
-              value={vendorFilter}
-              onChange={e => setVendorFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[150px] shrink-0"
-            >
-              <option value="">-- All Transporters --</option>
-              {transporters.map(t => (
-                <option key={t.transporter_id} value={t.name}>{t.name}</option>
-              ))}
-            </select>
-          )}
-
-          {(searchTerm || indentFilter || productFilter || vendorFilter) && (
-            <Button variant="outline" size="sm" onClick={clearFilters} className="h-9 text-xs border-slate-200 hover:bg-slate-50 shrink-0">
-              Clear
-            </Button>
-          )}
+            <History size={14} />
+            History
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+              activeSubTab === 'history' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {historyItems.length}
+            </span>
+          </button>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="relative w-full sm:flex-1 sm:min-w-[160px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
+          <Input
+            type="text"
+            placeholder="Search indent no., product, vendor..."
+            className="pl-9 h-9 text-xs w-full"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        <select
+          value={indentFilter}
+          onChange={e => setIndentFilter(e.target.value)}
+          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
+        >
+          <option value="">-- All Indents --</option>
+          {indentOptions.map(num => (
+            <option key={num} value={num}>{num}</option>
+          ))}
+        </select>
+
+        <select
+          value={productFilter}
+          onChange={e => setProductFilter(e.target.value)}
+          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
+        >
+          <option value="">-- All Products --</option>
+          {productOptions.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+
+        {activeSubTab === 'pending' ? (
+          <select
+            value={vendorFilter}
+            onChange={e => setVendorFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
+          >
+            <option value="">-- All Vendors --</option>
+            {vendorOptions.map(v => (
+              <option key={v.id} value={v.id}>{v.name}</option>
+            ))}
+          </select>
+        ) : (
+          <select
+            value={vendorFilter}
+            onChange={e => setVendorFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
+          >
+            <option value="">-- All Transporters --</option>
+            {transporters.map(t => (
+              <option key={t.transporter_id} value={t.name}>{t.name}</option>
+            ))}
+          </select>
+        )}
+
+        {(searchTerm || indentFilter || productFilter || vendorFilter) && (
+          <Button variant="outline" size="sm" onClick={clearFilters} className="h-9 text-xs border-slate-200 hover:bg-slate-50 shrink-0">
+            Clear
+          </Button>
+        )}
+
+        <div className="flex items-center gap-3 shrink-0 sm:ml-auto">
           <span className="text-xs text-slate-400 font-medium whitespace-nowrap">{currentList.length} item{currentList.length !== 1 ? 's' : ''}</span>
           {activeSubTab === 'pending' && (
             <Button onClick={handleSubmitDeliveries} disabled={submitting} size="sm" className="h-9 px-4 text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium gap-1.5 shadow-sm">
@@ -420,25 +575,19 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
       </div>
 
       {/* Main Table - Modern Dispatch Day Container */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-        {currentList.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">
-            <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
-            <p className="text-sm font-medium">
-              {activeSubTab === 'pending' ? 'No approved deliveries available.' : 'No delivery history found.'}
-            </p>
-          </div>
-        ) : activeSubTab === 'pending' ? (
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 min-h-0">
+        {activeSubTab === 'pending' ? (
           /* PENDING TABLE */
-          <div className="overflow-x-auto custom-scrollbar">
+          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
             <table className="w-full text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
+              <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                 <tr>
                   <th className="w-10 px-2 py-3 text-center">
                     <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                   </th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Unit</th>
@@ -449,7 +598,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Remarks</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Exp. Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Actual Date</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Received Qty</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch Qty</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch in BAG</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch in KG</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Transporter</th>
                   {hasAnyTransporterSelected && (
                     <>
@@ -461,12 +612,26 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
+                {currentList.length === 0 && (
+                  <tr>
+                    <td colSpan="20" className="p-12 text-center text-slate-400">
+                      <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
+                      <p className="text-sm font-medium">No approved deliveries available.</p>
+                    </td>
+                  </tr>
+                )}
                 {currentPageItems.map(item => {
                   const indent = item.purchase_indents || {};
                   const isSelected = selectedItems.has(item.item_id);
                   const pkgSize = getPackagingSize(item.products);
                   const transpId = getRowVal(item.item_id, 'transporter_id');
                   const selectedTransporter = transporters.find(t => String(t.transporter_id) === String(transpId));
+
+                  const masterUnit = (item.products?.unit || '').toLowerCase();
+                  const currentPkgSize = getRowVal(item.item_id, 'packaging_size', pkgSize);
+                  const dispatchQtyVal = getRowVal(item.item_id, 'del_qty_kg', String(item.remaining_alloc_qty ?? item.remaining_qty ?? ''));
+                  const dispatchQtyBag = convertDispatchQty(dispatchQtyVal, masterUnit, 'bag', currentPkgSize);
+                  const dispatchQtyKg = convertDispatchQty(dispatchQtyVal, masterUnit, 'kg', currentPkgSize);
 
                   return (
                     <tr key={item.item_id} className={`hover:bg-slate-50/60 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
@@ -484,8 +649,11 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       <td className="px-3 py-3 font-semibold text-slate-800 whitespace-nowrap">
                         {indent.indent_number || '—'}
                       </td>
+                      <td className="px-3 py-3 text-center">
+                        <IndentTypeBadge processType={indent.process_type} />
+                      </td>
                       <td className="px-3 py-3 font-medium text-slate-700 whitespace-nowrap">
-                        {item.item_vendor?.name || indent.vendors?.name || '—'}
+                        {item.approved_vendor?.name || item.item_vendor?.name || '—'}
                       </td>
                       <td className="px-3 py-3">
                         <span className="text-slate-800 font-medium">{item.products?.name || '—'}</span>
@@ -502,8 +670,17 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       <td className="px-3 py-3 text-center text-slate-600">
                         {item.rate ? Number(item.rate).toFixed(2) : '—'}
                       </td>
-                      <td className="px-3 py-3 text-center text-slate-500">
-                        {pkgSize}
+                      <td className="px-3 py-3">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="Pkg/Bag"
+                          value={getRowVal(item.item_id, 'packaging_size', pkgSize)}
+                          onChange={e => setRowVal(item.item_id, 'packaging_size', e.target.value)}
+                          disabled={!isSelected}
+                          className="h-8 text-xs text-center bg-slate-50/50 border-slate-200 focus:bg-white w-20"
+                        />
                       </td>
                       <td className="px-3 py-3">
                         <Input
@@ -511,6 +688,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                           placeholder="Remarks..."
                           value={getRowVal(item.item_id, 'remarks')}
                           onChange={e => setRowVal(item.item_id, 'remarks', e.target.value)}
+                          disabled={!isSelected}
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
                         />
                       </td>
@@ -519,6 +697,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                           type="date"
                           value={getRowVal(item.item_id, 'exp_date', item.planning_date || '')}
                           onChange={e => setRowVal(item.item_id, 'exp_date', e.target.value)}
+                          disabled={!isSelected}
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
                         />
                       </td>
@@ -529,17 +708,27 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                         <Input
                           type="number"
                           step="0.01"
-                          placeholder="Received Qty"
-                          value={getRowVal(item.item_id, 'del_qty_kg')}
+                          min="0"
+                          max={item.remaining_alloc_qty ?? item.remaining_qty}
+                          placeholder="Dispatch Qty"
+                          value={getRowVal(item.item_id, 'del_qty_kg', String(item.remaining_alloc_qty ?? item.remaining_qty ?? ''))}
                           onChange={e => handleReceivedQtyChange(item, e.target.value)}
+                          disabled={!isSelected}
                           className="h-8 text-xs font-semibold text-center bg-slate-50/50 border-slate-200 focus:bg-white"
                         />
+                      </td>
+                      <td className={`px-3 py-3 text-center font-medium whitespace-nowrap ${masterUnit === 'bag' ? 'text-slate-800' : 'text-slate-500'}`}>
+                        {dispatchQtyBag ? Number(dispatchQtyBag.toFixed(2)) : '—'}
+                      </td>
+                      <td className={`px-3 py-3 text-center font-medium whitespace-nowrap ${masterUnit === 'kg' ? 'text-slate-800' : 'text-slate-500'}`}>
+                        {dispatchQtyKg ? Number(dispatchQtyKg.toFixed(2)) : '—'}
                       </td>
                       <td className="px-3 py-3">
                         <select
                           value={transpId}
                           onChange={e => handleTransporterChange(item.item_id, e.target.value)}
-                          className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px]"
+                          disabled={!isSelected}
+                          className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px] disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
                         >
                           <option value="">Select transp...</option>
                           {transporters.map(t => (
@@ -555,7 +744,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                                 type="text"
                                 placeholder="LR No."
                                 value={getRowVal(item.item_id, 'lr_number')}
-                                onChange={e => setRowVal(item.item_id, 'lr_number', e.target.value)}
+                                onChange={e => setFieldForSelected(item.item_id, 'lr_number', e.target.value)}
+                                disabled={!isSelected}
                                 className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[110px]"
                               />
                             ) : (
@@ -568,7 +758,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                                 type="text"
                                 placeholder="Vehicle No."
                                 value={getRowVal(item.item_id, 'vehicle_number', selectedTransporter?.vehicle_number || '')}
-                                onChange={e => setRowVal(item.item_id, 'vehicle_number', e.target.value)}
+                                onChange={e => setFieldForSelected(item.item_id, 'vehicle_number', e.target.value)}
+                                disabled={!isSelected}
                                 className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
                               />
                             ) : (
@@ -581,7 +772,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                                 type="text"
                                 placeholder="Driver No."
                                 value={getRowVal(item.item_id, 'driver_phone_number', selectedTransporter?.driver_phone_number || '')}
-                                onChange={e => setRowVal(item.item_id, 'driver_phone_number', e.target.value)}
+                                onChange={e => setFieldForSelected(item.item_id, 'driver_phone_number', e.target.value)}
+                                disabled={!isSelected}
                                 className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
                               />
                             ) : (
@@ -598,16 +790,19 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
           </div>
         ) : (
           /* HISTORY TABLE */
-          <div className="overflow-x-auto custom-scrollbar">
+          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
             <table className="w-full text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
+              <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                 <tr>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in BAG</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in KG</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">LR No.</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Driver No.</th>
@@ -616,11 +811,19 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
+                {currentList.length === 0 && (
+                  <tr>
+                    <td colSpan="13" className="p-12 text-center text-slate-400">
+                      <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
+                      <p className="text-sm font-medium">No delivery history found.</p>
+                    </td>
+                  </tr>
+                )}
                 {currentPageItems.map(del => {
                   const prod = del.purchase_indent_items?.products || {};
                   const qtyKg = Number(del.received_quantity || 0);
                   const indentNum = del.purchase_indent_items?.purchase_indents?.indent_number || '—';
-                  const vendorName = del.purchase_indent_items?.item_vendor?.name || del.purchase_indent_items?.purchase_indents?.vendors?.name || '—';
+                  const vendorName = del.purchase_indent_items?.approved_vendor?.name || del.purchase_indent_items?.item_vendor?.name || '—';
 
                   return (
                     <tr key={del.delivery_id} className="hover:bg-slate-50/60 transition-colors">
@@ -633,6 +836,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       <td className="px-3 py-3 font-semibold text-slate-700 whitespace-nowrap">
                         {indentNum}
                       </td>
+                      <td className="px-3 py-3 text-center">
+                        <IndentTypeBadge processType={del.purchase_indent_items?.purchase_indents?.process_type} />
+                      </td>
                       <td className="px-3 py-3 text-slate-700 font-medium whitespace-nowrap">
                         {vendorName}
                       </td>
@@ -641,6 +847,12 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       </td>
                       <td className="px-3 py-3 text-center font-bold text-emerald-700">
                         {qtyKg}
+                      </td>
+                      <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
+                        {del.dispatch_qty_bag != null ? Number(Number(del.dispatch_qty_bag).toFixed(2)) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
+                        {del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : '—'}
                       </td>
                       <td className="px-3 py-3 text-slate-700 whitespace-nowrap">
                         {del.transporters?.name || '—'}
@@ -665,17 +877,43 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
           </div>
         )}
 
-        {currentList.length > ITEMS_PER_PAGE && (
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={currentList.length}
-            startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1}
-            endIndex={Math.min(currentPage * ITEMS_PER_PAGE, currentList.length)}
-            onPageChange={setCurrentPage}
-            className="border-t border-slate-200"
-          />
-        )}
+        <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">Rows per page:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="border border-slate-300 rounded-md px-2 py-1 focus:outline-none focus:border-primary bg-white font-medium text-xs shadow-sm"
+            >
+              {PAGE_SIZE_OPTIONS.map((val) => (
+                <option key={val} value={val}>{val}</option>
+              ))}
+            </select>
+            <span className="text-xs text-slate-500 whitespace-nowrap">
+              {currentList.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}-{Math.min(currentPage * pageSize, currentList.length)} of {currentList.length} items
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
+            >
+              <ChevronLeft size={16} strokeWidth={2.5} />
+            </button>
+            <span className="text-xs font-semibold text-slate-600">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
+            >
+              <ChevronRight size={16} strokeWidth={2.5} />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

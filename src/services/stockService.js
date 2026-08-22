@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { hasValidQtyPrecision, formatQty } from '../lib/qty';
 
 const getTodayLocal = () => {
   const d = new Date();
@@ -59,7 +60,7 @@ export const getGodown = async (godownId) => {
 
 export const addFactoryStock = async ({ product_id, godown_id, qty, txn_date, created_by }) => {
   if (!qty || Number(qty) <= 0) throw new Error('Quantity must be greater than zero.');
-  if (!Number.isInteger(Number(qty))) throw new Error('Quantity must be a whole number.');
+  if (!hasValidQtyPrecision(Number(qty))) throw new Error('Quantity can have at most two decimal places.');
   if (txn_date > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
 
   const { data: product, error: prodErr } = await supabase
@@ -93,7 +94,7 @@ export const addFactoryStock = async ({ product_id, godown_id, qty, txn_date, cr
 
 export const transferStock = async ({ product_id, from_godown_id, to_godown_id, qty, txn_date, created_by }) => {
   if (!qty || Number(qty) <= 0) throw new Error('Quantity must be greater than zero.');
-  if (!Number.isInteger(Number(qty))) throw new Error('Quantity must be a whole number.');
+  if (!hasValidQtyPrecision(Number(qty))) throw new Error('Quantity can have at most two decimal places.');
   if (txn_date > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
   if (from_godown_id === to_godown_id) throw new Error('Source and destination godowns must be different.');
 
@@ -131,7 +132,7 @@ export const transferStock = async ({ product_id, from_godown_id, to_godown_id, 
 
 export const dispatchStock = async ({ product_id, godown_id, qty, txn_date, created_by, dispatch_plan_id, dispatch_number }) => {
   if (!qty || Number(qty) <= 0) throw new Error('Quantity must be greater than zero.');
-  if (!Number.isInteger(Number(qty))) throw new Error('Quantity must be a whole number.');
+  if (!hasValidQtyPrecision(Number(qty))) throw new Error('Quantity can have at most two decimal places.');
   if (txn_date > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
 
   const product = await getProduct(product_id);
@@ -202,7 +203,7 @@ export const runFSG = async (productId, godownId, fromDate, { removeTxnIds = [],
     if (running < 0 && !product.allow_negative_stock) {
       return {
         passed: false,
-        message: `This change would make txn #${String(row.txn_id).substring(0, 8)} (${row.txn_type.replace(/_/g, ' ')} of ${Number(row.qty).toFixed(0)} on ${row.txn_date}) invalid — balance would reach ${running.toFixed(0)}. Please resolve that entry first.`,
+        message: `This change would make txn #${String(row.txn_id).substring(0, 8)} (${row.txn_type.replace(/_/g, ' ')} of ${formatQty(row.qty)} on ${row.txn_date}) invalid — balance would reach ${formatQty(running)}. Please resolve that entry first.`,
         failingRow: { ...row, runningBalance: running },
       };
     }
@@ -298,7 +299,7 @@ export const editTransaction = async (txnId, updates, created_by) => {
 
   const qty = Number(updates.qty);
   if (!qty || qty <= 0) throw new Error('Quantity must be greater than zero.');
-  if (!Number.isInteger(qty)) throw new Error('Quantity must be a whole number.');
+  if (!hasValidQtyPrecision(qty)) throw new Error('Quantity can have at most two decimal places.');
 
   const txnDate = updates.txn_date || original.txn_date;
   if (txnDate > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
@@ -396,7 +397,7 @@ export const editTransfer = async (pairId, updates, created_by) => {
 
   const qty = Number(updates.qty);
   if (!qty || qty <= 0) throw new Error('Quantity must be greater than zero.');
-  if (!Number.isInteger(qty)) throw new Error('Quantity must be a whole number.');
+  if (!hasValidQtyPrecision(qty)) throw new Error('Quantity can have at most two decimal places.');
 
   const txnDate = updates.txn_date || outLeg.txn_date;
   if (txnDate > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
@@ -642,8 +643,8 @@ export const bulkDispatchStock = async ({ rows, created_by }) => {
       errors.push({ row: `Row ${i + 1}: ${row.productName}`, message: 'Godown name is empty' });
       continue;
     }
-    if (isNaN(qty) || qty <= 0 || !Number.isInteger(qty)) {
-      errors.push({ row: `Row ${i + 1}: ${row.productName} → ${row.godownName}`, message: 'Quantity must be a valid positive whole number' });
+    if (isNaN(qty) || qty <= 0 || !hasValidQtyPrecision(qty)) {
+      errors.push({ row: `Row ${i + 1}: ${row.productName} → ${row.godownName}`, message: 'Quantity must be a valid positive number with at most two decimal places' });
       continue;
     }
     if (txnDate > getTodayLocal()) {

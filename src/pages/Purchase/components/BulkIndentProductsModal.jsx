@@ -7,6 +7,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { createIndent, generateMultipleIndentNumbers } from '../../../services/purchaseService';
+import { sanitizeQtyInput } from '@/lib/qty';
 
 const COLUMN_ALIASES = {
   'Indent Date': ['indent date', 'indentdate', 'date', 'indent_date', 'order date', 'orderdate', 'order_date'],
@@ -215,14 +216,17 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
             id: idx,
             indent_date: parsedDate,
             rawVendorName: rawVendor,
-            vendor_id: matchedVendor ? matchedVendor.vendor_id : (vendors[0]?.vendor_id || ''),
+            // Vendor/Godown are optional — only pre-fill when the file's
+            // value actually matched one; otherwise leave it for later
+            // (Vendor Approval) rather than silently picking the first one.
+            vendor_id: matchedVendor ? matchedVendor.vendor_id : '',
             rawGodownName: rawGodown,
-            godown_id: matchedGodown ? matchedGodown.godown_id : (activeGodowns[0]?.godown_id || ''),
+            godown_id: matchedGodown ? matchedGodown.godown_id : '',
             rawProductName: rawProd,
             product_id: matchedProd ? matchedProd.product_id : '',
             rate: rawRate,
             quantity: rawQty > 0 ? String(rawQty) : '1',
-            process_type: 'process',
+            process_type: 'direct',
             remarks: rawRemarks,
           };
         }).filter(r => r.rawProductName || r.product_id);
@@ -277,7 +281,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
           vendor_id: row.vendor_id,
           vendor_name: vendorObj ? vendorObj.name : (row.rawVendorName || 'Unknown Vendor'),
           godown_id: row.godown_id,
-          process_type: 'process',
+          process_type: 'direct',
           remarks: row.remarks || '',
           items: [],
         };
@@ -301,9 +305,12 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
   };
 
   const handleConfirmImport = async () => {
-    const invalidCount = rawRows.filter(r => !r.product_id || !r.vendor_id || !r.godown_id || !Number(r.quantity)).length;
+    // Vendor and Godown are optional — only Product + Quantity are required
+    // to raise an indent; vendor/godown can still be decided later, per
+    // item, on Vendor Approval.
+    const invalidCount = rawRows.filter(r => !r.product_id || !Number(r.quantity)).length;
     if (invalidCount > 0) {
-      toast.error(`Please select a valid product, vendor, and godown for all rows (${invalidCount} incomplete).`);
+      toast.error(`Please select a valid product and quantity for all rows (${invalidCount} incomplete).`);
       return;
     }
 
@@ -329,7 +336,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
             rate: item.rate,
           })),
           created_by: user?.user_id,
-          process_type: 'process',
+          process_type: 'direct',
         });
       }
 
@@ -392,7 +399,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
   };
 
   const validRowsCount = useMemo(() => {
-    return rawRows.filter(r => r.product_id && r.vendor_id && r.godown_id && Number(r.quantity) > 0).length;
+    return rawRows.filter(r => r.product_id && Number(r.quantity) > 0).length;
   }, [rawRows]);
 
   return (
@@ -433,7 +440,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                 </div>
                 <div className="mt-2 text-xs text-slate-600 space-y-1 pl-8">
                   <p>• <strong>Order Numbers are auto-generated:</strong> Do not include Order/Indent Number in your file.</p>
-                  <p>• <strong>Process Type is auto-set to Process:</strong> Do not include Process Type in your file.</p>
+                  <p>• <strong>Process Type is auto-set to Direct:</strong> Do not include Process Type in your file.</p>
                   <p>• <strong>Grouping Logic:</strong> Rows with the <em>same Indent Date, Vendor Name, and Product Name</em> will be assigned the <strong>same auto-generated order number</strong>.</p>
                 </div>
               </div>
@@ -511,7 +518,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                           System Order No: <span className="text-primary font-mono italic">VPR/IN-AUTO-{String(gIdx + 1).padStart(2, '0')}</span>
                         </span>
                         <span className="bg-slate-200/70 text-slate-700 text-[11px] font-semibold px-2 py-0.5 rounded">
-                          Process
+                          Direct
                         </span>
                       </div>
                       <span className="text-xs text-slate-500 font-medium">
@@ -519,7 +526,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
                       <div>
                         <label className="block text-slate-500 font-medium mb-1">Order Date</label>
                         <DatePicker
@@ -528,25 +535,35 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-500 font-medium mb-1">Vendor <span className="text-red-500">*</span></label>
+                        <label className="block text-slate-500 font-medium mb-1">Vendor <span className="text-slate-400 font-normal">(optional)</span></label>
                         <Dropdown
                           value={group.vendor_id}
                           onValueChange={(val) => handleGroupHeaderChange(group.key, 'vendor_id', val)}
                           options={vendorOptions}
-                          placeholder={group.vendor_name ? `Match "${group.vendor_name}"...` : "Select vendor..."}
+                          placeholder={group.vendor_name ? `Match "${group.vendor_name}"...` : "Decide later..."}
                           searchPlaceholder="Search vendors..."
                           align="start"
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-500 font-medium mb-1">Godown <span className="text-red-500">*</span></label>
+                        <label className="block text-slate-500 font-medium mb-1">Godown <span className="text-slate-400 font-normal">(optional)</span></label>
                         <Dropdown
                           value={group.godown_id}
                           onValueChange={(val) => handleGroupHeaderChange(group.key, 'godown_id', val)}
                           options={godownOptions}
-                          placeholder="Select godown..."
+                          placeholder="Decide later..."
                           searchPlaceholder="Search godowns..."
                           align="start"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1">Remarks</label>
+                        <input
+                          type="text"
+                          value={group.remarks}
+                          onChange={(e) => handleGroupHeaderChange(group.key, 'remarks', e.target.value)}
+                          placeholder="Remarks..."
+                          className="w-full h-8 px-2.5 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
                         />
                       </div>
                     </div>
@@ -616,10 +633,10 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                                 <td className="px-3 py-1.5 text-right">
                                   <input
                                     type="number"
-                                    step="1"
+                                    step="0.01"
                                     min="1"
                                     value={row.quantity}
-                                    onChange={(e) => handleUpdateRow(origIdx, 'quantity', e.target.value.replace(/\D/g, ''))}
+                                    onChange={(e) => handleUpdateRow(origIdx, 'quantity', sanitizeQtyInput(e.target.value))}
                                     placeholder="1"
                                     className="w-20 h-7 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary bg-white"
                                   />

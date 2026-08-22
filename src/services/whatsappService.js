@@ -2,10 +2,14 @@ import { supabase } from '../supabase';
 
 const sendWhatsappTemplate = async ({ phone, template, language, parameters }) => {
   if (!phone) return;
-  const { error } = await supabase.functions.invoke('send-whatsapp', {
+  const { data, error } = await supabase.functions.invoke('send-whatsapp', {
     body: { phone, template, language, parameters },
   });
   if (error) throw error;
+  if (data && data.success === false) {
+    console.error("Meta API Error:", data.error);
+    throw new Error(`Meta API Error: ${data.metaStatus} - ${JSON.stringify(data.error)}`);
+  }
 };
 
 export const sendOrderConfirmationWhatsapp = async ({ phone, customerName, itemDetails, totalQty }) => {
@@ -17,13 +21,27 @@ export const sendOrderConfirmationWhatsapp = async ({ phone, customerName, itemD
   });
 };
 
-export const sendPurchaseDeliveredWhatsapp = async ({ phone, transporterName, lrNumber, date, products }) => {
-  const padded = [...(products || []), '-', '-', '-'].slice(0, 3);
+const sanitizeParam = (str) => {
+  if (!str) return '-';
+  return String(str)
+    .replace(/[\n\t\r]/g, ' ') // Remove newlines and tabs
+    .replace(/\s{2,}/g, ' ')   // Reduce multiple spaces to a single space (Meta rejects > 4)
+    .trim() || '-';
+};
+
+export const sendPurchaseDeliveredWhatsapp = async ({ transporterName, lrNumber, date, productDetails, totalValuesStr }) => {
+  console.log('Sending WhatsApp via sendPurchaseDeliveredWhatsapp:', { transporterName, lrNumber, date, productDetails, totalValuesStr });
   await sendWhatsappTemplate({
-    phone,
-    template: 'purchase_delivered',
+    phone: 'USE_ADMIN_SECRET', // Edge function will intercept this and use the Supabase secret
+    template: 'purchase_delivered_2',
     language: 'en',
-    parameters: [transporterName || '-', lrNumber || '-', date || '-', ...padded],
+    parameters: [
+      sanitizeParam(transporterName),
+      sanitizeParam(lrNumber),
+      sanitizeParam(date),
+      sanitizeParam(productDetails),
+      sanitizeParam(totalValuesStr)
+    ],
   });
 };
 

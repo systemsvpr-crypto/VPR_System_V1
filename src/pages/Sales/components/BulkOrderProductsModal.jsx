@@ -7,6 +7,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { createOrder, generateMultipleOrderNumbers } from '../../../services/salesService';
+import { sanitizeQtyInput } from '@/lib/qty';
 
 const COLUMN_ALIASES = {
   'Order Date': ['order date', 'orderdate', 'date', 'order_date'],
@@ -24,6 +25,50 @@ const normalizeHeader = (header) => {
     if (aliases.includes(h)) return standard;
   }
   return String(header).trim();
+};
+
+// Case doesn't matter and neither does spacing/punctuation — only the actual
+// letters and numbers need to line up (so "Yatra Milky 13*16 (30 Kg)" matches
+// "yatra milky 13-16 30kg" etc.) for both exact matching and similarity scoring.
+const normalizeKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// Edit distance between two strings, used to score how close an unmatched
+// file value is to an existing product name.
+const levenshtein = (a, b) => {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[m][n];
+};
+
+const similarity = (a, b) => {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshtein(a, b) / maxLen;
+};
+
+// Finds the closest-named existing products for a file value that didn't
+// match exactly, so the user can pick the intended one with one click
+// instead of searching the whole product list.
+const getProductSuggestions = (rawName, allProducts, limit = 3) => {
+  const raw = normalizeKey(rawName);
+  if (!raw) return [];
+  return allProducts
+    .map(p => ({ product: p, score: similarity(raw, normalizeKey(p.name)) }))
+    .filter(x => x.score >= 0.4)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(x => x.product);
 };
 
 const getTodayLocal = () => {
@@ -80,6 +125,18 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
   const customerOptions = useMemo(() => {
     return customers.map(c => ({ value: c.customer_id, label: c.name }));
   }, [customers]);
+
+  // For every unmatched product name in the file, precompute the closest
+  // existing products so we can offer one-click "Did you mean...?" picks.
+  const productSuggestionsMap = useMemo(() => {
+    const map = {};
+    rawRows.forEach(row => {
+      if (!row.product_id && row.rawProductName && !map[row.rawProductName]) {
+        map[row.rawProductName] = getProductSuggestions(row.rawProductName, products, 3);
+      }
+    });
+    return map;
+  }, [rawRows, products]);
 
   const reset = () => {
     setStep('upload');
@@ -146,7 +203,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
           const rawDate = orderDateKey ? String(row[orderDateKey] || '').trim() : '';
 
           const parsedDate = parseExcelDate(rawDate) || defaultDate;
-          const matchedProd = products.find(p => p.name.trim().toLowerCase() === rawProd.toLowerCase());
+          const matchedProd = products.find(p => normalizeKey(p.name) === normalizeKey(rawProd));
           const matchedCust = customers.find(c => c.name.trim().toLowerCase() === rawCust.toLowerCase());
           const matchedGodown = activeGodowns.find(g => g.name.trim().toLowerCase() === rawGodown.toLowerCase());
 
@@ -215,6 +272,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
           customer_id: row.customer_id,
           customer_name: custObj ? custObj.name : (row.rawCustomerName || 'Unknown Customer'),
           process_type: 'order_process',
+          notify_customer: !!row.notify_customer,
           items: [],
         };
       }
@@ -265,7 +323,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
             quantity: item.quantity,
             unit_price: item.unit_price,
           })),
-          notify_customer: false,
+          notify_customer: grp.notify_customer,
         });
       }
 
@@ -453,15 +511,15 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                      <div>
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
+                      <div className="md:col-span-4">
                         <label className="block text-slate-500 font-medium mb-1">Order Date</label>
                         <DatePicker
                           value={group.order_date}
                           onChange={(e) => handleGroupHeaderChange(group.key, 'order_date', e.target.value)}
                         />
                       </div>
-                      <div>
+                      <div className="md:col-span-5">
                         <label className="block text-slate-500 font-medium mb-1">Customer <span className="text-red-500">*</span></label>
                         <Dropdown
                           value={group.customer_id}
@@ -476,6 +534,18 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                             File value: "{group.customer_name}" (Not matched)
                           </span>
                         )}
+                      </div>
+                      <div className="md:col-span-3 flex items-center gap-2 md:pt-6">
+                        <input
+                          type="checkbox"
+                          id={`notify-${group.key}`}
+                          checked={group.notify_customer}
+                          onChange={(e) => handleGroupHeaderChange(group.key, 'notify_customer', e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                        />
+                        <label htmlFor={`notify-${group.key}`} className="text-slate-600 font-medium cursor-pointer">
+                          Send WhatsApp Message
+                        </label>
                       </div>
                     </div>
 
@@ -509,9 +579,26 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                                     align="start"
                                   />
                                   {!row.product_id && row.rawProductName && (
-                                    <span className="text-[10px] text-amber-600 font-medium block mt-0.5">
-                                      File value: "{row.rawProductName}" (Not matched)
-                                    </span>
+                                    <div className="mt-0.5">
+                                      <span className="text-[10px] text-amber-600 font-medium block">
+                                        File value: "{row.rawProductName}" (Not matched)
+                                      </span>
+                                      {productSuggestionsMap[row.rawProductName]?.length > 0 && (
+                                        <div className="flex flex-wrap items-center gap-1 mt-1">
+                                          <span className="text-[10px] text-slate-400">Did you mean:</span>
+                                          {productSuggestionsMap[row.rawProductName].map(p => (
+                                            <button
+                                              key={p.product_id}
+                                              type="button"
+                                              onClick={() => handleUpdateRow(origIdx, 'product_id', p.product_id)}
+                                              className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 font-medium transition-colors"
+                                            >
+                                              {p.name}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
                                   )}
                                 </td>
                                 <td className="px-3 py-1.5">
@@ -538,10 +625,10 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                                 <td className="px-3 py-1.5 text-right">
                                   <input
                                     type="number"
-                                    step="1"
+                                    step="0.01"
                                     min="1"
                                     value={row.quantity}
-                                    onChange={(e) => handleUpdateRow(origIdx, 'quantity', e.target.value.replace(/\D/g, ''))}
+                                    onChange={(e) => handleUpdateRow(origIdx, 'quantity', sanitizeQtyInput(e.target.value))}
                                     placeholder="1"
                                     className="w-20 h-7 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary bg-white"
                                   />

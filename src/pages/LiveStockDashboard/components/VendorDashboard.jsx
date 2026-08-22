@@ -7,10 +7,23 @@ import autoTable from 'jspdf-autotable';
 import { getVendorDashboardData } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Dropdown } from '@/components/ui/dropdown';
+import { DatePicker } from '@/components/ui/date-picker';
 
-const formatNum = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const formatNum = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
-const PAGE_SIZE_OPTIONS = [25, 50, 100];
+const PAGE_SIZE_OPTIONS = [50, 100, 200];
+
+// Compact stat pills for the vendor detail header — kept as one config list
+// so the header/name block and all 5 metrics can sit in a single row instead
+// of the name block and a separate stats-grid section stacked on top of it.
+const detailStatPills = (v) => [
+  { key: 'total', label: 'Total Qty', value: v.totalQty, icon: Package, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', valueColor: 'text-slate-800' },
+  { key: 'approved', label: 'Approved Qty', value: v.approvedQty, icon: UserCheck, iconBg: 'bg-emerald-50', iconColor: 'text-emerald-600', valueColor: 'text-emerald-700' },
+  { key: 'lift', label: 'Lift Qty', value: v.liftQty, icon: Truck, iconBg: 'bg-amber-50', iconColor: 'text-amber-600', valueColor: 'text-amber-700' },
+  { key: 'delivery', label: 'Delivery Qty', value: v.deliveryQty, icon: CheckCircle2, iconBg: 'bg-green-50', iconColor: 'text-green-600', valueColor: 'text-green-700' },
+  { key: 'pending', label: 'Pending Qty', value: v.pendingQty, icon: Clock, iconBg: 'bg-red-50', iconColor: 'text-red-600', valueColor: 'text-red-600' },
+];
 
 const VendorDashboard = () => {
   const [data, setData] = useState([]);
@@ -33,6 +46,11 @@ const VendorDashboard = () => {
   // its detail page rather than expanding inline.
   const [detailVendorName, setDetailVendorName] = useState(null);
   const [detailSearch, setDetailSearch] = useState('');
+  const [detailSelectedProduct, setDetailSelectedProduct] = useState('');
+  const [detailSelectedIndent, setDetailSelectedIndent] = useState('');
+  const [detailSelectedDate, setDetailSelectedDate] = useState('');
+  const [detailCurrentPage, setDetailCurrentPage] = useState(1);
+  const [detailPageSize, setDetailPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
 
   useEffect(() => {
     loadData();
@@ -93,8 +111,9 @@ const VendorDashboard = () => {
         pendingQty: acc.pendingQty + (r.pendingQty || 0),
         liftQty: acc.liftQty + (r.liftQty || 0),
         deliveryQty: acc.deliveryQty + (r.deliveryQty || 0),
+        approvedQty: acc.approvedQty + (r.approveQty || r.totalQty || 0),
       }),
-      { totalQty: 0, pendingQty: 0, liftQty: 0, deliveryQty: 0 }
+      { totalQty: 0, pendingQty: 0, liftQty: 0, deliveryQty: 0, approvedQty: 0 }
     );
   }, [filteredData]);
 
@@ -115,6 +134,7 @@ const VendorDashboard = () => {
           pendingQty: 0,
           liftQty: 0,
           deliveryQty: 0,
+          approvedQty: 0,
         });
       }
       const group = map.get(key);
@@ -124,6 +144,9 @@ const VendorDashboard = () => {
       group.pendingQty += row.pendingQty || 0;
       group.liftQty += row.liftQty || 0;
       group.deliveryQty += row.deliveryQty || 0;
+      // Same fallback the detail table uses per-row: an item without its own
+      // approveQty is treated as approved for its full indent quantity.
+      group.approvedQty += row.approveQty || row.totalQty || 0;
     }
     return Array.from(map.values())
       .map((g) => ({ ...g, indentCount: g.indentNumbers.size }))
@@ -133,11 +156,19 @@ const VendorDashboard = () => {
   const openVendorDetail = (vendorName) => {
     setDetailVendorName(vendorName);
     setDetailSearch('');
+    setDetailSelectedProduct('');
+    setDetailSelectedIndent('');
+    setDetailSelectedDate('');
+    setDetailCurrentPage(1);
   };
 
   const closeVendorDetail = () => {
     setDetailVendorName(null);
     setDetailSearch('');
+    setDetailSelectedProduct('');
+    setDetailSelectedIndent('');
+    setDetailSelectedDate('');
+    setDetailCurrentPage(1);
   };
 
   // The vendor group currently open in detail view (if any), and its rows
@@ -149,15 +180,51 @@ const VendorDashboard = () => {
 
   const detailRows = useMemo(() => {
     if (!detailVendor) return [];
+    
+    let filtered = detailVendor.rows;
+
+    if (detailSelectedProduct) {
+      filtered = filtered.filter((row) => row.productName === detailSelectedProduct);
+    }
+    if (detailSelectedIndent) {
+      filtered = filtered.filter((row) => row.indentNo === detailSelectedIndent);
+    }
+    if (detailSelectedDate) {
+      filtered = filtered.filter((row) => row.indentDate === detailSelectedDate);
+    }
+
     const query = detailSearch.trim().toLowerCase();
-    if (!query) return detailVendor.rows;
-    return detailVendor.rows.filter((row) =>
-      row.indentNo?.toLowerCase().includes(query) ||
-      row.productName?.toLowerCase().includes(query) ||
-      row.approvedBy?.toLowerCase().includes(query) ||
-      row.remark?.toLowerCase().includes(query)
-    );
-  }, [detailVendor, detailSearch]);
+    if (query) {
+      filtered = filtered.filter((row) =>
+        row.indentNo?.toLowerCase().includes(query) ||
+        row.productName?.toLowerCase().includes(query) ||
+        row.approvedBy?.toLowerCase().includes(query) ||
+        row.remark?.toLowerCase().includes(query)
+      );
+    }
+    return filtered;
+  }, [detailVendor, detailSearch, detailSelectedProduct, detailSelectedIndent, detailSelectedDate]);
+
+  const detailUniqueProducts = useMemo(() => {
+    if (!detailVendor) return [];
+    return Array.from(new Set(detailVendor.rows.map((r) => r.productName).filter(Boolean))).sort();
+  }, [detailVendor]);
+
+  const detailUniqueIndents = useMemo(() => {
+    if (!detailVendor) return [];
+    return Array.from(new Set(detailVendor.rows.map((r) => r.indentNo).filter(Boolean))).sort();
+  }, [detailVendor]);
+
+  const detailTotalItems = detailRows.length;
+  const detailTotalPages = Math.max(1, Math.ceil(detailTotalItems / detailPageSize));
+  
+  const paginatedDetailRows = useMemo(() => {
+    const start = (detailCurrentPage - 1) * detailPageSize;
+    return detailRows.slice(start, start + detailPageSize);
+  }, [detailRows, detailCurrentPage, detailPageSize]);
+
+  const detailRangeStart = detailTotalItems > 0 ? (detailCurrentPage - 1) * detailPageSize + 1 : 0;
+  const detailRangeEnd = Math.min(detailCurrentPage * detailPageSize, detailTotalItems);
 
   // Reset filters
   const handleResetFilters = () => {
@@ -398,117 +465,154 @@ const VendorDashboard = () => {
   // vendor row is open, rather than expanding inline underneath it.
   if (detailVendor) {
     return (
-      <div className="flex flex-col gap-6 font-sans">
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={closeVendorDetail}
-                className="flex items-center gap-1.5 px-3 h-9 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shrink-0 shadow-sm"
-              >
-                <ArrowLeft size={14} />
-                Back to Vendors
-              </button>
-              <div className="bg-blue-50 p-2 rounded-lg text-blue-600">
-                <Store size={20} />
+      <div className="flex flex-col gap-6 font-sans h-[calc(100vh-160px)] min-h-0">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex-1 flex flex-col min-h-0">
+          {/* Header: back button, vendor name/counts, and every qty metric
+              all in a single row instead of a name row stacked on top of a
+              separate stats-grid section. */}
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 overflow-x-auto">
+            <button
+              type="button"
+              onClick={closeVendorDetail}
+              className="flex items-center gap-1.5 px-2.5 h-8 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shrink-0 shadow-sm"
+            >
+              <ArrowLeft size={13} />
+              Back to Vendors
+            </button>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="bg-blue-50 p-1.5 rounded-lg text-blue-600 shrink-0">
+                <Store size={15} />
               </div>
-              <div>
-                <h3 className="font-semibold text-slate-800 text-lg">{detailVendor.vendorName}</h3>
-                <p className="text-xs text-slate-500">
+              <div className="leading-tight">
+                <h3 className="font-semibold text-slate-800 text-sm whitespace-nowrap">{detailVendor.vendorName}</h3>
+                <p className="text-[10px] text-slate-500 whitespace-nowrap">
                   {detailVendor.indentCount} indent{detailVendor.indentCount !== 1 ? 's' : ''} · {detailVendor.rows.length} item{detailVendor.rows.length !== 1 ? 's' : ''}
                 </p>
               </div>
             </div>
-          </div>
 
-          {/* Vendor Stats Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-slate-50/50 border-b border-slate-100">
-            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-50 text-blue-600"><Package size={16} /></div>
-              <div>
-                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Total Qty</p>
-                <p className="text-base font-bold text-slate-800">{formatNum(detailVendor.totalQty)}</p>
-              </div>
-            </div>
-            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-amber-50 text-amber-600"><Truck size={16} /></div>
-              <div>
-                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Lift Qty</p>
-                <p className="text-base font-bold text-amber-700">{formatNum(detailVendor.liftQty)}</p>
-              </div>
-            </div>
-            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-green-50 text-green-600"><CheckCircle2 size={16} /></div>
-              <div>
-                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Delivery Qty</p>
-                <p className="text-base font-bold text-green-700">{formatNum(detailVendor.deliveryQty)}</p>
-              </div>
-            </div>
-            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-red-50 text-red-600"><Clock size={16} /></div>
-              <div>
-                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Pending Qty</p>
-                <p className="text-base font-bold text-red-600">{formatNum(detailVendor.pendingQty)}</p>
-              </div>
+            <div className="w-px h-7 bg-slate-200 shrink-0" />
+
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              {detailStatPills(detailVendor).map((s) => (
+                <div key={s.key} className="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white flex-1 min-w-[110px]">
+                  <div className={`p-1 rounded-md ${s.iconBg} ${s.iconColor} shrink-0`}>
+                    <s.icon size={13} />
+                  </div>
+                  <div className="leading-tight whitespace-nowrap">
+                    <p className="text-[9px] text-slate-500 font-medium uppercase tracking-wider">{s.label}</p>
+                    <p className={`text-xs font-bold ${s.valueColor}`}>{formatNum(s.value)}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Detail Search */}
-          <div className="p-4 bg-white border-b border-slate-100">
-            <div className="relative w-full sm:w-72">
+          {/* Detail Search & Filters */}
+          <div className="p-4 bg-white border-b border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <Dropdown
+                value={detailSelectedIndent || "all"}
+                onValueChange={(v) => {
+                  setDetailSelectedIndent(v === "all" ? "" : v);
+                  setDetailCurrentPage(1);
+                }}
+                options={[{ value: "all", label: "All Indents" }, ...detailUniqueIndents.map(no => ({ value: no, label: no }))]}
+                placeholder="All Indents"
+                className="h-10 bg-white"
+              />
+            </div>
+            
+            <div>
+              <Dropdown
+                value={detailSelectedProduct || "all"}
+                onValueChange={(v) => {
+                  setDetailSelectedProduct(v === "all" ? "" : v);
+                  setDetailCurrentPage(1);
+                }}
+                options={[{ value: "all", label: "All Products" }, ...detailUniqueProducts.map(p => ({ value: p, label: p }))]}
+                placeholder="All Products"
+                className="h-10 bg-white"
+              />
+            </div>
+
+            <div>
+              <DatePicker
+                placeholder="Select Date"
+                value={detailSelectedDate}
+                className="h-10 w-full bg-white"
+                onChange={(e) => {
+                  setDetailSelectedDate(e.target.value);
+                  setDetailCurrentPage(1);
+                }}
+              />
+            </div>
+
+            <div className="relative">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <Input
                 placeholder="Search indent, product, remark..."
                 value={detailSearch}
-                onChange={(e) => setDetailSearch(e.target.value)}
-                className="pl-8 h-8 text-xs w-full"
+                onChange={(e) => {
+                  setDetailSearch(e.target.value);
+                  setDetailCurrentPage(1);
+                }}
+                className="pl-8 h-10 w-full"
               />
             </div>
           </div>
 
           {/* Indent-wise Detail Table */}
-          <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[200px]">Product Name</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Approved By</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-red-600 uppercase tracking-wider whitespace-nowrap">Pending</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-amber-600 uppercase tracking-wider whitespace-nowrap">Lift Qty</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-green-600 uppercase tracking-wider whitespace-nowrap">Delivery Qty</th>
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <div className="overflow-x-auto overflow-y-auto flex-1">
+              <table className="w-full text-xs relative">
+                <thead className="sticky top-0 z-10 shadow-sm">
+                <tr className="bg-blue-50 border-b border-slate-200">
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[200px]">Product Name</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Unit</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Total Qty(Indent Qty)</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap">Approve Qty</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Approved By</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-red-600 uppercase tracking-wider whitespace-nowrap">Pending</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-amber-600 uppercase tracking-wider whitespace-nowrap">Lift Qty</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-green-600 uppercase tracking-wider whitespace-nowrap">Delivery Qty</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Delivery Expected Date</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[180px]">Remark</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[180px]">Remark</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {detailRows.map((row) => (
+                {paginatedDetailRows.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-4 py-3 font-semibold text-primary whitespace-nowrap">{row.indentNo}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-slate-800">{row.productName}</span>
-                        {row.unit && (
-                          <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{row.unit}</span>
-                        )}
-                      </div>
+                    <td className="px-4 py-3 font-semibold text-primary text-center whitespace-nowrap">{row.indentNo}</td>
+                    <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{row.indentDate}</td>
+                    <td className="px-4 py-3 text-center whitespace-nowrap">
+                      <span className="font-medium text-slate-800">{row.productName}</span>
                     </td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-900 tabular-nums">{formatNum(row.totalQty)}</td>
-                    <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
+                    <td className="px-4 py-3 text-center">
+                      {row.unit ? (
+                        <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{row.unit}</span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center font-semibold text-slate-900 tabular-nums">{formatNum(row.totalQty)}</td>
+                    <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums">{formatNum(row.approveQty || row.totalQty)}</td>
+                    <td className="px-4 py-3 text-center text-slate-600 text-xs whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1.5">
                         <UserCheck size={13} className="text-slate-400 shrink-0" />
                         <span>{row.approvedBy}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-right font-semibold text-red-600 tabular-nums">
+                    <td className="px-4 py-3 text-center font-semibold text-red-600 tabular-nums">
                       {row.pendingQty > 0 ? formatNum(row.pendingQty) : <span className="text-slate-300">0</span>}
                     </td>
-                    <td className="px-4 py-3 text-right font-medium text-amber-700 tabular-nums">
+                    <td className="px-4 py-3 text-center font-medium text-amber-700 tabular-nums">
                       {row.liftQty > 0 ? formatNum(row.liftQty) : <span className="text-slate-300">0</span>}
                     </td>
-                    <td className="px-4 py-3 text-right font-semibold text-green-700 tabular-nums">
+                    <td className="px-4 py-3 text-center font-semibold text-green-700 tabular-nums">
                       {row.deliveryQty > 0 ? formatNum(row.deliveryQty) : <span className="text-slate-300">0</span>}
                     </td>
                     <td className="px-4 py-3 text-center text-xs text-slate-600 tabular-nums whitespace-nowrap">
@@ -518,18 +622,64 @@ const VendorDashboard = () => {
                         <span className="text-slate-300">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-500 max-w-[250px] truncate" title={row.remark}>{row.remark}</td>
+                    <td className="px-4 py-3 text-center text-xs text-slate-500 max-w-[250px] truncate" title={row.remark}>{row.remark}</td>
                   </tr>
                 ))}
-                {detailRows.length === 0 && (
+                {paginatedDetailRows.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">
+                    <td colSpan={12} className="px-4 py-12 text-center text-sm text-slate-400">
                       No items match your search.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+            </div>
+            
+            {/* Pagination Footer */}
+            <div className="flex-none px-4 py-2.5 border-t border-slate-200 bg-blue-50 flex items-center justify-between gap-4">
+              {/* Left Side */}
+              <div className="flex items-center gap-2">
+                <select
+                  value={detailPageSize}
+                  onChange={(e) => {
+                    setDetailPageSize(Number(e.target.value));
+                    setDetailCurrentPage(1);
+                  }}
+                  className="ring-1 ring-slate-200 rounded-xl px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/30 bg-white font-medium text-xs md:text-sm"
+                >
+                  {PAGE_SIZE_OPTIONS.map((val) => (
+                    <option key={val} value={val}>
+                      {val}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[10px] md:text-sm text-slate-600 whitespace-nowrap font-medium hidden sm:inline">
+                  {detailRangeStart}-{detailRangeEnd} of {detailTotalItems}
+                </span>
+              </div>
+              
+              {/* Right Side */}
+              <div className="flex items-center gap-2 md:gap-4 text-slate-700">
+                <button
+                  onClick={() => setDetailCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={detailCurrentPage === 1}
+                  className="p-1.5 md:px-2 md:py-1 ring-1 ring-slate-200 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition flex items-center justify-center text-primary"
+                >
+                  <ChevronLeft size={16} strokeWidth={2.5} />
+                </button>
+                <div className="flex items-center text-xs md:text-sm font-semibold text-slate-600">
+                  {detailCurrentPage} / {detailTotalPages || 1}
+                </div>
+                <button
+                  onClick={() => setDetailCurrentPage((p) => Math.min(detailTotalPages, p + 1))}
+                  disabled={detailCurrentPage === detailTotalPages || detailTotalPages === 0}
+                  className="p-1.5 md:px-2 md:py-1 ring-1 ring-slate-200 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition flex items-center justify-center text-primary"
+                >
+                  <ChevronRight size={16} strokeWidth={2.5} />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -537,44 +687,11 @@ const VendorDashboard = () => {
   }
 
   return (
-    <div className="flex flex-col gap-6 font-sans">
-      {/* Top Header / Action Card */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-        <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-50 p-2 rounded-lg text-blue-600">
-              <Store size={20} />
-            </div>
-            <div>
-              <h3 className="font-semibold text-slate-800 text-lg">Vendor Indent Dashboard</h3>
-              <p className="text-xs text-slate-500">Track indents, lifts, delivery progress, and vendor commitments</p>
-            </div>
-          </div>
+    <div className="flex flex-col gap-6 font-sans h-[calc(100vh-160px)] min-h-0">
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleExportExcel}
-              disabled={exportingExcel || exportingPdf || filteredData.length === 0}
-              className="flex items-center gap-1.5 px-3.5 h-9 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors shrink-0 shadow-sm"
-            >
-              {exportingExcel ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-              Export Excel
-            </button>
-            <button
-              type="button"
-              onClick={handleExportPdf}
-              disabled={exportingExcel || exportingPdf || filteredData.length === 0}
-              className="flex items-center gap-1.5 px-3.5 h-9 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors shrink-0 shadow-sm"
-            >
-              {exportingPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
-              Export PDF
-            </button>
-          </div>
-        </div>
-
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex-1 flex flex-col min-h-0">
         {/* Quick Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-slate-50/50 border-b border-slate-100">
+        <div className="grid grid-cols-5 gap-3 p-4 bg-slate-50/50 border-b border-slate-100">
           <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
               <Package size={16} />
@@ -582,6 +699,16 @@ const VendorDashboard = () => {
             <div>
               <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Total Qty</p>
               <p className="text-base font-bold text-slate-800">{formatNum(totals.totalQty)}</p>
+            </div>
+          </div>
+
+          <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
+              <UserCheck size={16} />
+            </div>
+            <div>
+              <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Approved Qty</p>
+              <p className="text-base font-bold text-emerald-700">{formatNum(totals.approvedQty)}</p>
             </div>
           </div>
 
@@ -617,75 +744,60 @@ const VendorDashboard = () => {
         </div>
 
         {/* Filter Controls Bar */}
-        <div className="p-4 bg-white flex flex-wrap items-center gap-3 border-b border-slate-100">
+        <div className="p-4 bg-white grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border-b border-slate-100">
           {/* Indent Filter */}
-          <div className="w-full sm:w-44">
+          <div>
             <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">
               Indent No.
             </label>
-            <select
-              value={selectedIndent}
-              onChange={(e) => {
-                setSelectedIndent(e.target.value);
+            <Dropdown
+              value={selectedIndent || "all"}
+              onValueChange={(v) => {
+                setSelectedIndent(v === "all" ? "" : v);
                 setCurrentPage(1);
               }}
-              className="w-full h-8 text-xs border border-slate-200 rounded-lg px-2.5 bg-white text-slate-700 focus:outline-none focus:border-primary shadow-xs"
-            >
-              <option value="">All Indents</option>
-              {uniqueIndents.map((no) => (
-                <option key={no} value={no}>
-                  {no}
-                </option>
-              ))}
-            </select>
+              options={[{ value: "all", label: "All Indents" }, ...uniqueIndents.map(no => ({ value: no, label: no }))]}
+              placeholder="All Indents"
+              className="h-10 bg-white"
+            />
           </div>
 
           {/* Vendor Filter */}
-          <div className="w-full sm:w-52">
+          <div>
             <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">
               Vendor Name
             </label>
-            <select
-              value={selectedVendor}
-              onChange={(e) => {
-                setSelectedVendor(e.target.value);
+            <Dropdown
+              value={selectedVendor || "all"}
+              onValueChange={(v) => {
+                setSelectedVendor(v === "all" ? "" : v);
                 setCurrentPage(1);
               }}
-              className="w-full h-8 text-xs border border-slate-200 rounded-lg px-2.5 bg-white text-slate-700 focus:outline-none focus:border-primary shadow-xs"
-            >
-              <option value="">All Vendors</option>
-              {uniqueVendors.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
+              options={[{ value: "all", label: "All Vendors" }, ...uniqueVendors.map(v => ({ value: v, label: v }))]}
+              placeholder="All Vendors"
+              className="h-10 bg-white"
+            />
           </div>
 
           {/* Product Filter */}
-          <div className="w-full sm:w-60">
+          <div>
             <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">
               Product Name
             </label>
-            <select
-              value={selectedProduct}
-              onChange={(e) => {
-                setSelectedProduct(e.target.value);
+            <Dropdown
+              value={selectedProduct || "all"}
+              onValueChange={(v) => {
+                setSelectedProduct(v === "all" ? "" : v);
                 setCurrentPage(1);
               }}
-              className="w-full h-8 text-xs border border-slate-200 rounded-lg px-2.5 bg-white text-slate-700 focus:outline-none focus:border-primary shadow-xs"
-            >
-              <option value="">All Products</option>
-              {uniqueProducts.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+              options={[{ value: "all", label: "All Products" }, ...uniqueProducts.map(p => ({ value: p, label: p }))]}
+              placeholder="All Products"
+              className="h-10 bg-white"
+            />
           </div>
 
           {/* Global Search */}
-          <div className="w-full sm:w-64">
+          <div>
             <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">
               Search
             </label>
@@ -698,7 +810,7 @@ const VendorDashboard = () => {
                   setSearchQuery(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="pl-8 h-8 text-xs w-full"
+                className="pl-8 h-10 text-xs w-full"
               />
             </div>
           </div>
@@ -710,7 +822,7 @@ const VendorDashboard = () => {
                 variant="ghost"
                 size="sm"
                 onClick={handleResetFilters}
-                className="h-8 text-xs text-slate-500 hover:text-slate-900 flex items-center gap-1"
+                className="h-10 px-3 text-xs text-slate-500 hover:text-slate-900 flex items-center gap-1"
               >
                 <RotateCcw size={12} />
                 Reset
@@ -721,10 +833,10 @@ const VendorDashboard = () => {
 
         {/* Data Table — one row per vendor; click a row to open its
             dedicated detail page with the full indent-wise breakdown. */}
-        <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto overflow-y-auto flex-1 min-h-0">
+          <table className="w-full text-xs">
             <thead className="sticky top-0 z-10">
-              <tr className="bg-slate-50 border-b border-slate-200">
+              <tr className="bg-blue-50 border-b border-slate-200">
                 <th className="w-10 px-2 py-3" />
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[200px]">
                   Vendor Name
@@ -734,6 +846,9 @@ const VendorDashboard = () => {
                 </th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">
                   Total Qty
+                </th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap">
+                  Approved Qty
                 </th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-red-600 uppercase tracking-wider whitespace-nowrap">
                   Pending
@@ -756,7 +871,7 @@ const VendorDashboard = () => {
                   <td className="px-2 py-3 text-center">
                     <ChevronRight size={16} className="text-slate-400" />
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       <Store size={14} className="text-blue-500 shrink-0" />
                       <span className="font-semibold text-slate-800">{vendor.vendorName}</span>
@@ -769,6 +884,9 @@ const VendorDashboard = () => {
                   </td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-900 tabular-nums">
                     {formatNum(vendor.totalQty)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold text-emerald-600 tabular-nums">
+                    {formatNum(vendor.approvedQty)}
                   </td>
                   <td className="px-4 py-3 text-right font-semibold text-red-600 tabular-nums">
                     {vendor.pendingQty > 0 ? formatNum(vendor.pendingQty) : <span className="text-slate-300">0</span>}
@@ -783,48 +901,27 @@ const VendorDashboard = () => {
               ))}
               {groupedByVendor.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">
+                  <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-400">
                     No vendor indent records match your filters.
                   </td>
                 </tr>
               )}
             </tbody>
-            {groupedByVendor.length > 0 && (
-              <tfoot>
-                <tr className="bg-slate-50 font-bold border-t border-slate-200">
-                  <td className="px-4 py-3 text-slate-800" colSpan={2}>Total</td>
-                  <td className="px-4 py-3 text-center text-slate-500 text-xs font-normal whitespace-nowrap">
-                    {groupedByVendor.length} vendor(s)
-                  </td>
-                  <td className="px-4 py-3 text-right text-slate-900 tabular-nums">
-                    {formatNum(totals.totalQty)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-red-600 tabular-nums">
-                    {formatNum(totals.pendingQty)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-amber-700 tabular-nums">
-                    {formatNum(totals.liftQty)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-green-700 tabular-nums">
-                    {formatNum(totals.deliveryQty)}
-                  </td>
-                </tr>
-              </tfoot>
-            )}
+
           </table>
         </div>
 
         {/* Pagination Footer */}
-        <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="shrink-0 px-4 py-2.5 border-t border-slate-200 bg-blue-50 flex items-center justify-between gap-4 rounded-b-xl">
+          {/* Left Side */}
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500">Vendors per page:</span>
             <select
               value={pageSize}
               onChange={(e) => {
                 setPageSize(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="border border-slate-300 rounded-md px-2 py-1 focus:outline-none focus:border-primary bg-white font-medium text-xs shadow-sm"
+              className="ring-1 ring-slate-200 rounded-xl px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/30 bg-white font-medium text-xs md:text-sm"
             >
               {PAGE_SIZE_OPTIONS.map((val) => (
                 <option key={val} value={val}>
@@ -832,26 +929,27 @@ const VendorDashboard = () => {
                 </option>
               ))}
             </select>
-            <span className="text-xs text-slate-500 whitespace-nowrap">
-              {rangeStart}-{rangeEnd} of {totalItems} vendors
+            <span className="text-[10px] md:text-sm text-slate-600 whitespace-nowrap font-medium hidden sm:inline">
+              {rangeStart}-{rangeEnd} of {totalItems}
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* Right Side */}
+          <div className="flex items-center gap-2 md:gap-4 text-slate-700">
             <button
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
+              className="p-1.5 md:px-2 md:py-1 ring-1 ring-slate-200 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition flex items-center justify-center text-primary"
             >
               <ChevronLeft size={16} strokeWidth={2.5} />
             </button>
-            <span className="text-xs font-semibold text-slate-600">
-              Page {currentPage} of {totalPages}
-            </span>
+            <div className="flex items-center text-xs md:text-sm font-semibold text-slate-600">
+              {currentPage} / {totalPages || 1}
+            </div>
             <button
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
+              disabled={currentPage === totalPages || totalPages === 0}
+              className="p-1.5 md:px-2 md:py-1 ring-1 ring-slate-200 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition flex items-center justify-center text-primary"
             >
               <ChevronRight size={16} strokeWidth={2.5} />
             </button>

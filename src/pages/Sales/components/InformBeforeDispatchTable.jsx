@@ -95,19 +95,7 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
     );
   }
 
-  if (filteredItems.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
-          <Bell size={32} className="text-slate-300" />
-        </div>
-        <h3 className="text-base font-semibold text-slate-600 mb-1">No Planned Dispatches</h3>
-        <p className="text-sm text-slate-400">
-          {searchTerm ? 'No items match your search.' : 'No orders have been planned for dispatch yet.'}
-        </p>
-      </div>
-    );
-  }
+
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 flex-col">
@@ -139,6 +127,19 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
+            {filteredItems.length === 0 && (
+              <tr>
+                <td colSpan="11" className="p-12 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                    <Bell size={32} className="text-slate-300" />
+                  </div>
+                  <h3 className="text-base font-semibold text-slate-600 mb-1">No Planned Dispatches</h3>
+                  <p className="text-sm text-slate-400">
+                    {searchTerm ? 'No items match your search.' : 'No orders have been planned for dispatch yet.'}
+                  </p>
+                </td>
+              </tr>
+            )}
             {currentItems.map(({ order, item, plan }) => {
               const rowKey = plan.plan_id;
               return (

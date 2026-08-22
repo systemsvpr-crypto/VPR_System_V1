@@ -1,6 +1,6 @@
 import { ToggleLeft, ToggleRight, Warehouse, Trash2 } from 'lucide-react';
-
-const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user, onDelete, typeFilter }) => {
+import DataTable from '@/components/DataTable';
+const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user, onDelete, typeFilter, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
   const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
   if (loading) {
     return (
@@ -30,46 +30,71 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user,
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
-            <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Godown Type</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {godowns.map(g => (
-              <tr key={g.godown_id} className="hover:bg-slate-50 transition-colors group">
-                <td className="px-4 py-3 font-medium text-slate-800">{g.name}</td>
-                <td className="px-4 py-3">
-                  <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{g.godown_type || 'Own'}</span>
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {g.is_active
-                    ? <span className="text-green-600 bg-green-50 px-2 py-0.5 rounded-full text-xs font-medium">Active</span>
-                    : <span className="text-red-500 bg-red-50 px-2 py-0.5 rounded-full text-xs font-medium">Inactive</span>
-                  }
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary transition-colors">
-                      {g.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
-                    </button>
-                    {isSuperAdmin && (
-                      <button onClick={() => onDelete(g)} className="text-slate-300 hover:text-red-500 transition-colors" title="Delete Godown">
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-      </table>
-    </div>
+    <DataTable
+      headers={[
+        'Name', 'Godown Type', 'Status', 'Actions'
+      ]}
+      data={godowns}
+      currentPage={currentPage}
+      totalPages={totalPages}
+      itemsPerPage={itemsPerPage}
+      onPageChange={onPageChange}
+      onItemsPerPageChange={onItemsPerPageChange}
+      totalResults={totalItems}
+      renderRow={(g, index) => (
+        <tr key={g.godown_id} className="hover:bg-slate-50 transition-colors group text-xs">
+          <td className="px-4 py-3 text-center font-medium text-slate-800">{g.name}</td>
+          <td className="px-4 py-3 text-center">
+            <span className="text-[10px] sm:text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{g.godown_type || 'Own'}</span>
+          </td>
+          <td className="px-4 py-3 text-center">
+            {g.is_active
+              ? <span className="text-green-600 bg-green-50 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium">Active</span>
+              : <span className="text-red-500 bg-red-50 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium">Inactive</span>
+            }
+          </td>
+          <td className="px-4 py-3 text-center">
+            <div className="flex items-center justify-center gap-2">
+              <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary transition-colors">
+                {g.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
+              </button>
+              {isSuperAdmin && (
+                <button onClick={() => onDelete(g)} className="text-slate-300 hover:text-red-500 transition-colors" title="Delete Godown">
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+      renderCard={(g, index) => (
+        <div key={g.godown_id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-3">
+          <div className="flex justify-between items-start">
+            <div>
+              <h4 className="font-semibold text-slate-800">{g.name}</h4>
+              <p className="text-xs text-slate-500 mt-0.5">{g.godown_type || 'Own'}</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary h-8 w-8">
+                {g.is_active ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+              </button>
+              {isSuperAdmin && (
+                <button onClick={() => onDelete(g)} className="text-slate-300 hover:text-red-500 h-8 w-8" title="Delete Godown">
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="bg-slate-50 p-2 rounded-lg text-xs">
+            <span className="text-slate-500 block mb-1">Status</span>
+            {g.is_active
+              ? <span className="text-green-600 font-medium">Active</span>
+              : <span className="text-red-500 font-medium">Inactive</span>
+            }
+          </div>
+        </div>
+      )}
+    />
   );
 };
 

@@ -1,20 +1,33 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, ShoppingCart, ChevronDown, CheckCircle, CheckCheck } from 'lucide-react';
+import { Search, ShoppingCart, ChevronDown, ChevronLeft, ChevronRight, CheckCircle, CheckCheck, Zap, ArrowRightLeft } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getIndentsForApproval, approveIndentItem } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
-import Pagination from '@/components/ui/pagination';
+import { sanitizeQtyInput } from '@/lib/qty';
 
-const ITEMS_PER_PAGE = 10;
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
-const VendorApprovalTable = ({ vendors, godowns }) => {
+const IndentTypeBadge = ({ processType }) => (
+  processType === 'direct' ? (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] uppercase font-medium bg-amber-50 text-amber-700 border border-amber-100">
+      <Zap size={10} /> Direct
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] uppercase font-medium bg-blue-50 text-blue-700 border border-blue-100">
+      <ArrowRightLeft size={10} /> Process
+    </span>
+  )
+);
+
+const VendorApprovalTable = ({ vendors, godowns, user }) => {
   const [indents, setIndents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
   const [expandedIndents, setExpandedIndents] = useState(new Set());
   const [approvingId, setApprovingId] = useState(null);
   const [approvingAll, setApprovingAll] = useState(false);
@@ -23,7 +36,7 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
   const [edits, setEdits] = useState({});
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, pageSize]);
 
   const loadData = async () => {
     setLoading(true);
@@ -70,11 +83,11 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
     });
   }, [indents, searchTerm]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredIndents.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(filteredIndents.length / pageSize));
   const currentIndents = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredIndents.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredIndents, currentPage]);
+    const start = (currentPage - 1) * pageSize;
+    return filteredIndents.slice(start, start + pageSize);
+  }, [filteredIndents, currentPage, pageSize]);
 
   const allItems = useMemo(() =>
     indents.flatMap(i => i.purchase_indent_items || []),
@@ -115,7 +128,7 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
 
   const approveItem = async (item) => {
     const edit = edits[item.item_id];
-    const payload = {};
+    const payload = { approved_by: user?.user_id || null, vendor_remarks: item.vendor_remarks };
     if (edit?.vendor_id !== undefined) payload.vendor_id = edit.vendor_id;
     if (edit?.rate !== undefined) payload.rate = Number(edit.rate);
     if (edit?.quantity !== undefined) payload.quantity = Number(edit.quantity);
@@ -132,10 +145,11 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
             ? {
                 ...i,
                 approval_status: 'Approved',
-                ...(payload.vendor_id ? { vendor_id: payload.vendor_id } : {}),
-                ...(payload.rate ? { rate: payload.rate } : {}),
+                ...(payload.vendor_id ? { approved_vendor_id: payload.vendor_id } : {}),
+                ...(payload.rate ? { approved_rate: payload.rate } : {}),
                 ...(payload.quantity ? { quantity: payload.quantity } : {}),
                 ...(payload.godown_id ? { approved_godown_id: payload.godown_id } : {}),
+                approved_remarks: payload.vendor_remarks,
               }
             : i
         ),
@@ -186,9 +200,13 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
     if (toApprove.length === 0) { toast.error('No unapproved items selected.'); return; }
     setApprovingAll(true);
     let approved = 0;
+    // Only an item that actually approves drops out of selection — one that
+    // fails (e.g. a save error) stays checked with its edits untouched, so
+    // the user doesn't have to re-select it after fixing the problem.
+    const approvedIds = new Set();
     for (const item of toApprove) {
       const edit = edits[item.item_id];
-      const payload = {};
+      const payload = { approved_by: user?.user_id || null, vendor_remarks: item.vendor_remarks };
       if (edit?.vendor_id !== undefined) payload.vendor_id = edit.vendor_id;
       if (edit?.rate !== undefined) payload.rate = Number(edit.rate);
       if (edit?.quantity !== undefined) payload.quantity = Number(edit.quantity);
@@ -196,11 +214,12 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
       try {
         await approveIndentItem(item.item_id, payload);
         approved++;
+        approvedIds.add(item.item_id);
         setIndents(prev => prev.map(indent => ({
           ...indent,
           purchase_indent_items: (indent.purchase_indent_items || []).map(i =>
             i.item_id === item.item_id
-              ? { ...i, approval_status: 'Approved', ...(payload.vendor_id ? { vendor_id: payload.vendor_id } : {}), ...(payload.rate ? { rate: payload.rate } : {}), ...(payload.quantity ? { quantity: payload.quantity } : {}), ...(payload.godown_id ? { approved_godown_id: payload.godown_id } : {}) }
+              ? { ...i, approval_status: 'Approved', ...(payload.vendor_id ? { approved_vendor_id: payload.vendor_id } : {}), ...(payload.rate ? { approved_rate: payload.rate } : {}), ...(payload.quantity ? { quantity: payload.quantity } : {}), ...(payload.godown_id ? { approved_godown_id: payload.godown_id } : {}), approved_remarks: payload.vendor_remarks }
               : i
           ),
         })));
@@ -210,7 +229,7 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
       }
     }
     setApprovingAll(false);
-    setSelectedItems(new Set());
+    setSelectedItems(prev => { const next = new Set(prev); approvedIds.forEach(id => next.delete(id)); return next; });
     if (approved > 0) toast.success(`${approved} item${approved !== 1 ? 's' : ''} approved`);
   };
 
@@ -223,33 +242,16 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
     );
   }
 
-  if (filteredIndents.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
-          <ShoppingCart size={32} className="text-slate-300" />
-        </div>
-        <h3 className="text-base font-semibold text-slate-600 mb-1">No Indents for Approval</h3>
-        <p className="text-sm text-slate-400">
-          {searchTerm
-            ? 'No indents match your search criteria.'
-            : 'Mark items as "Planned" in Vendor Approval to see them here for approval.'}
-        </p>
-      </div>
-    );
-  }
+
 
   return (
     <>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-        <div className="relative w-full md:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
-          <input type="text" placeholder="Search indent no., vendor, product..."
-            value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-            className="flex h-10 w-full rounded-lg border border-input bg-transparent px-3 pl-9 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 placeholder:text-muted-foreground"
-          />
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="relative w-full sm:flex-1 sm:min-w-[160px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
+          <Input type="text" placeholder="Search indent no., vendor, product..." className="pl-9 h-9 w-full"
+            value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
-        <span className="text-xs text-slate-400 font-medium">{filteredIndents.length} indent{filteredIndents.length !== 1 ? 's' : ''}</span>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -279,7 +281,7 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
 
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
+            <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
               <tr>
                 <th className="w-10 px-2 py-3" />
                 <th className="w-10 px-2 py-3">
@@ -295,6 +297,7 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
                 </th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Indent No.</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Indent Type</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Vendor</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Godown</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Items</th>
@@ -302,6 +305,21 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
+              {filteredIndents.length === 0 && (
+                <tr>
+                  <td colSpan="8" className="p-12 text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                      <ShoppingCart size={32} className="text-slate-300" />
+                    </div>
+                    <h3 className="text-base font-semibold text-slate-600 mb-1">No Indents for Approval</h3>
+                    <p className="text-sm text-slate-400">
+                      {searchTerm
+                        ? 'No indents match your search criteria.'
+                        : 'Mark items as "Planned" in Vendor Approval to see them here for approval.'}
+                    </p>
+                  </td>
+                </tr>
+              )}
               {currentIndents.flatMap(indent => {
                 const items = indent.purchase_indent_items || [];
                 const isExpanded = expandedIndents.has(indent.indent_id);
@@ -326,6 +344,9 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
                     <td className="px-3 py-3 text-slate-500 text-xs">
                       {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
                     </td>
+                    <td className="px-3 py-3 text-center">
+                      <IndentTypeBadge processType={indent.process_type} />
+                    </td>
                     <td className="px-3 py-3 text-slate-600">{indent.vendors?.name || '—'}</td>
                     <td className="px-3 py-3 text-slate-600">{indent.godowns?.name || '—'}</td>
                     <td className="px-3 py-3 text-center">
@@ -341,7 +362,7 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
                 if (isExpanded && items.length > 0) {
                   rows.push(
                     <tr key={`${indent.indent_id}-details`}>
-                      <td colSpan={8} className="px-0 py-0">
+                      <td colSpan={9} className="px-0 py-0">
                         <div className="bg-slate-50 border-t border-slate-100">
                           <table className="w-full text-sm">
                             <thead>
@@ -384,16 +405,16 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
                                         </span>
                                       ) : (
                                         <div className="w-20 mx-auto">
-                                          <Input type="number" step="1" min="1" placeholder="Qty"
+                                          <Input type="text" inputMode="decimal" placeholder="Qty"
                                             value={getItemValue(item, 'quantity')}
-                                            onChange={(e) => setEditValue(item.item_id, 'quantity', e.target.value.replace(/\D/g, ''))}
+                                            onChange={(e) => setEditValue(item.item_id, 'quantity', sanitizeQtyInput(e.target.value))}
                                             className="h-7 text-xs text-center" />
                                         </div>
                                       )}
                                     </td>
                                     <td className="px-3 py-2.5">
                                       {approved ? (
-                                        <span className="text-slate-600">₹{Number(item.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        <span className="text-slate-600">₹{Number(item.approved_rate ?? item.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                       ) : (
                                         <div className="w-24">
                                           <Input type="number" step="0.01" min="0" placeholder="Rate"
@@ -405,7 +426,7 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
                                     </td>
                                     <td className="px-3 py-2.5 min-w-[140px]">
                                       {approved ? (
-                                        <span className="text-slate-600 text-xs">{item.item_vendor?.name || vendors.find(v => v.vendor_id === item.vendor_id)?.name || '—'}</span>
+                                        <span className="text-slate-600 text-xs">{vendors.find(v => v.vendor_id === (item.approved_vendor_id || item.vendor_id))?.name || item.item_vendor?.name || '—'}</span>
                                       ) : (
                                         <Dropdown value={getItemValue(item, 'vendor_id')}
                                           onValueChange={(v) => setEditValue(item.item_id, 'vendor_id', v)}
@@ -475,17 +496,43 @@ const VendorApprovalTable = ({ vendors, godowns }) => {
           </table>
         </div>
 
-        {filteredIndents.length > ITEMS_PER_PAGE && (
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={filteredIndents.length}
-            startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1}
-            endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredIndents.length)}
-            onPageChange={setCurrentPage}
-            className="border-t border-slate-200"
-          />
-        )}
+        <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">Rows per page:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="border border-slate-300 rounded-md px-2 py-1 focus:outline-none focus:border-primary bg-white font-medium text-xs shadow-sm"
+            >
+              {PAGE_SIZE_OPTIONS.map((val) => (
+                <option key={val} value={val}>{val}</option>
+              ))}
+            </select>
+            <span className="text-xs text-slate-500 whitespace-nowrap">
+              {filteredIndents.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}-{Math.min(currentPage * pageSize, filteredIndents.length)} of {filteredIndents.length} indents
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
+            >
+              <ChevronLeft size={16} strokeWidth={2.5} />
+            </button>
+            <span className="text-xs font-semibold text-slate-600">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
+            >
+              <ChevronRight size={16} strokeWidth={2.5} />
+            </button>
+          </div>
+        </div>
       </div>
     </>
   );

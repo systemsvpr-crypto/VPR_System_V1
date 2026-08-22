@@ -12,6 +12,7 @@ import { Dropdown } from '@/components/ui/dropdown';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { getStockBalance } from '../../../services/stockService';
+import { sanitizeQtyInput } from '@/lib/qty';
 
 /* ─── status badge ───────────────────────────────────────── */
 const StatusBadge = ({ status }) => {
@@ -306,11 +307,11 @@ const SkipDeliverModal = ({ isOpen, onClose, item, customers, products, godowns,
                         Dispatch Qty <span className="text-red-500">*</span>
                         <span className="ml-1 text-slate-400 font-normal">(max {remaining})</span>
                       </label>
-                      <Input type="number" step="1" min="1" max={remaining}
+                      <Input type="number" step="0.01" min="1" max={remaining}
                         placeholder={`1 – ${remaining}`}
                         className="h-7 text-xs"
                         value={form.quantity}
-                        onChange={e => setForm(f => ({ ...f, quantity: e.target.value.replace(/\D/g, '') }))} />
+                        onChange={e => setForm(f => ({ ...f, quantity: sanitizeQtyInput(e.target.value) }))} />
                       {form.quantity && Number(form.quantity) > remaining && (
                         <p className="text-xs text-red-500 mt-1">Exceeds remaining ({remaining})</p>
                       )}

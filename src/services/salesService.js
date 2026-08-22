@@ -1,6 +1,35 @@
 import { supabase } from '../supabase';
 import { voidTransaction as stockVoidTransaction } from './stockService';
 import { sendOrderConfirmationWhatsapp, sendDispatchConfirmationWhatsapp } from './whatsappService';
+import { getPackagingSize } from './purchaseService';
+import { roundQty } from '../lib/qty';
+
+// Bag <-> Kg conversion for dispatch planning. `product.unit` is the
+// master unit ('bag' or 'kg'); `product.mux` (e.g. "32 Kg") gives the
+// kg-per-bag packaging size. Converting INTO the master unit is what
+// drives stock deduction and pending-qty math, so it stays correct no
+// matter which unit a given dispatch was actually recorded in.
+export const convertQtyToMasterUnit = (qty, fromUnit, product) => {
+  const amount = Number(qty) || 0;
+  const masterUnit = (product?.unit || '').toLowerCase();
+  const entryUnit = (fromUnit || masterUnit).toLowerCase();
+  if (!masterUnit || entryUnit === masterUnit) return amount;
+  const mux = getPackagingSize(product);
+  if (masterUnit === 'bag' && entryUnit === 'kg') return mux > 0 ? amount / mux : amount;
+  if (masterUnit === 'kg' && entryUnit === 'bag') return amount * mux;
+  return amount;
+};
+
+export const convertQtyFromMasterUnit = (qty, toUnit, product) => {
+  const amount = Number(qty) || 0;
+  const masterUnit = (product?.unit || '').toLowerCase();
+  const targetUnit = (toUnit || masterUnit).toLowerCase();
+  if (!masterUnit || targetUnit === masterUnit) return amount;
+  const mux = getPackagingSize(product);
+  if (masterUnit === 'bag' && targetUnit === 'kg') return amount * mux;
+  if (masterUnit === 'kg' && targetUnit === 'bag') return mux > 0 ? amount / mux : amount;
+  return amount;
+};
 
 export const generateNextOrderNumber = async () => {
   const { data, error } = await supabase
@@ -49,6 +78,46 @@ export const generateMultipleOrderNumbers = async (count) => {
     numbers.push(`VPR/OR-${String(startNum + i).padStart(3, '0')}`);
   }
   return numbers;
+};
+
+export const getProductCurrentStockAndTransit = async (productIds) => {
+  if (!productIds || productIds.length === 0) return { stockMap: {}, transitMap: {} };
+  
+  // Current Stock (from transactions)
+  const { data: txns } = await supabase
+    .from('transactions')
+    .select('product_id, qty, txn_type')
+    .eq('is_void', false)
+    .in('product_id', productIds);
+
+  const stockMap = {};
+  for (const txn of txns || []) {
+    if (!stockMap[txn.product_id]) stockMap[txn.product_id] = 0;
+    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN', 'PURCHASE_IN(TPT)'].includes(txn.txn_type)) {
+      stockMap[txn.product_id] += Number(txn.qty);
+    } else {
+      stockMap[txn.product_id] -= Number(txn.qty);
+    }
+  }
+
+  // In Transit — lifts not yet Arrived/Received. purchase_deliveries has no
+  // product_id/dispatch_qty/arrived_qty columns of its own; product comes
+  // through purchase_indent_items, and the lift's qty is received_quantity.
+  const { data: transit, error: transitErr } = await supabase
+    .from('purchase_deliveries')
+    .select('received_quantity, status, purchase_indent_items!inner(product_id)')
+    .in('status', ['In Transit', 'In Transport Godown', 'AT TPT GDN'])
+    .in('purchase_indent_items.product_id', productIds);
+  if (transitErr) throw transitErr;
+
+  const transitMap = {};
+  for (const t of transit || []) {
+    const pid = t.purchase_indent_items?.product_id;
+    if (!pid) continue;
+    transitMap[pid] = (transitMap[pid] || 0) + Number(t.received_quantity || 0);
+  }
+
+  return { stockMap, transitMap };
 };
 
 export const getAllOrders = async () => {
@@ -237,7 +306,7 @@ export const getAllOrderItemsForDispatch = async () => {
         order_number, order_date, process_type,
         customers:customer_id(name)
       ),
-      products:product_id(name, unit),
+      products:product_id(name, unit, mux),
       godowns:godown_id(name)
     `)
     .order('created_at', { ascending: false });
@@ -351,9 +420,11 @@ export const getAllDispatchPlans = async () => {
         item_id,
         product_id,
         quantity,
-        products:product_id(name, unit),
+        godown_id,
+        products:product_id(name, unit, mux),
+        godowns:godown_id(name),
         sales_orders!inner(
-          order_number, process_type,
+          order_number, order_date, process_type,
           customers:customer_id(name)
         )
       ),
@@ -404,10 +475,25 @@ export const generateNextDispatchNumber = async () => {
 
 const PG_UNIQUE_VIOLATION = '23505';
 
-export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godown_id, unit_price, dispatch_date, created_by, dispatch_status }) => {
+export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit, converted_qty, godown_id, unit_price, dispatch_date, created_by, dispatch_status }) => {
+  // `quantity` is already the master-unit dispatch amount (the caller
+  // converts it before calling this) — it keeps its original,
+  // pre-conversion-feature meaning and is what drives stock deduction and
+  // pending-qty math, same as every other row. Quantities may carry up to
+  // two decimal places (see src/lib/qty.js), so this rounds to that
+  // precision rather than to a whole number. `converted_qty`, if passed, is purely a
+  // record of what was actually typed on screen, in whichever unit `unit`
+  // names — it never feeds stock math. Callers that only pass `quantity`
+  // (older flows that never leave the master unit) get converted_value
+  // mirroring quantity, unchanged from before this feature.
+  const stockQty = roundQty(quantity);
   const payload = {
     order_item_id,
-    quantity: Number(quantity),
+    quantity: stockQty,
+    // dispatch_plans' actual columns are named convert_unit / converted_value
+    // (added via the Supabase table editor), not unit / converted_qty.
+    convert_unit: unit || null,
+    converted_value: (converted_qty !== undefined && converted_qty !== null && converted_qty !== '') ? Number(converted_qty) : stockQty,
     godown_id,
     unit_price: Number(unit_price),
     dispatch_date,
@@ -436,14 +522,14 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
 
     const { data: stockRow } = await supabase.from('godown_stock').select('current_stock').eq('product_id', product_id).eq('godown_id', godown_id).maybeSingle();
     const available = stockRow?.current_stock ?? 0;
-    
+
     const { data: existingTxn } = await supabase.from('transactions').select('txn_id, qty, godown_id').eq('dispatch_plan_id', plan_id).eq('is_void', false).maybeSingle();
-    
-    let diff = payload.quantity;
+
+    let diff = stockQty;
     if (existingTxn && existingTxn.godown_id === godown_id) {
-       diff = payload.quantity - existingTxn.qty;
+       diff = stockQty - existingTxn.qty;
     }
-    
+
     if (diff > 0 && available < diff && !product?.allow_negative_stock) {
       throw new Error(`Insufficient stock. Available: ${available}, Required diff: ${diff}.`);
     }
@@ -455,10 +541,10 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
       .select()
       .single();
     if (error) throw error;
-    
+
     if (existingTxn) {
       await supabase.from('transactions').update({
-        qty: payload.quantity,
+        qty: stockQty,
         godown_id: payload.godown_id,
         txn_date: dispatch_date,
         back_dated
@@ -469,7 +555,7 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
          godown_id,
          txn_date: dispatch_date,
          txn_type: 'OUT_GODOWN',
-         qty: payload.quantity,
+         qty: stockQty,
          is_void: false,
          created_by,
          back_dated,
@@ -483,8 +569,8 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
 
   const { data: stockRow } = await supabase.from('godown_stock').select('current_stock').eq('product_id', product_id).eq('godown_id', godown_id).maybeSingle();
   const available = stockRow?.current_stock ?? 0;
-  if (available < payload.quantity && !product?.allow_negative_stock) {
-    throw new Error(`Insufficient stock. Available: ${available}, Required: ${payload.quantity}.`);
+  if (available < stockQty && !product?.allow_negative_stock) {
+    throw new Error(`Insufficient stock. Available: ${available}, Required: ${stockQty}.`);
   }
 
   payload.dispatch_number = await generateNextDispatchNumber();
@@ -518,7 +604,7 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, godow
     godown_id,
     txn_date: dispatch_date,
     txn_type: 'OUT_GODOWN',
-    qty: payload.quantity,
+    qty: stockQty,
     is_void: false,
     created_by,
     back_dated,
@@ -541,7 +627,7 @@ export const batchUpdateInformBeforeDispatch = async (planIds, inform_before_dis
 };
 
 export const batchUpdateInformAfterDispatch = async (planIds, inform_after_dispatch) => {
-  if (!planIds || planIds.length === 0) return [];
+  if (!planIds || planIds.length === 0) return { plans: [], notifyResults: [] };
   const { data, error } = await supabase
     .from('dispatch_plans')
     .update({ inform_after_dispatch, updated_at: new Date().toISOString() })
@@ -549,15 +635,24 @@ export const batchUpdateInformAfterDispatch = async (planIds, inform_after_dispa
     .select();
   if (error) throw error;
 
+  // Real WhatsApp sends, one per plan — awaited (not fire-and-forget) so
+  // callers can see and surface which notifications actually went out,
+  // instead of the "Informed" flag silently disagreeing with what the
+  // customer actually received.
+  let notifyResults = [];
   if (inform_after_dispatch === 'Informed') {
-    for (const plan_id of planIds) {
-      notifyDispatchConfirmation(plan_id).catch(err => {
+    notifyResults = await Promise.all(planIds.map(async (plan_id) => {
+      try {
+        const result = await notifyDispatchConfirmation(plan_id);
+        return { plan_id, ...result };
+      } catch (err) {
         console.error('WhatsApp dispatch confirmation failed:', err.message);
-      });
-    }
+        return { plan_id, sent: false, reason: err.message };
+      }
+    }));
   }
 
-  return data;
+  return { plans: data, notifyResults };
 };
 
 export const updateDispatchPlan = async (plan_id, { dispatch_date, godown_id, quantity, dispatch_status }) => {
@@ -718,7 +813,7 @@ const notifyDispatchConfirmation = async (plan_id) => {
 
   const order = plan?.sales_order_items?.sales_orders;
   const customer = order?.customers;
-  if (!customer?.phone_number) return;
+  if (!customer?.phone_number) return { sent: false, reason: 'no_phone' };
 
   const product = plan.sales_order_items.products;
   const unit = product?.unit || '';
@@ -735,6 +830,7 @@ const notifyDispatchConfirmation = async (plan_id) => {
     dispatchDate: formattedDate,
     totalQty: Number(plan.quantity),
   });
+  return { sent: true };
 };
 
 export const isOrderLocked = async (order_id) => {
@@ -755,6 +851,116 @@ export const isOrderLocked = async (order_id) => {
   if (plansErr) throw plansErr;
 
   return (plans || []).length > 0;
+};
+
+// Customer-wise dashboard feed for the LiveStockDashboard "Sales Dashboard"
+// view — mirrors purchaseService.getVendorDashboardData's shape/logic
+// (one row per order item, flattened) so the two dashboards read the same
+// way, with dispatch_plans standing in for purchase_deliveries:
+//   - plannedQty   = total qty across all non-cancelled dispatch plans
+//                    (the "has this been picked up for dispatch" analog of
+//                    liftQty — stock is deducted as soon as a plan is saved)
+//   - dispatchedQty = qty across plans whose dispatch_status is the final
+//                    'Dispatch Done' state (the "actually left the godown,
+//                    for good" analog of deliveryQty's Arrived/Received)
+//   - netQty       = ordered quantity minus whatever's been formally
+//                    cancelled off that item (sales_order_items.cancelled_quantity
+//                    has no purchase-side equivalent, so there's no netQty
+//                    fallback needed there)
+//   - pendingQty   = max(0, netQty - dispatchedQty)
+export const getCustomerDashboardData = async (signal) => {
+  const { data, error } = await supabase
+    .from('sales_orders')
+    .select(`
+      order_id,
+      order_number,
+      order_date,
+      created_by,
+      is_void,
+      users:created_by(full_name),
+      customers:customer_id(name),
+      sales_order_items(
+        item_id,
+        quantity,
+        cancelled_quantity,
+        unit_price,
+        products:product_id(product_id, name, unit),
+        dispatch_plans(
+          plan_id,
+          quantity,
+          dispatch_status,
+          dispatch_date,
+          cancelled_reason
+        )
+      )
+    `)
+    .eq('is_void', false)
+    .order('created_at', { ascending: false })
+    .abortSignal(signal);
+
+  if (error) throw error;
+
+  const rows = [];
+  for (const order of data || []) {
+    const orderNo = order.order_number || '—';
+    const orderDate = order.order_date ? String(order.order_date).split('T')[0] : '—';
+    const customerName = order.customers?.name || 'Unassigned Customer';
+    const createdBy = order.users?.full_name || 'Admin';
+
+    for (const item of order.sales_order_items || []) {
+      const productId = item.products?.product_id || item.product_id;
+      const productName = item.products?.name || 'Unassigned Product';
+      const unit = item.products?.unit || 'Kg';
+      const totalQty = Number(item.quantity || 0);
+      const cancelledQty = Number(item.cancelled_quantity || 0);
+      const netQty = Math.max(0, totalQty - cancelledQty);
+
+      const activePlans = (item.dispatch_plans || []).filter(p => p.dispatch_status !== 'Cancelled');
+      const plannedQty = activePlans.reduce((sum, p) => sum + Number(p.quantity || 0), 0);
+      const dispatchedQty = activePlans
+        .filter(p => p.dispatch_status === 'Dispatch Done')
+        .reduce((sum, p) => sum + Number(p.quantity || 0), 0);
+      const pendingQty = Math.max(0, netQty - dispatchedQty);
+
+      const donePlans = activePlans.filter(p => p.dispatch_status === 'Dispatch Done');
+      const lastDeliveredDate = donePlans.map(p => p.dispatch_date).filter(Boolean).sort().reverse()[0] || '—';
+      const unitPrice = item.unit_price || 0;
+
+      const pendingPlans = activePlans.filter(p => p.dispatch_status !== 'Dispatch Done');
+      const expectedDate =
+        pendingPlans.map(p => p.dispatch_date).filter(Boolean).sort()[0] ||
+        activePlans.map(p => p.dispatch_date).filter(Boolean).sort()[0] ||
+        '—';
+
+      const remark = (item.dispatch_plans || [])
+        .map(p => p.cancelled_reason)
+        .filter(Boolean)
+        .join(', ') || '—';
+
+      rows.push({
+        id: item.item_id,
+        productId,
+        orderId: order.order_id,
+        orderNo,
+        orderDate,
+        customerName,
+        productName,
+        unit,
+        totalQty,
+        netQty,
+        createdBy,
+        pendingQty,
+        plannedQty,
+        dispatchedQty,
+        expectedDate,
+        lastDeliveredDate,
+        unitPrice,
+        remark,
+      });
+    }
+  }
+
+  return rows;
 };
 
 export const cancelOrderItems = async (order_id, items, reason, user_id) => {

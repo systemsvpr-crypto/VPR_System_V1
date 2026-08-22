@@ -6,6 +6,7 @@ import { bulkImportProducts, getAllProducts } from '../../../services/masterServ
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { sanitizeQtyInput } from '@/lib/qty';
 
 const COLUMN_ALIASES = {
   'Brand Name': ['brand name', 'brand', 'brandname'],
@@ -392,7 +393,7 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
                         <input
                           type={opts.type || 'text'}
                           value={editDraft[field]}
-                          onChange={(e) => setEditDraft({ ...editDraft, [field]: opts.type === 'number' ? e.target.value.replace(/\D/g, '') : e.target.value })}
+                          onChange={(e) => setEditDraft({ ...editDraft, [field]: opts.type === 'number' ? sanitizeQtyInput(e.target.value) : e.target.value })}
                           className="w-full min-w-[70px] border border-slate-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                         />
                       );

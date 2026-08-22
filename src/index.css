@@ -204,3 +204,14 @@
 .dark .custom-scrollbar {
   scrollbar-color: #475569 transparent;
 }
+
+/* Hidden scrollbars — content still scrolls (mouse wheel / drag / touch),
+   the scrollbar track & thumb just aren't drawn. */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none; /* old Edge / IE */
+  scrollbar-width: none;    /* Firefox */
+}
