@@ -799,22 +799,22 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                     className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                 ), className: 'w-10 !py-3 !px-4',
               },
-              { label: 'Order Date', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
+              { label: 'Date', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Order No', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
-              { label: 'Ordered Qty', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
-              { label: <span className="text-amber-600">Pending Qty</span>, className: '!text-xs !font-semibold !py-3 !px-4' },
-              { label: 'Product No', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
+              { label: 'Customer Name', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Product Name', className: 'min-w-[160px] !text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
+              { label: <span className="text-primary">Godown Name</span>, className: 'min-w-[150px] !text-xs !font-semibold !py-3 !px-4' },
+              { label: 'Order Godown', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
+              { label: 'Total Qty', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
+              { label: <span className="text-amber-600">Pending Qty</span>, className: '!text-xs !font-semibold !py-3 !px-4' },
               { label: <span className="text-primary">Unit</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
-              { label: <span className="text-primary">Converted Qty</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
+              { label: <span className="text-primary">Convert Qty</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
               { label: 'Dispatch Qty', className: 'min-w-[100px] !text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: <span className="text-primary">Dispatch Date</span>, className: 'min-w-[150px] !text-xs !font-semibold !py-3 !px-4' },
-              { label: <span className="text-primary">Dispatch Godown</span>, className: 'min-w-[150px] !text-xs !font-semibold !py-3 !px-4' },
-              { label: 'Customer Name', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
-              { label: 'Order Type', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
-              { label: 'Godown Name', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Unit Price', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Total Amount', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
+              { label: 'Order Type', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
+              { label: 'Product No', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
             ]}
             data={currentItems}
             currentPage={currentPage}
@@ -837,16 +837,26 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                     {item.sales_orders?.order_date ? format(new Date(item.sales_orders.order_date), 'dd/MM/yyyy') : '—'}
                   </td>
                   <td className="px-4 py-3 text-center font-semibold text-primary whitespace-nowrap">{item.sales_orders?.order_number || '—'}</td>
+                  <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{item.sales_orders?.customers?.name || '—'}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="font-semibold text-slate-800">{item.productName}</span>{' '}
+                    <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
+                  </td>
+                  <td className="px-4 py-3 min-w-[150px]">
+                    <Dropdown value={getDraft(item, 'godown_id')}
+                      onValueChange={v => setDraftValue(item.item_id, 'godown_id', v)}
+                      options={activeGodownOptions} placeholder="Godown..."
+                      searchPlaceholder="Search godowns..." align="start"
+                      disabled={!selected}
+                      className="h-8 text-xs text-center" />
+                  </td>
+                  <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{item.orderGodownName || '—'}</td>
                   <td className="px-4 py-3 text-center font-semibold text-slate-900 tabular-nums whitespace-nowrap">{item.effectiveQty}</td>
                   <td className="px-4 py-3 text-center whitespace-nowrap">
                     <span className="inline-flex items-center gap-1 font-semibold text-amber-600 tabular-nums">
                       <StockDot status={item.stockStatus} />
                       {item.remaining}
                     </span>
-                  </td>
-                  <td className="px-4 py-3 text-center text-slate-500 whitespace-nowrap">{item.productNo}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="font-semibold text-slate-800">{item.productName}</span>
                   </td>
                   <td className="px-4 py-3 min-w-[110px]">
                     <Dropdown value={getDraft(item, 'unit')}
@@ -875,23 +885,14 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                       placeholder="Select date..."
                       className="h-8 text-xs text-center" />
                   </td>
-                  <td className="px-4 py-3 min-w-[150px]">
-                    <Dropdown value={getDraft(item, 'godown_id')}
-                      onValueChange={v => setDraftValue(item.item_id, 'godown_id', v)}
-                      options={activeGodownOptions} placeholder="Godown..."
-                      searchPlaceholder="Search godowns..." align="start"
-                      disabled={!selected}
-                      className="h-8 text-xs text-center" />
-                  </td>
-                  <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{item.sales_orders?.customers?.name || '—'}</td>
-                  <td className="px-4 py-3 text-center whitespace-nowrap"><OrderTypeBadge processType={item.sales_orders?.process_type} /></td>
-                  <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{item.orderGodownName || '—'}</td>
                   <td className="px-4 py-3 text-center text-slate-600 tabular-nums whitespace-nowrap">
                     {item.unit_price ? `₹${Number(item.unit_price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
                   </td>
                   <td className="px-4 py-3 text-center font-semibold text-slate-800 tabular-nums whitespace-nowrap">
                     {item.unit_price ? `₹${(Number(item.unit_price) * Number(item.effectiveQty || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
                   </td>
+                  <td className="px-4 py-3 text-center whitespace-nowrap"><OrderTypeBadge processType={item.sales_orders?.process_type} /></td>
+                  <td className="px-4 py-3 text-center text-slate-500 whitespace-nowrap">{item.productNo}</td>
                 </tr>
               );
             }}
@@ -916,7 +917,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                   <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
                     <div><span className="text-slate-400">Order Date:</span> <span className="text-slate-700">{item.sales_orders?.order_date ? format(new Date(item.sales_orders.order_date), 'dd/MM/yyyy') : '—'}</span></div>
                     <div><span className="text-slate-400">Customer:</span> <span className="text-slate-700">{item.sales_orders?.customers?.name || '—'}</span></div>
-                    <div><span className="text-slate-400">Ordered:</span> <span className="font-semibold text-slate-900">{item.effectiveQty}</span></div>
+                    <div><span className="text-slate-400">Total Qty:</span> <span className="font-semibold text-slate-900">{item.effectiveQty}</span></div>
                     <div>
                       <span className="text-slate-400">Pending:</span>{' '}
                       <span className="inline-flex items-center gap-1 font-semibold text-amber-600">
@@ -924,7 +925,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                       </span>
                     </div>
                     <div><span className="text-slate-400">Product #:</span> <span className="text-slate-700">{item.productNo}</span></div>
-                    <div><span className="text-slate-400">Godown:</span> <span className="text-slate-700">{item.orderGodownName || '—'}</span></div>
+                    <div><span className="text-slate-400">Order Godown:</span> <span className="text-slate-700">{item.orderGodownName || '—'}</span></div>
                     <div><span className="text-slate-400">Unit Price:</span> <span className="text-slate-700">{item.unit_price ? `₹${Number(item.unit_price).toLocaleString('en-IN')}` : '—'}</span></div>
                     <div><span className="text-slate-400">Total:</span> <span className="font-medium text-slate-800">{item.unit_price ? `₹${(Number(item.unit_price) * Number(item.effectiveQty || 0)).toLocaleString('en-IN')}` : '—'}</span></div>
                   </div>
@@ -935,7 +936,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                         options={UNIT_OPTIONS} placeholder="Unit..." align="start" disabled={!selected} />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">Converted Qty</label>
+                      <label className="block text-[10px] text-slate-400 mb-1">Convert Qty</label>
                       <Input type="text" inputMode="decimal" placeholder="Qty"
                         disabled={!selected} value={getDraft(item, 'quantity')}
                         onChange={e => setDraftValue(item.item_id, 'quantity', sanitizeQtyInput(e.target.value))}
@@ -955,7 +956,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                         onChange={e => setDispatchDateForSelected(item, e.target.value)} placeholder="Select date..." />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">Dispatch Godown</label>
+                      <label className="block text-[10px] text-slate-400 mb-1">Godown Name</label>
                       <Dropdown value={getDraft(item, 'godown_id')} onValueChange={v => setDraftValue(item.item_id, 'godown_id', v)}
                         options={activeGodownOptions} placeholder="Godown..." searchPlaceholder="Search godowns..." align="start" disabled={!selected} />
                     </div>

@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
-import { createIndent, generateMultipleIndentNumbers } from '../../../services/purchaseService';
-import { sanitizeQtyInput } from '@/lib/qty';
+import { createIndent, generateNextIndentNumber, getPackagingSize } from '../../../services/purchaseService';
+import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 
 const COLUMN_ALIASES = {
   'Indent Date': ['indent date', 'indentdate', 'date', 'indent_date', 'order date', 'orderdate', 'order_date'],
@@ -16,7 +16,23 @@ const COLUMN_ALIASES = {
   'Remarks': ['remarks', 'remark', 'notes', 'note', 'description'],
   'Product Name': ['product name', 'product', 'productname', 'item name', 'item', 'itemname', 'product_name'],
   'Quantity': ['quantity', 'qty', 'qnty', 'count', 'amount', 'units'],
+  'Unit': ['unit', 'uom', 'unit of measure', 'unit_of_measure', 'measure'],
   'Rate': ['rate', 'unit rate', 'unit price', 'unitprice', 'price', 'cost', 'unit cost', 'amount/unit'],
+};
+
+// Bag <-> Kg conversion. Qty is entered in whichever unit the row's Unit is
+// set to (`fromUnit`, defaulting to the product's master unit) — whichever
+// of Bag/Kg matches that entry unit just mirrors Qty as-is, the other
+// (Indent Qty) is derived via this row's own Pkg/Bag (Mux) figure.
+const convertQty = (qty, fromUnit, targetUnit, pkgSize) => {
+  const amount = Number(qty) || 0;
+  const mux = Number(pkgSize) || 0;
+  const from = (fromUnit || '').toLowerCase();
+  const target = (targetUnit || from).toLowerCase();
+  if (!from || target === from) return amount;
+  if (from === 'bag' && target === 'kg') return mux > 0 ? amount * mux : amount;
+  if (from === 'kg' && target === 'bag') return mux > 0 ? amount / mux : amount;
+  return amount;
 };
 
 const normalizeHeader = (header) => {
@@ -196,6 +212,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
         const godownKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Godown Name');
         const vendorKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Vendor Name');
         const remarksKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Remarks');
+        const unitKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Unit');
 
         const defaultDate = getTodayLocal();
         const parsedRows = json.map((row, idx) => {
@@ -206,6 +223,12 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
           const rawGodown = godownKey ? String(row[godownKey] || '').trim() : '';
           const rawDate = indentDateKey ? String(row[indentDateKey] || '').trim() : '';
           const rawRemarks = remarksKey ? String(row[remarksKey] || '').trim() : '';
+          // Unit is optional — if the file gives a valid Bag/Kg value, Qty
+          // above is treated as entered in that unit; otherwise it falls
+          // back to the matched product's own master unit (Qty read as-is,
+          // same behavior as before this column existed).
+          const rawUnit = unitKey ? String(row[unitKey] || '').trim().toLowerCase() : '';
+          const fileUnit = rawUnit === 'bag' || rawUnit === 'kg' ? rawUnit : '';
 
           const parsedDate = parseExcelDate(rawDate) || defaultDate;
           const matchedProd = products.find(p => normalizeKey(p.name) === normalizeKey(rawProd));
@@ -226,6 +249,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
             product_id: matchedProd ? matchedProd.product_id : '',
             rate: rawRate,
             quantity: rawQty > 0 ? String(rawQty) : '1',
+            direct_indent_unit: fileUnit || (matchedProd?.unit || '').toLowerCase(),
             process_type: 'direct',
             remarks: rawRemarks,
           };
@@ -259,11 +283,53 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
   // parsed) rather than array position — array position shifts every time a
   // row is removed, which was causing the wrong row to be targeted.
   const handleUpdateRow = (id, field, value) => {
-    setRawRows(prev => prev.map(row => (row.id === id ? { ...row, [field]: value } : row)));
+    setRawRows(prev => prev.map(row => {
+      if (row.id !== id) return row;
+      // Picking/changing the product (manually, or via a "Did you mean"
+      // suggestion) defaults Unit to that product's own master unit — but
+      // only when the row doesn't already have one (e.g. from the file's
+      // own Unit column), so that pick isn't silently overwritten.
+      if (field === 'product_id') {
+        const product = products.find(p => p.product_id === value);
+        return { ...row, product_id: value, direct_indent_unit: row.direct_indent_unit || (product?.unit || '').toLowerCase() };
+      }
+      return { ...row, [field]: value };
+    }));
   };
 
   const handleRemoveRow = (id) => {
     setRawRows(prev => prev.filter(row => row.id !== id));
+  };
+
+  // Unit defaults to the product's master unit; Qty (raw, as typed in that
+  // unit) is the row's own `quantity` field.
+  const getRowUnit = (row, product) => row.direct_indent_unit || (product?.unit || '').toLowerCase();
+  const getRowRawQty = (row) => row.quantity ?? '';
+
+  // Indent Qty is auto-calculated from the Unit + Qty inputs, converted into
+  // the product's master unit via that product's Pkg/Bag (Mux) figure —
+  // this is what actually gets saved as quantity (the value that drives the
+  // rest of the purchase pipeline).
+  const getRowComputedQty = (row, product) => {
+    const raw = getRowRawQty(row);
+    if (raw === '' || !Number(raw)) return 0;
+    const masterUnit = (product?.unit || '').toLowerCase();
+    const unit = getRowUnit(row, product);
+    return roundQty(convertQty(raw, unit, masterUnit, getPackagingSize(product)));
+  };
+
+  // Switching Unit re-bases whatever Qty is currently showing into the
+  // newly picked unit (e.g. 20 bags becomes 640 when switching to Kg) so a
+  // stale number typed in the old unit doesn't linger under a new one.
+  const handleUnitChange = (id, newUnit) => {
+    setRawRows(prev => prev.map(row => {
+      if (row.id !== id) return row;
+      const product = products.find(p => p.product_id === row.product_id);
+      const currentUnit = getRowUnit(row, product);
+      const currentQty = getRowRawQty(row);
+      const requantified = convertQty(currentQty, currentUnit, newUnit, getPackagingSize(product));
+      return { ...row, direct_indent_unit: newUnit, quantity: requantified ? String(roundQty(requantified)) : '' };
+    }));
   };
 
   // Group rows by unique (Date, Vendor, Product) combination
@@ -317,12 +383,16 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
     setSubmitting(true);
     try {
 
-      // Automatically create indents for each (Date, Vendor, Product) group with system-generated order numbers
-      const generatedNumbers = await generateMultipleIndentNumbers(groupedOrders.length);
-
+      // Automatically create indents for each (Date, Vendor, Product) group
+      // with system-generated order numbers. Fetched fresh right before each
+      // create (rather than as one pre-computed batch) so a slow-running
+      // import doesn't hand out numbers another indent (this batch or a
+      // concurrent one) may have already claimed by the time it's used —
+      // createIndent itself also retries on that exact conflict as a
+      // second line of defense.
       for (let i = 0; i < groupedOrders.length; i++) {
         const grp = groupedOrders[i];
-        const autoIndentNumber = generatedNumbers[i];
+        const autoIndentNumber = await generateNextIndentNumber();
 
         await createIndent({
           indent_date: grp.indent_date,
@@ -330,11 +400,20 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
           godown_id: grp.godown_id,
           vendor_id: grp.vendor_id,
           remarks: grp.remarks,
-          items: grp.items.map(item => ({
-            product_id: item.product_id,
-            quantity: item.quantity,
-            rate: item.rate,
-          })),
+          // quantity sent here is always the product's real master-unit
+          // figure (see getRowComputedQty) — direct_indent_unit/_qty are
+          // kept alongside purely as a record of the raw Unit + Qty entry.
+          items: grp.items.map(item => {
+            const product = products.find(p => p.product_id === item.product_id);
+            const rawQty = getRowRawQty(item);
+            return {
+              product_id: item.product_id,
+              quantity: getRowComputedQty(item, product),
+              rate: item.rate,
+              direct_indent_unit: getRowUnit(item, product),
+              direct_indent_qty: rawQty === '' ? null : Number(rawQty),
+            };
+          }),
           created_by: user?.user_id,
           process_type: 'direct',
         });
@@ -351,7 +430,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
   };
 
   const handleExportHeaderOnly = () => {
-    const ws = XLSX.utils.aoa_to_sheet([['Indent Date', 'Vendor Name', 'Godown Name', 'Remarks', 'Product Name', 'Quantity', 'Rate']]);
+    const ws = XLSX.utils.aoa_to_sheet([['Indent Date', 'Vendor Name', 'Godown Name', 'Remarks', 'Product Name', 'Quantity', 'Unit', 'Rate']]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Format_Headers');
     XLSX.writeFile(wb, 'Indent_Bulk_Import_Headers_Only.csv');
@@ -363,6 +442,8 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
     const sampleGodown = activeGodowns[0]?.name || 'Main Godown';
     const sampleProduct1 = products[0]?.name || 'Cement Grade A';
     const sampleProduct2 = products[1]?.name || 'Steel Rods 10mm';
+    const sampleUnit1 = (products[0]?.unit || 'bag').toUpperCase();
+    const sampleUnit2 = (products[1]?.unit || 'bag').toUpperCase();
 
     const ws = XLSX.utils.json_to_sheet([
       {
@@ -372,6 +453,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
         'Remarks': 'Urgent purchase',
         'Product Name': sampleProduct1,
         'Quantity': 100,
+        'Unit': sampleUnit1,
         'Rate': 320
       },
       {
@@ -381,6 +463,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
         'Remarks': 'Urgent purchase',
         'Product Name': sampleProduct2,
         'Quantity': 250,
+        'Unit': sampleUnit2,
         'Rate': 600
       },
       {
@@ -390,6 +473,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
         'Remarks': 'Regular supply',
         'Product Name': sampleProduct1,
         'Quantity': 50,
+        'Unit': sampleUnit1,
         'Rate': 315
       }
     ]);
@@ -441,6 +525,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                 <div className="mt-2 text-xs text-slate-600 space-y-1 pl-8">
                   <p>• <strong>Order Numbers are auto-generated:</strong> Do not include Order/Indent Number in your file.</p>
                   <p>• <strong>Process Type is auto-set to Direct:</strong> Do not include Process Type in your file.</p>
+                  <p>• <strong>Unit is optional (Bag/Kg):</strong> when given, Quantity is read in that unit and converted to Indent Qty in the product's own master unit; otherwise Quantity is read as already being in the product's master unit.</p>
                   <p>• <strong>Grouping Logic:</strong> Rows with the <em>same Indent Date, Vendor Name, and Product Name</em> will be assigned the <strong>same auto-generated order number</strong>.</p>
                 </div>
               </div>
@@ -574,9 +659,11 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                         <thead className="bg-slate-100 border-b border-slate-200 font-semibold text-slate-700">
                           <tr>
                             <th className="px-3 py-1.5">#</th>
-                            <th className="px-3 py-1.5 w-6/12">Product <span className="text-red-500">*</span></th>
-                            <th className="px-3 py-1.5 w-3/12">Rate</th>
+                            <th className="px-3 py-1.5 w-4/12">Product <span className="text-red-500">*</span></th>
+                            <th className="px-3 py-1.5 w-2/12">Rate</th>
+                            <th className="px-3 py-1.5 w-2/12">Unit</th>
                             <th className="px-3 py-1.5 w-2/12 text-right">Qty <span className="text-red-500">*</span></th>
+                            <th className="px-3 py-1.5 w-2/12 text-right text-emerald-700">Indent Qty</th>
                             <th className="px-2 py-1.5 text-center w-1/12"></th>
                           </tr>
                         </thead>
@@ -584,6 +671,8 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                           {group.items.map((row, i) => {
                             const origIdx = row.id;
                             const isMatched = !!row.product_id;
+                            const rowProduct = products.find(p => p.product_id === row.product_id);
+                            const computedQty = getRowComputedQty(row, rowProduct);
                             return (
                               <tr key={origIdx} className={isMatched ? 'hover:bg-slate-50' : 'bg-amber-50/40 hover:bg-amber-50/70'}>
                                 <td className="px-3 py-1.5 text-slate-400 font-mono">{i + 1}</td>
@@ -630,6 +719,16 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                                     className="w-full h-7 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
                                   />
                                 </td>
+                                <td className="px-3 py-1.5">
+                                  <select
+                                    value={getRowUnit(row, rowProduct)}
+                                    onChange={(e) => handleUnitChange(origIdx, e.target.value)}
+                                    className="w-full h-7 px-1.5 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
+                                  >
+                                    <option value="bag">BAG</option>
+                                    <option value="kg">KG</option>
+                                  </select>
+                                </td>
                                 <td className="px-3 py-1.5 text-right">
                                   <input
                                     type="number"
@@ -640,6 +739,9 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                                     placeholder="1"
                                     className="w-20 h-7 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary bg-white"
                                   />
+                                </td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-emerald-600 tabular-nums">
+                                  {computedQty || <span className="text-slate-300">—</span>}
                                 </td>
                                 <td className="px-2 py-1.5 text-center">
                                   <button

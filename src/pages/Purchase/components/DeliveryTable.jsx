@@ -12,21 +12,23 @@ import {
 import { sendPurchaseDeliveredWhatsapp } from '../../../services/whatsappService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { roundQty } from '@/lib/qty';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
-// Dispatch Qty is always entered in the product's master unit. Whichever of
-// Bag/Kg matches that master unit just mirrors Dispatch Qty as-is; the other
-// is derived from it using THIS row's own Pkg/Bag figure as the kg-per-bag
-// factor (not a separately re-derived mux). Both values get stored.
-const convertDispatchQty = (qty, masterUnit, targetUnit, pkgSize) => {
+// Bag <-> Kg conversion. Dispatch Qty is entered in whichever unit the row's
+// Dispatch Unit dropdown is set to (`fromUnit`, defaulting to the product's
+// master unit) — whichever of Bag/Kg matches that entry unit just mirrors
+// Dispatch Qty as-is, the other is derived from it using THIS row's own
+// Pkg/Bag figure as the kg-per-bag factor. Both values get stored.
+const convertDispatchQty = (qty, fromUnit, targetUnit, pkgSize) => {
   const amount = Number(qty) || 0;
   const mux = Number(pkgSize) || 0;
-  const master = (masterUnit || '').toLowerCase();
-  const target = (targetUnit || master).toLowerCase();
-  if (!master || target === master) return amount;
-  if (master === 'bag' && target === 'kg') return mux > 0 ? amount * mux : amount;
-  if (master === 'kg' && target === 'bag') return mux > 0 ? amount / mux : amount;
+  const from = (fromUnit || '').toLowerCase();
+  const target = (targetUnit || from).toLowerCase();
+  if (!from || target === from) return amount;
+  if (from === 'bag' && target === 'kg') return mux > 0 ? amount * mux : amount;
+  if (from === 'kg' && target === 'bag') return mux > 0 ? amount / mux : amount;
   return amount;
 };
 
@@ -213,16 +215,32 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
     });
   };
 
-  const hasAnyTransporterSelected = useMemo(() => {
-    return currentPageItems.some(item => !!getRowVal(item.item_id, 'transporter_id'));
-  }, [currentPageItems, rowEdits]);
-
   const handleReceivedQtyChange = (item, val) => {
     setRowEdits(prev => ({
       ...prev,
       [item.item_id]: {
         ...prev[item.item_id],
         del_qty_kg: val,
+      },
+    }));
+  };
+
+  // Switching Dispatch Unit re-bases whatever Dispatch Qty is currently
+  // showing into the newly picked unit (e.g. 20 bags becomes 640 when
+  // switching to Kg) so a stale number typed in the old unit doesn't linger
+  // under a new one.
+  const handleDispatchUnitChange = (item, newUnit) => {
+    const masterUnit = (item.products?.unit || '').toLowerCase();
+    const pkgSize = getRowVal(item.item_id, 'packaging_size', getPackagingSize(item.products));
+    const currentUnit = getRowVal(item.item_id, 'dispatch_unit', masterUnit);
+    const currentQty = getRowVal(item.item_id, 'del_qty_kg', String(item.remaining_alloc_qty ?? item.remaining_qty ?? ''));
+    const requantified = convertDispatchQty(currentQty, currentUnit, newUnit, pkgSize);
+    setRowEdits(prev => ({
+      ...prev,
+      [item.item_id]: {
+        ...prev[item.item_id],
+        dispatch_unit: newUnit,
+        del_qty_kg: requantified ? String(Math.round(requantified * 100) / 100) : '',
       },
     }));
   };
@@ -309,12 +327,23 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
 
       const packagingSize = edit.packaging_size !== undefined && edit.packaging_size !== '' ? Number(edit.packaging_size) : getPackagingSize(item.products);
 
-      // Dispatch Qty is always entered in the product's master unit — the
+      // Dispatch Qty is entered in whichever unit the row's Dispatch Unit
+      // dropdown is set to (defaults to the product's master unit) — the
       // matching Bag/Kg column just mirrors it, the other is derived via
       // this row's own Pkg/Bag figure. Both get stored.
       const masterUnit = (item.products?.unit || '').toLowerCase();
-      const dispatchQtyBag = convertDispatchQty(delQty, masterUnit, 'bag', packagingSize);
-      const dispatchQtyKg = convertDispatchQty(delQty, masterUnit, 'kg', packagingSize);
+      const dispatchUnit = edit.dispatch_unit || masterUnit;
+      const dispatchQtyBag = convertDispatchQty(delQty, dispatchUnit, 'bag', packagingSize);
+      const dispatchQtyKg = convertDispatchQty(delQty, dispatchUnit, 'kg', packagingSize);
+      // Stock deduction (received_quantity) always has to be in the
+      // product's real master unit, regardless of which unit this dispatch
+      // was actually typed in. Kept at up to 2 decimal places (not forced
+      // to a whole number) — received_quantity and purchase_delivery_godowns.qty
+      // are allowed to be fractional; whole-number rounding only has to
+      // happen right at the point a qty is actually posted to transactions
+      // (which has the chk_qty_integer constraint) — see ensureLiftPurchaseIn
+      // and the Arrived-status branches in purchaseService.js.
+      const masterQty = roundQty(masterUnit === 'kg' ? dispatchQtyKg : dispatchQtyBag);
 
       const defaultGodownId = item.approved_godown_id || item.purchase_indents?.godown_id || ownGodowns[0]?.godown_id;
 
@@ -330,13 +359,14 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
           indent_id: item.purchase_indents?.indent_id,
           delivery_date: new Date().toISOString().slice(0, 10),
           expected_delivery_date: edit.exp_date !== undefined ? edit.exp_date : (item.planning_date || null),
-          godown_allocations: defaultGodownId ? [{ godown_id: defaultGodownId, qty: delQty }] : [],
+          godown_allocations: defaultGodownId ? [{ godown_id: defaultGodownId, qty: masterQty }] : [],
           transporter_id: tId,
           lr_number: lrNum,
           vehicle_number: edit.vehicle_number || (edit.transporter_id ? selectedTransporter?.vehicle_number : null) || null,
           driver_phone_number: edit.driver_phone_number || (edit.transporter_id ? selectedTransporter?.driver_phone_number : null) || null,
           remarks: edit.remarks || null,
           packaging_size: packagingSize,
+          dispatch_unit: dispatchUnit,
           dispatch_qty_bag: dispatchQtyBag,
           dispatch_qty_kg: dispatchQtyKg,
           created_by: user?.user_id,
@@ -350,7 +380,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
           transporterName: tName,
           date: new Date().toISOString().slice(0, 10),
           productName: item.products?.name || 'Product',
-          unit: item.products?.unit || '',
+          unit: dispatchUnit,
           delQty,
           dispatchQtyBag,
           dispatchQtyKg,
@@ -585,36 +615,32 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                   <th className="w-10 px-2 py-3 text-center">
                     <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                   </th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Name</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Unit</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Qty</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Rate</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pkg/Bag</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Remarks</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Exp. Date</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Remarks</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Exp. Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Actual Date</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch Unit</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch Qty</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch in BAG</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch in KG</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Transporter</th>
-                  {hasAnyTransporterSelected && (
-                    <>
-                      <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] whitespace-nowrap">LR No.</th>
-                      <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Vehicle No.</th>
-                      <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Driver No.</th>
-                    </>
-                  )}
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px] whitespace-nowrap">Transporter</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] whitespace-nowrap">LR No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Vehicle No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Driver No.</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {currentList.length === 0 && (
                   <tr>
-                    <td colSpan="20" className="p-12 text-center text-slate-400">
+                    <td colSpan="21" className="p-12 text-center text-slate-400">
                       <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No approved deliveries available.</p>
                     </td>
@@ -629,9 +655,10 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
 
                   const masterUnit = (item.products?.unit || '').toLowerCase();
                   const currentPkgSize = getRowVal(item.item_id, 'packaging_size', pkgSize);
+                  const dispatchUnit = getRowVal(item.item_id, 'dispatch_unit', masterUnit);
                   const dispatchQtyVal = getRowVal(item.item_id, 'del_qty_kg', String(item.remaining_alloc_qty ?? item.remaining_qty ?? ''));
-                  const dispatchQtyBag = convertDispatchQty(dispatchQtyVal, masterUnit, 'bag', currentPkgSize);
-                  const dispatchQtyKg = convertDispatchQty(dispatchQtyVal, masterUnit, 'kg', currentPkgSize);
+                  const dispatchQtyBag = convertDispatchQty(dispatchQtyVal, dispatchUnit, 'bag', currentPkgSize);
+                  const dispatchQtyKg = convertDispatchQty(dispatchQtyVal, dispatchUnit, 'kg', currentPkgSize);
 
                   return (
                     <tr key={item.item_id} className={`hover:bg-slate-50/60 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
@@ -643,23 +670,21 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                           className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                         />
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-slate-500 text-xs">
+                      <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
                       </td>
-                      <td className="px-3 py-3 font-semibold text-slate-800 whitespace-nowrap">
+                      <td className="px-3 py-3 text-center font-semibold text-slate-800 whitespace-nowrap">
                         {indent.indent_number || '—'}
                       </td>
                       <td className="px-3 py-3 text-center">
                         <IndentTypeBadge processType={indent.process_type} />
                       </td>
-                      <td className="px-3 py-3 font-medium text-slate-700 whitespace-nowrap">
+                      <td className="px-3 py-3 text-center font-medium text-slate-700 whitespace-nowrap">
                         {item.approved_vendor?.name || item.item_vendor?.name || '—'}
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center whitespace-nowrap">
                         <span className="text-slate-800 font-medium">{item.products?.name || '—'}</span>
-                      </td>
-                      <td className="px-3 py-3 text-center text-slate-500 uppercase text-xs">
-                        {item.products?.unit || '—'}
+                        <span className="text-slate-500 ml-1">({item.products?.unit || '—'})</span>
                       </td>
                       <td className="px-3 py-3 text-center font-semibold text-slate-700">
                         {item.quantity}
@@ -670,7 +695,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       <td className="px-3 py-3 text-center text-slate-600">
                         {item.rate ? Number(item.rate).toFixed(2) : '—'}
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center">
                         <Input
                           type="number"
                           step="0.01"
@@ -682,7 +707,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                           className="h-8 text-xs text-center bg-slate-50/50 border-slate-200 focus:bg-white w-20"
                         />
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center">
                         <Input
                           type="text"
                           placeholder="Remarks..."
@@ -692,7 +717,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
                         />
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center">
                         <Input
                           type="date"
                           value={getRowVal(item.item_id, 'exp_date', item.planning_date || '')}
@@ -704,12 +729,23 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap">
                         {format(new Date(), 'dd/MM/yyyy')}
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center">
+                        <select
+                          value={dispatchUnit}
+                          onChange={e => handleDispatchUnitChange(item, e.target.value)}
+                          disabled={!isSelected}
+                          className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                        >
+                          <option value="bag">BAG</option>
+                          <option value="kg">KG</option>
+                        </select>
+                      </td>
+                      <td className="px-3 py-3 text-center">
                         <Input
                           type="number"
                           step="0.01"
                           min="0"
-                          max={item.remaining_alloc_qty ?? item.remaining_qty}
+                          max={convertDispatchQty(item.remaining_alloc_qty ?? item.remaining_qty, masterUnit, dispatchUnit, currentPkgSize)}
                           placeholder="Dispatch Qty"
                           value={getRowVal(item.item_id, 'del_qty_kg', String(item.remaining_alloc_qty ?? item.remaining_qty ?? ''))}
                           onChange={e => handleReceivedQtyChange(item, e.target.value)}
@@ -723,7 +759,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       <td className={`px-3 py-3 text-center font-medium whitespace-nowrap ${masterUnit === 'kg' ? 'text-slate-800' : 'text-slate-500'}`}>
                         {dispatchQtyKg ? Number(dispatchQtyKg.toFixed(2)) : '—'}
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center">
                         <select
                           value={transpId}
                           onChange={e => handleTransporterChange(item.item_id, e.target.value)}
@@ -736,52 +772,36 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                           ))}
                         </select>
                       </td>
-                      {hasAnyTransporterSelected && (
-                        <>
-                          <td className="px-3 py-3">
-                            {transpId ? (
-                              <Input
-                                type="text"
-                                placeholder="LR No."
-                                value={getRowVal(item.item_id, 'lr_number')}
-                                onChange={e => setFieldForSelected(item.item_id, 'lr_number', e.target.value)}
-                                disabled={!isSelected}
-                                className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[110px]"
-                              />
-                            ) : (
-                              <span className="text-slate-300 text-center block">—</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-3">
-                            {transpId ? (
-                              <Input
-                                type="text"
-                                placeholder="Vehicle No."
-                                value={getRowVal(item.item_id, 'vehicle_number', selectedTransporter?.vehicle_number || '')}
-                                onChange={e => setFieldForSelected(item.item_id, 'vehicle_number', e.target.value)}
-                                disabled={!isSelected}
-                                className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
-                              />
-                            ) : (
-                              <span className="text-slate-300 text-center block">—</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-3">
-                            {transpId ? (
-                              <Input
-                                type="text"
-                                placeholder="Driver No."
-                                value={getRowVal(item.item_id, 'driver_phone_number', selectedTransporter?.driver_phone_number || '')}
-                                onChange={e => setFieldForSelected(item.item_id, 'driver_phone_number', e.target.value)}
-                                disabled={!isSelected}
-                                className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
-                              />
-                            ) : (
-                              <span className="text-slate-300 text-center block">—</span>
-                            )}
-                          </td>
-                        </>
-                      )}
+                      <td className="px-3 py-3 text-center">
+                        <Input
+                          type="text"
+                          placeholder="LR No."
+                          value={getRowVal(item.item_id, 'lr_number')}
+                          onChange={e => setFieldForSelected(item.item_id, 'lr_number', e.target.value)}
+                          disabled={!isSelected || !transpId}
+                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[110px]"
+                        />
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <Input
+                          type="text"
+                          placeholder="Vehicle No."
+                          value={getRowVal(item.item_id, 'vehicle_number', selectedTransporter?.vehicle_number || '')}
+                          onChange={e => setFieldForSelected(item.item_id, 'vehicle_number', e.target.value)}
+                          disabled={!isSelected || !transpId}
+                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
+                        />
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <Input
+                          type="text"
+                          placeholder="Driver No."
+                          value={getRowVal(item.item_id, 'driver_phone_number', selectedTransporter?.driver_phone_number || '')}
+                          onChange={e => setFieldForSelected(item.item_id, 'driver_phone_number', e.target.value)}
+                          disabled={!isSelected || !transpId}
+                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
+                        />
+                      </td>
                     </tr>
                   );
                 })}
@@ -794,19 +814,19 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
             <table className="w-full text-xs">
               <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                 <tr>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in BAG</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in KG</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">LR No.</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Driver No.</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vehicle No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">LR No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Driver No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vehicle No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
                 </tr>
               </thead>
@@ -827,23 +847,24 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
 
                   return (
                     <tr key={del.delivery_id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="px-3 py-3 whitespace-nowrap text-slate-500 text-xs">
+                      <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}
                       </td>
-                      <td className="px-3 py-3 font-semibold text-slate-800 whitespace-nowrap">
+                      <td className="px-3 py-3 text-center font-semibold text-slate-800 whitespace-nowrap">
                         {del.lifting_number || '—'}
                       </td>
-                      <td className="px-3 py-3 font-semibold text-slate-700 whitespace-nowrap">
+                      <td className="px-3 py-3 text-center font-semibold text-slate-700 whitespace-nowrap">
                         {indentNum}
                       </td>
                       <td className="px-3 py-3 text-center">
                         <IndentTypeBadge processType={del.purchase_indent_items?.purchase_indents?.process_type} />
                       </td>
-                      <td className="px-3 py-3 text-slate-700 font-medium whitespace-nowrap">
+                      <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
                         {vendorName}
                       </td>
-                      <td className="px-3 py-3 font-medium text-slate-800">
+                      <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
                         {prod.name || '—'}
+                        <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
                       </td>
                       <td className="px-3 py-3 text-center font-bold text-emerald-700">
                         {qtyKg}
@@ -854,16 +875,16 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
                         {del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : '—'}
                       </td>
-                      <td className="px-3 py-3 text-slate-700 whitespace-nowrap">
+                      <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
                         {del.transporters?.name || '—'}
                       </td>
-                      <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                      <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
                         {del.lr_number || '—'}
                       </td>
-                      <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                      <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
                         {del.driver_phone_number || '—'}
                       </td>
-                      <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                      <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
                         {del.vehicle_number || '—'}
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
@@ -920,3 +941,4 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
 };
 
 export default DeliveryTable;
+

@@ -2,11 +2,11 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, Save, ShoppingCart, Clock, History, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getAllIndentItemsForVendorSelection, updateVendorSelection } from '../../../services/purchaseService';
+import { getAllIndentItemsForVendorSelection, updateVendorSelection, getPackagingSize } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
-import { sanitizeQtyInput } from '@/lib/qty';
+import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -14,6 +14,21 @@ const STATUS_OPTIONS = [
   { value: 'Approved', label: 'Approved' },
   { value: 'Rejected', label: 'Reject' },
 ];
+
+// Bag <-> Kg conversion. Qty is entered in whichever unit the row's Approve
+// Unit dropdown is set to (`fromUnit`, defaulting to the product's master
+// unit) — whichever of Bag/Kg matches that entry unit just mirrors Qty
+// as-is, the other is derived via this row's own Pkg/Bag (Mux) figure.
+const convertApproveQty = (qty, fromUnit, targetUnit, pkgSize) => {
+  const amount = Number(qty) || 0;
+  const mux = Number(pkgSize) || 0;
+  const from = (fromUnit || '').toLowerCase();
+  const target = (targetUnit || from).toLowerCase();
+  if (!from || target === from) return amount;
+  if (from === 'bag' && target === 'kg') return mux > 0 ? amount * mux : amount;
+  if (from === 'kg' && target === 'bag') return mux > 0 ? amount / mux : amount;
+  return amount;
+};
 
 const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
   const [items, setItems] = useState([]);
@@ -132,28 +147,72 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
     if (edit && edit[field] !== undefined) return edit[field];
     if (field === 'vendor_id') return item.vendor_id || item.purchase_indents?.vendor_id || '';
     if (field === 'godown_id') return item.approved_godown_id || item.purchase_indents?.godown_id || '';
-    if (field === 'quantity') return String(item.quantity ?? '');
     if (field === 'approval_action') return (item.approval_status === 'Approved' || item.approval_status === 'Rejected') ? item.approval_status : '';
     if (field === 'approval_remarks') return item.approved_remarks || '';
+    // Approve Unit defaults to the product's master unit; Qty (raw, as typed
+    // in that unit) defaults to whatever was saved before, falling back to
+    // the item's current quantity for rows that predate this feature.
+    if (field === 'approve_unit') return item.approve_unit || (item.products?.unit || '').toLowerCase();
+    if (field === 'approve_unit_qty') return item.approve_unit_qty != null ? String(item.approve_unit_qty) : String(item.quantity ?? '');
     return '';
   }, [edits]);
 
+  // Approve Qty is auto-calculated from the Approve Unit + Qty inputs,
+  // converted into the product's master unit via that product's Pkg/Bag
+  // (Mux) figure — this is what actually gets saved as quantity (the value
+  // that drives the rest of the purchase pipeline).
+  const getApprovedQtyPreview = useCallback((item) => {
+    const masterUnit = (item.products?.unit || '').toLowerCase();
+    const pkgSize = getPackagingSize(item.products);
+    const approveUnit = getValue(item, 'approve_unit');
+    const qty = getValue(item, 'approve_unit_qty');
+    return roundQty(convertApproveQty(qty, approveUnit, masterUnit, pkgSize));
+  }, [getValue]);
+
+  // Switching Approve Unit re-bases whatever Qty is currently showing into
+  // the newly picked unit (e.g. 20 bags becomes 640 when switching to Kg) so
+  // a stale number typed in the old unit doesn't linger under a new one.
+  const handleApproveUnitChange = (item, newUnit) => {
+    const currentUnit = getValue(item, 'approve_unit');
+    const currentQty = getValue(item, 'approve_unit_qty');
+    const pkgSize = getPackagingSize(item.products);
+    const requantified = convertApproveQty(currentQty, currentUnit, newUnit, pkgSize);
+    setEdits(prev => ({
+      ...prev,
+      [item.item_id]: {
+        ...prev[item.item_id],
+        approve_unit: newUnit,
+        approve_unit_qty: requantified ? String(roundQty(requantified)) : '',
+      },
+    }));
+  };
+
   // Rate, Expected Delivery Date and Remarks were already locked in during
   // planning (Indent tab) — this screen only lets the approver adjust the
-  // Approve Qty, override the vendor, and record the Approved/Reject decision
-  // with its own remarks, so those three are passed through unchanged.
-  const buildSavePayload = (item, edit) => ({
-    vendor_id: edit.vendor_id !== undefined ? edit.vendor_id : (item.vendor_id || item.purchase_indents?.vendor_id || null),
-    approved_godown_id: item.approved_godown_id || item.purchase_indents?.godown_id || null,
-    rate: Number(item.rate || 0),
-    quantity: edit.quantity !== undefined ? Number(edit.quantity) : Number(item.quantity || 0),
-    planning_date: item.planning_date,
-    vendor_remarks: item.vendor_remarks,
-    planning_status: 'Planned',
-    approval_status: edit.approval_action,
-    approved_remarks: edit.approval_remarks !== undefined ? edit.approval_remarks : '',
-    approved_by: user?.user_id || null,
-  });
+  // Approve Unit + Qty (Approve Qty is derived from those, see
+  // getApprovedQtyPreview), override the vendor, and record the
+  // Approved/Reject decision with its own remarks, so those other fields are
+  // passed through unchanged.
+  const buildSavePayload = (item, edit) => {
+    const approveUnit = getValue(item, 'approve_unit');
+    const approveUnitQty = getValue(item, 'approve_unit_qty');
+    const approveQty = getApprovedQtyPreview(item);
+    return {
+      vendor_id: edit.vendor_id !== undefined ? edit.vendor_id : (item.vendor_id || item.purchase_indents?.vendor_id || null),
+      approved_godown_id: item.approved_godown_id || item.purchase_indents?.godown_id || null,
+      rate: Number(item.rate || 0),
+      quantity: approveQty,
+      approve_unit: approveUnit,
+      approve_unit_qty: Number(approveUnitQty) || 0,
+      approve_qty: approveQty,
+      planning_date: item.planning_date,
+      vendor_remarks: item.vendor_remarks,
+      planning_status: 'Planned',
+      approval_status: edit.approval_action,
+      approved_remarks: edit.approval_remarks !== undefined ? edit.approval_remarks : '',
+      approved_by: user?.user_id || null,
+    };
+  };
 
   const setEditValue = (itemId, field, value) => {
     setEdits(prev => ({
@@ -361,9 +420,10 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
                 <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Unit</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approve Qty</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approve Unit</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap">Approve Qty</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Expected Delivery Date</th>
@@ -375,7 +435,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
             <tbody className="divide-y divide-slate-100">
               {filteredItems.length === 0 && (
                 <tr>
-                  <td colSpan="13" className="p-12 text-center">
+                  <td colSpan="14" className="p-12 text-center">
                     <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                       <ShoppingCart size={32} className="text-slate-300" />
                     </div>
@@ -411,23 +471,35 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
                     <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap text-xs">
                       {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
                     </td>
-                    <td className="px-3 py-3 text-center">
-                      <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>
-                    </td>
-                    <td className="px-3 py-3 text-center text-xs text-slate-500 uppercase whitespace-nowrap">
-                      {item.products?.unit || '—'}
+                    <td className="px-3 py-3 text-center whitespace-nowrap">
+                      <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>{' '}
+                      <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
                     </td>
                     <td className="px-3 py-3 text-center text-xs text-slate-500 font-medium whitespace-nowrap">
                       {item.indent_qty ?? item.quantity ?? '—'}
+                    </td>
+                    <td className="px-3 py-3">
+                      <select
+                        disabled={subTab === 'history'}
+                        value={getValue(item, 'approve_unit')}
+                        onChange={(e) => handleApproveUnitChange(item, e.target.value)}
+                        className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                      >
+                        <option value="bag">BAG</option>
+                        <option value="kg">KG</option>
+                      </select>
                     </td>
                     <td className="px-3 py-3 text-center">
                       <div className="w-20 mx-auto">
                         <Input type="text" inputMode="decimal" placeholder="Qty"
                           disabled={subTab === 'history'}
-                          value={getValue(item, 'quantity')}
-                          onChange={(e) => setEditValue(item.item_id, 'quantity', sanitizeQtyInput(e.target.value))}
+                          value={getValue(item, 'approve_unit_qty')}
+                          onChange={(e) => setEditValue(item.item_id, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
                           className="h-8 text-xs font-semibold text-center" />
                       </div>
+                    </td>
+                    <td className="px-3 py-3 text-center font-semibold text-emerald-600 tabular-nums">
+                      {getApprovedQtyPreview(item) || <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-3 py-3 text-center text-slate-600 text-xs whitespace-nowrap">
                       ₹{Number(item.rate || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}

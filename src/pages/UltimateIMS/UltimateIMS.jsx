@@ -3,11 +3,11 @@ import { Search, Boxes, ChevronLeft, ChevronRight, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllProductStock, getAllProducts, getAllGodowns } from '../../services/masterService';
-import { getReorderStatusItems, createIndent, generateNextIndentNumber } from '../../services/purchaseService';
+import { getReorderStatusItems, createIndent, generateNextIndentNumber, getPackagingSize } from '../../services/purchaseService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
-import { sanitizeQtyInput } from '@/lib/qty';
+import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -25,6 +25,21 @@ const formatNum = (n) => {
 // stock at a godown — anything else (In Transit, At TPT Gdn, ...) is still
 // moving, so it counts toward "In Transit Qty" instead of "received".
 const isReceivedStatus = (status) => status === 'Arrived' || status === 'Received';
+
+// Bag <-> Kg conversion. Reorder Qty is entered in whichever unit the row's
+// Reorder Unit dropdown is set to (`fromUnit`, defaulting to the product's
+// master unit) — whichever of Bag/Kg matches that entry unit just mirrors
+// Reorder Qty as-is, the other is derived via this row's own Pkg/Bag figure.
+const convertReorderQty = (qty, fromUnit, targetUnit, pkgSize) => {
+  const amount = Number(qty) || 0;
+  const mux = Number(pkgSize) || 0;
+  const from = (fromUnit || '').toLowerCase();
+  const target = (targetUnit || from).toLowerCase();
+  if (!from || target === from) return amount;
+  if (from === 'bag' && target === 'kg') return mux > 0 ? amount * mux : amount;
+  if (from === 'kg' && target === 'bag') return mux > 0 ? amount / mux : amount;
+  return amount;
+};
 
 /**
  * Live purchase-pipeline view, one row per Product + Godown: current stock
@@ -46,6 +61,9 @@ const UltimateIMS = () => {
   // it editable, per the "only enabled once selected" requirement.
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [reorderQty, setReorderQty] = useState({});
+  // Reorder Unit defaults to the product's own master unit per row — this
+  // state only holds rows where the user actually switched it.
+  const [reorderUnit, setReorderUnit] = useState({});
 
   // "Save" raises one Indent (+ one item per selected row, qty = its Reorder
   // Qty) straight from this dashboard — it lands in Purchase > Indent >
@@ -117,11 +135,14 @@ const UltimateIMS = () => {
         const indentGodownId = item.approved_godown_id || 'unassigned';
 
         const isDirect = item.purchase_indents?.process_type === 'direct';
+        // Direct items are Planned + Approved right at creation (see
+        // createIndent), so they skip both Pending stages entirely.
+        const isPlanned = isDirect || item.planning_status === 'Planned';
         const isApproved = isDirect || item.approval_status === 'Approved';
-        
+
         const qty = Number(item.quantity) || 0;
         let totalDeliveredForThisItem = 0;
-        
+
         for (const d of item.purchase_deliveries || []) {
           const dq = Number(d.received_quantity) || 0;
           totalDeliveredForThisItem += dq;
@@ -144,20 +165,17 @@ const UltimateIMS = () => {
 
         const stats = getGodownStats(item.product_id, indentGodownId);
         stats.totalOrderedQty += qty;
-        
-        // purchase_indents has no vendor_id column — the only real vendor
-        // link for an item is approved_vendor_id (set once approved).
-        const hasVendor = Boolean(item.approved_vendor_id);
-        
-        if (!isApproved) {
+
+        // Order Pending Qty == same items as Purchase > Indent > Pending
+        // (not yet vendor/rate/qty/date planned). Approval Pending Purchase
+        // Qty == same items as Vendor Approval > Pending (already planned,
+        // still awaiting sign-off). Once approved, it's all Approval Qty.
+        if (!isPlanned) {
+          stats.orderPendingQty += qty;
+        } else if (!isApproved) {
           stats.pendingApprovalQty += qty;
         } else {
-          const remainingForDelivery = Math.max(0, qty - totalDeliveredForThisItem);
-          if (hasVendor) {
-            stats.approvedQty += remainingForDelivery;
-          } else {
-            stats.orderPendingQty += remainingForDelivery;
-          }
+          stats.approvedQty += Math.max(0, qty - totalDeliveredForThisItem);
         }
       }
 
@@ -165,12 +183,14 @@ const UltimateIMS = () => {
         const statsArray = Array.from(g.godownStats.values()).map(st => ({
           ...st,
           godownName: godownMap.get(st.godownId)?.name || 'Unassigned Godown',
+          godownType: godownMap.get(st.godownId)?.godown_type || 'Own',
         }));
         return {
           key: g.productId,
           productId: g.productId,
           productName: productMap.get(g.productId)?.name || 'Unassigned Product',
           unit: productMap.get(g.productId)?.unit || '—',
+          packagingSize: getPackagingSize(productMap.get(g.productId)),
           stats: statsArray
         };
       }).sort((a, b) => a.productName.localeCompare(b.productName));
@@ -242,6 +262,34 @@ const UltimateIMS = () => {
     setReorderQty((prev) => ({ ...prev, [key]: value }));
   };
 
+  const getReorderUnitValue = (row) => reorderUnit[row.key] || (row.unit || '').toLowerCase();
+
+  // Live preview of the master-unit qty Reorder Unit/Qty currently convert
+  // to, using this product's real Pkg/Bag figure (Master > Product's Mux —
+  // e.g. "32 Kg" — parsed via getPackagingSize, never a hardcoded number).
+  // Kept at up to 2 decimal places, same as everywhere else quantities are
+  // stored — Indent Qty is allowed to be fractional (e.g. a Kg-unit product
+  // reordered as 3.56 Kg stays 3.56, it's never forced to a whole number).
+  const getReorderActualQty = (row) => {
+    const rawQty = reorderQty[row.key];
+    if (rawQty === undefined || rawQty === '') return null;
+    const masterUnit = (row.unit || '').toLowerCase();
+    const unit = getReorderUnitValue(row);
+    return roundQty(convertReorderQty(rawQty, unit, masterUnit, row.packagingSize));
+  };
+
+  // Switching Reorder Unit re-bases whatever Reorder Qty is currently
+  // showing into the newly picked unit (e.g. 20 bags becomes 640 when
+  // switching to Kg) so a stale number typed in the old unit doesn't linger
+  // under a new one.
+  const handleReorderUnitChange = (row, newUnit) => {
+    const currentUnit = getReorderUnitValue(row);
+    const currentQty = reorderQty[row.key] ?? '';
+    const requantified = convertReorderQty(currentQty, currentUnit, newUnit, row.packagingSize);
+    setReorderUnit((prev) => ({ ...prev, [row.key]: newUnit }));
+    setReorderQty((prev) => ({ ...prev, [row.key]: requantified ? String(roundQty(requantified)) : '' }));
+  };
+
   const handleSaveIndent = async () => {
     if (selectedRows.size === 0) {
       toast.error('Select at least one product row.');
@@ -254,13 +302,27 @@ const UltimateIMS = () => {
 
     const items = [];
     for (const key of selectedRows) {
-      const qty = Number(reorderQty[key]);
-      if (!qty || qty <= 0) {
-        const row = rows.find((r) => r.key === key);
+      const row = rows.find((r) => r.key === key);
+      const rawQty = Number(reorderQty[key]);
+      if (!rawQty || rawQty <= 0) {
         toast.error(`${row?.productName || 'Selected product'}: enter a valid reorder qty.`);
         return;
       }
-      items.push({ product_id: key, quantity: qty, rate: 0 });
+      const masterUnit = (row?.unit || '').toLowerCase();
+      const unit = row ? getReorderUnitValue(row) : masterUnit;
+      // quantity always has to be in the product's real master unit,
+      // regardless of which unit the Reorder Qty was actually typed in.
+      // Kept at up to 2 decimal places (not forced to a whole number) —
+      // Indent Qty is allowed to be fractional; whole-number rounding only
+      // has to happen later, right before a qty is actually posted to
+      // transactions (which has the chk_qty_integer constraint) — Delivery
+      // and Aawak already round independently at that point.
+      const masterQty = roundQty(convertReorderQty(rawQty, unit, masterUnit, row?.packagingSize));
+      if (!masterQty || masterQty <= 0) {
+        toast.error(`${row?.productName || 'Selected product'}: enter a valid reorder qty.`);
+        return;
+      }
+      items.push({ product_id: key, quantity: masterQty, rate: 0, reorder_unit: unit, reorder_unit_qty: rawQty });
     }
 
     setSaving(true);
@@ -282,6 +344,7 @@ const UltimateIMS = () => {
       toast.success(`Indent ${indent_number} created with ${items.length} item(s). See Purchase > Indent > Pending.`);
       setSelectedRows(new Set());
       setReorderQty({});
+      setReorderUnit({});
       await loadData();
     } catch (err) {
       toast.error(err.message || 'Failed to create indent.');
@@ -336,11 +399,12 @@ const UltimateIMS = () => {
               <tr className="bg-blue-50 border-b border-slate-200">
                 <th className="w-10 px-2 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[180px]">Product Name</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Unit</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Current Stock</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[110px]">Reorder Qty</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-amber-600 uppercase tracking-wider whitespace-nowrap min-w-[120px]">Approval Pending Purchase Qty</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap">Approval Qty</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Unit</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[110px]">Quantity</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]">Reorder Qty</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-amber-600 uppercase tracking-wider whitespace-nowrap min-w-[120px]">Approval Pending</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap">Approved Qty</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-violet-600 uppercase tracking-wider whitespace-nowrap">In Transit Qty</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-red-600 uppercase tracking-wider whitespace-nowrap">Order Pending Qty</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Godown Name</th>
@@ -349,14 +413,14 @@ const UltimateIMS = () => {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="p-12 text-center">
+                  <td colSpan={11} className="p-12 text-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3" />
                     <p className="text-sm text-slate-400">Loading live purchase data...</p>
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="p-12 text-center">
+                  <td colSpan={11} className="p-12 text-center">
                     <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                       <Boxes size={32} className="text-slate-300" />
                     </div>
@@ -369,18 +433,30 @@ const UltimateIMS = () => {
               ) : (
                   currentRows.map((row) => {
                     const selected = selectedRows.has(row.key);
+                    const actualQty = getReorderActualQty(row);
                     return (
                       <tr key={row.key} className={`hover:bg-slate-50/80 transition-colors ${selected ? 'bg-primary/5' : ''}`}>
                         <td className="px-2 py-3 text-center">
                           <input type="checkbox" checked={selected} onChange={() => toggleSelect(row.key)}
                             className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                         </td>
-                        <td className="px-4 py-3 text-center font-medium text-slate-800 whitespace-nowrap">{row.productName}</td>
-                        <td className="px-4 py-3 text-center whitespace-nowrap">
+                        <td className="px-4 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
+                          {row.productName}{' '}
                           <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{row.unit}</span>
                         </td>
                         <td className="px-4 py-3 text-center font-semibold text-slate-900 tabular-nums whitespace-nowrap">
                           {formatNum(row.currentStock)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <select
+                            disabled={!selected}
+                            value={getReorderUnitValue(row)}
+                            onChange={(e) => handleReorderUnitChange(row, e.target.value)}
+                            className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          >
+                            <option value="bag">BAG</option>
+                            <option value="kg">KG</option>
+                          </select>
                         </td>
                         <td className="px-4 py-3">
                           <div className="w-24 mx-auto">
@@ -390,6 +466,10 @@ const UltimateIMS = () => {
                               onChange={(e) => setReorderQtyValue(row.key, sanitizeQtyInput(e.target.value))}
                               className="h-8 text-xs text-center" />
                           </div>
+                        </td>
+                        <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums whitespace-nowrap"
+                          title={`Pkg/Bag used: ${row.packagingSize} Kg (from Master > Product's Mux)`}>
+                          {actualQty != null ? formatNum(actualQty) : <span className="text-slate-300">—</span>}
                         </td>
                         <td className="px-4 py-3 text-center font-semibold text-amber-600 tabular-nums whitespace-nowrap">
                           {row.pendingApprovalQty > 0 ? formatNum(row.pendingApprovalQty) : <span className="text-slate-300">0</span>}
@@ -405,19 +485,31 @@ const UltimateIMS = () => {
                         </td>
                         <td className="px-4 py-3 text-center">
                           <div className="flex flex-col gap-1 w-[120px] mx-auto">
-                            {row.filteredStats.filter(g => g.currentStock !== 0 || g.pendingApprovalQty > 0 || g.approvedQty > 0 || g.inTransitQty > 0 || g.totalOrderedQty > 0).length > 0 ? (
-                              row.filteredStats
+                            {(() => {
+                              // Unassigned Godown is a bucket for items with no
+                              // real godown pick yet (still awaiting planning/
+                              // approval), not an actual stock location — it
+                              // never belongs in this per-godown breakdown.
+                              const visibleGodowns = row.filteredStats
+                                .filter(g => g.godownId !== 'unassigned')
                                 .filter(g => g.currentStock !== 0 || g.pendingApprovalQty > 0 || g.approvedQty > 0 || g.inTransitQty > 0 || g.totalOrderedQty > 0)
-                                .sort((a, b) => b.currentStock - a.currentStock)
-                                .map((g) => (
+                                .sort((a, b) => b.currentStock - a.currentStock);
+                              return visibleGodowns.length > 0 ? (
+                                visibleGodowns.map((g) => (
                                   <div key={g.godownId} className="flex items-center justify-between gap-2 text-[11px] leading-tight border-b border-slate-100 last:border-0 pb-1 last:pb-0">
-                                    <span className="truncate text-slate-500 font-medium text-left" title={g.godownName}>{g.godownName}</span>
+                                    <span
+                                      className={`truncate font-medium text-left ${g.godownType !== 'Own' ? 'text-amber-500' : 'text-slate-500'}`}
+                                      title={g.godownName}
+                                    >
+                                      {g.godownName}
+                                    </span>
                                     <span className="font-semibold text-slate-700 text-right">{formatNum(g.currentStock)}</span>
                                   </div>
                                 ))
-                            ) : (
-                              <span className="text-xs text-slate-400">No stock</span>
-                            )}
+                              ) : (
+                                <span className="text-xs text-slate-400">No stock</span>
+                              );
+                            })()}
                           </div>
                         </td>
                       </tr>

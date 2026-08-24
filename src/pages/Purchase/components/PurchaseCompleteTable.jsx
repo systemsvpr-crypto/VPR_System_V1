@@ -182,27 +182,26 @@ const PurchaseCompleteTable = () => {
             <table className="w-full text-xs">
               <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                 <tr>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Name</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Unit</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
-                  <th className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
-                  <th className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Amount</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Amount</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approve Qty</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approved By</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approved By</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Intransit Qty</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter Qty</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Godown</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Godown</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredItems.length === 0 && (
                   <tr>
-                    <td colSpan="15" className="p-12 text-center text-slate-400">
+                    <td colSpan="14" className="p-12 text-center text-slate-400">
                       <BadgeCheck size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No purchase indent items found.</p>
                     </td>
@@ -215,31 +214,29 @@ const PurchaseCompleteTable = () => {
                       onClick={() => hasLifts && setSelectedItem(item)}
                       title={hasLifts ? 'Click to view all lifts for this item' : undefined}
                       className={`hover:bg-slate-50/60 transition-colors ${hasLifts ? 'cursor-pointer' : ''}`}>
-                      <td className="px-3 py-3 whitespace-nowrap text-slate-500 text-xs">
+                      <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {item.indent_date ? format(new Date(item.indent_date), 'dd/MM/yyyy') : '—'}
                       </td>
-                      <td className="px-3 py-3 font-semibold text-slate-800 whitespace-nowrap">
+                      <td className="px-3 py-3 text-center font-semibold text-slate-800 whitespace-nowrap">
                         {item.indent_number || '—'}
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
                         <IndentTypeBadge processType={item.indent_type === 'Direct' ? 'direct' : 'process'} />
                       </td>
-                      <td className="px-3 py-3 font-medium text-slate-800">
+                      <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
                         {item.product_name}
+                        <span className="text-slate-500 ml-1">({item.unit || '—'})</span>
                       </td>
-                      <td className="px-3 py-3 text-center text-slate-500 uppercase text-xs">
-                        {item.unit}
-                      </td>
-                      <td className="px-3 py-3 text-slate-700 font-medium whitespace-nowrap">
+                      <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
                         {item.vendor_name}
                       </td>
                       <td className="px-3 py-3 text-center font-semibold text-slate-700">
                         {formatNum(item.total_qty)}
                       </td>
-                      <td className="px-3 py-3 text-right text-slate-600">
+                      <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
                         {formatMoney(item.rate)}
                       </td>
-                      <td className="px-3 py-3 text-right font-semibold text-slate-800">
+                      <td className="px-3 py-3 text-center font-semibold text-slate-800 whitespace-nowrap">
                         {formatMoney(item.total_amount)}
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
@@ -249,7 +246,7 @@ const PurchaseCompleteTable = () => {
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">Pending</span>
                         )}
                       </td>
-                      <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+                      <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
                         {item.approved_by_name || '—'}
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
@@ -273,7 +270,7 @@ const PurchaseCompleteTable = () => {
                           <span className="text-slate-300 font-medium">0</span>
                         )}
                       </td>
-                      <td className="px-3 py-3 text-slate-700 whitespace-nowrap">
+                      <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
                         {item.received_godown_str}
                       </td>
                     </tr>
@@ -362,14 +359,14 @@ const PurchaseCompleteTable = () => {
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                         <tr>
-                          <th className="text-left px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lift No.</th>
-                          <th className="text-left px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
-                          <th className="text-left px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
-                          <th className="text-left px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">LR No.</th>
-                          <th className="text-left px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vehicle No.</th>
-                          <th className="text-left px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Driver No.</th>
+                          <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lift No.</th>
+                          <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                          <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
+                          <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">LR No.</th>
+                          <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vehicle No.</th>
+                          <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Driver No.</th>
                           <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty</th>
-                          <th className="text-left px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Godown</th>
+                          <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Godown</th>
                           <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
                         </tr>
                       </thead>
@@ -415,3 +412,4 @@ const PurchaseCompleteTable = () => {
 };
 
 export default PurchaseCompleteTable;
+

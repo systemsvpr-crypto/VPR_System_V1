@@ -41,16 +41,20 @@ const findLiftTransaction = async (lifting_number, godown_id, txn_type) => {
 // stock-in for a lift at the given godown. Used both for a real destination
 // godown (Arrived) and for a transporter's own godown (AT TPT GDN).
 const ensureLiftPurchaseIn = async ({ product_id, godown_id, qty, txn_date, lifting_number, lr_number, vehicle_number, created_by, back_dated }) => {
+  // transactions.qty has a chk_qty_integer constraint — round right at this
+  // boundary so purchase_deliveries.received_quantity / purchase_delivery_godowns.qty
+  // upstream can stay at full decimal precision.
+  const roundedQty = Number(qty) || 0;
   const existing = await findLiftTransaction(lifting_number, godown_id, 'PURCHASE_IN');
   if (existing) {
-    if (Number(existing.qty) !== Number(qty)) {
-      const { error } = await supabase.from('transactions').update({ qty: Number(qty) }).eq('txn_id', existing.txn_id);
+    if (Number(existing.qty) !== roundedQty) {
+      const { error } = await supabase.from('transactions').update({ qty: roundedQty }).eq('txn_id', existing.txn_id);
       if (error) throw error;
     }
     return;
   }
   const { error } = await supabase.from('transactions').insert([{
-    product_id, godown_id, txn_date, txn_type: 'PURCHASE_IN', qty: Number(qty),
+    product_id, godown_id, txn_date, txn_type: 'PURCHASE_IN', qty: roundedQty,
     is_void: false, created_by, back_dated,
     lr_number: lr_number || null, vehicle_number: vehicle_number || null, lifting_number,
   }]);
@@ -91,32 +95,11 @@ export const generateNextIndentNumber = async () => {
   return `VPR/IN-${String(next).padStart(3, '0')}`;
 };
 
-export const generateMultipleIndentNumbers = async (count) => {
-  if (!count || count <= 0) return [];
-  const { data, error } = await supabase
-    .from('purchase_indents')
-    .select('indent_number')
-    .like('indent_number', 'VPR/IN-%')
-    .order('indent_number', { ascending: false })
-    .limit(1);
-
-  if (error) throw error;
-
-  let startNum = 1;
-  if (data && data.length > 0) {
-    const last = data[0].indent_number;
-    const match = last.match(/VPR\/IN-(\d+)/);
-    if (match) {
-      startNum = parseInt(match[1], 10) + 1;
-    }
-  }
-
-  const numbers = [];
-  for (let i = 0; i < count; i++) {
-    numbers.push(`VPR/IN-${String(startNum + i).padStart(3, '0')}`);
-  }
-  return numbers;
-};
+// True only for the specific "indent_number already taken" conflict — other
+// unique/constraint violations (e.g. a real data problem) should still
+// surface as errors rather than being silently retried.
+const isIndentNumberConflict = (error) =>
+  error?.code === '23505' && String(error?.message || '').includes('purchase_indents_indent_number_key');
 
 export const getAllIndents = async () => {
   const { data: indents, error: indentsErr } = await supabase
@@ -180,12 +163,25 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
   // Process-type indent (e.g. the "Reorder" quick action on Ultimate IMS) can
   // be raised with just product + qty + date; which vendor and which
   // destination godown get decided per item, later, on Vendor Approval.
-  const { data: indent, error: indentErr } = await supabase
-    .from('purchase_indents')
-    .insert([{ indent_date, indent_number, total_amount: total, created_by, process_type: process_type || 'process' }])
-    .select()
-    .single();
-  if (indentErr) throw indentErr;
+  //
+  // indent_number is usually just an auto-suggested "next" number (see
+  // generateNextIndentNumber) that the form pre-fills — nothing re-checks
+  // it's still free by the time the user actually submits, so a concurrent
+  // create (another tab, another user, a Bulk Upload batch) can land on the
+  // exact same number first. On that specific conflict, re-fetch the true
+  // next number and retry instead of failing the whole indent outright.
+  let attemptNumber = indent_number;
+  let indent;
+  for (let attempt = 0; ; attempt++) {
+    const { data, error: indentErr } = await supabase
+      .from('purchase_indents')
+      .insert([{ indent_date, indent_number: attemptNumber, total_amount: total, created_by, process_type: process_type || 'process' }])
+      .select()
+      .single();
+    if (!indentErr) { indent = data; break; }
+    if (!isIndentNumberConflict(indentErr) || attempt >= 4) throw indentErr;
+    attemptNumber = await generateNextIndentNumber();
+  }
 
   if (items.length > 0) {
     const itemRows = items.map(item => ({
@@ -199,6 +195,17 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
       approved_godown_id: godown_id || null,
       vendor_id: vendor_id || null,
       vendor_remarks: remarks || null,
+      // reorder_unit/reorder_unit_qty are just a record of what was actually
+      // picked/typed on Ultimate IMS's Reorder — quantity above is always the
+      // converted, product-master-unit figure that drives the pipeline/stock.
+      // Only Reorder passes these; other indent flows leave them null.
+      reorder_unit: item.reorder_unit || null,
+      reorder_unit_qty: item.reorder_unit_qty != null ? Number(item.reorder_unit_qty) : null,
+      // direct_indent_unit/direct_indent_qty are the same kind of record, for
+      // Create Indent's own Unit + Qty inputs — quantity/indent_qty above
+      // already hold the converted master-unit figure.
+      direct_indent_unit: item.direct_indent_unit || null,
+      direct_indent_qty: item.direct_indent_qty != null ? Number(item.direct_indent_qty) : null,
       ...(isDirect ? { approval_status: 'Approved', planning_status: 'Planned', approved_by: created_by || null } : {}),
     }));
     const { error: itemErr } = await supabase
@@ -266,6 +273,11 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
           // Vendor Selection/Approval starts treating quantity as Approved Qty.
           indent_qty: Number(item.quantity),
           rate: Number(item.rate),
+          // Record of what was actually picked/typed on this item's own
+          // Unit + Qty inputs — quantity/indent_qty above already hold the
+          // converted master-unit figure.
+          direct_indent_unit: item.direct_indent_unit || null,
+          direct_indent_qty: item.direct_indent_qty != null ? Number(item.direct_indent_qty) : null,
         })
         .eq('item_id', item.item_id);
       if (updErr) throw updErr;
@@ -278,6 +290,8 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
           quantity: Number(item.quantity),
           indent_qty: Number(item.quantity),
           rate: Number(item.rate),
+          direct_indent_unit: item.direct_indent_unit || null,
+          direct_indent_qty: item.direct_indent_qty != null ? Number(item.direct_indent_qty) : null,
         });
       if (insErr) throw insErr;
     }
@@ -404,7 +418,7 @@ export const getAllIndentItems = async () => {
   return items || [];
 };
 
-export const updateVendorSelection = async (item_id, { vendor_id, approved_godown_id, rate, quantity, planning_date, vendor_remarks, planning_status, approval_status, approved_by, approved_remarks }) => {
+export const updateVendorSelection = async (item_id, { vendor_id, approved_godown_id, rate, quantity, planning_date, vendor_remarks, planning_status, approval_status, approved_by, approved_remarks, approve_unit, approve_unit_qty, approve_qty }) => {
   const updateFields = {};
   if (vendor_id !== undefined) updateFields.vendor_id = vendor_id;
   if (approved_godown_id !== undefined) updateFields.approved_godown_id = approved_godown_id;
@@ -416,6 +430,13 @@ export const updateVendorSelection = async (item_id, { vendor_id, approved_godow
   if (approval_status !== undefined) updateFields.approval_status = approval_status;
   if (approved_by !== undefined) updateFields.approved_by = approved_by;
   if (approved_remarks !== undefined) updateFields.approved_remarks = approved_remarks;
+  // approve_unit/approve_unit_qty are just a record of what was actually
+  // picked/typed on Indent Pending's Approve Unit + Qty — approve_qty (and
+  // quantity, kept in sync with it) is always the converted, product-
+  // master-unit figure that drives the rest of the pipeline.
+  if (approve_unit !== undefined) updateFields.approve_unit = approve_unit;
+  if (approve_unit_qty !== undefined) updateFields.approve_unit_qty = approve_unit_qty;
+  if (approve_qty !== undefined) updateFields.approve_qty = approve_qty;
 
   // Approving or rejecting is a sign-off either way — mirror the vendor/rate
   // in effect at decision time into the approved_* columns, same pattern
@@ -706,7 +727,7 @@ export const generateNextLiftingNumber = async () => {
   return `LIFT-${String(next).padStart(4, '0')}`;
 };
 
-export const createDelivery = async ({ item_id, indent_id, delivery_date, expected_delivery_date, godown_allocations, transporter_id, lr_number, vehicle_number, driver_phone_number, remarks, created_by, status, packaging_size, dispatch_qty_bag, dispatch_qty_kg }) => {
+export const createDelivery = async ({ item_id, indent_id, delivery_date, expected_delivery_date, godown_allocations, transporter_id, lr_number, vehicle_number, driver_phone_number, remarks, created_by, status, packaging_size, dispatch_unit, dispatch_qty_bag, dispatch_qty_kg }) => {
   const { data: item, error: itemErr } = await supabase
     .from('purchase_indent_items')
     .select(`product_id, products(name)`)
@@ -740,10 +761,14 @@ export const createDelivery = async ({ item_id, indent_id, delivery_date, expect
       status: deliveryStatus,
       remarks: remarks || null,
       packaging_size: packaging_size !== undefined && packaging_size !== '' ? Number(packaging_size) : null,
-      // Dispatch Qty is entered in the product's master unit — whichever of
-      // these two matches it mirrors that value, the other is derived from
-      // it via packaging_size. Both stored so either can be reported on
-      // regardless of which unit the product master uses.
+      // Dispatch Qty is entered in dispatch_unit (bag or kg, picked per
+      // row) — whichever of these two matches it mirrors that value, the
+      // other is derived from it via packaging_size. Both stored so either
+      // can be reported on regardless of which unit was used for entry.
+      // received_quantity above is always in the product's master unit
+      // (converted from dispatch_unit by the caller) since that's what
+      // drives stock deduction.
+      dispatch_unit: dispatch_unit || null,
       dispatch_qty_bag: dispatch_qty_bag !== undefined && dispatch_qty_bag !== '' ? Number(dispatch_qty_bag) : null,
       dispatch_qty_kg: dispatch_qty_kg !== undefined && dispatch_qty_kg !== '' ? Number(dispatch_qty_kg) : null,
       created_by,
@@ -765,9 +790,12 @@ export const createDelivery = async ({ item_id, indent_id, delivery_date, expect
   const back_dated = delivery_date < getTodayLocal();
 
   if (deliveryStatus === 'Arrived') {
+    // transactions.qty has a chk_qty_integer constraint — round right at
+    // this boundary; received_quantity/purchase_delivery_godowns.qty above
+    // already stayed at full decimal precision.
     const txnRows = godown_allocations.map(a => ({
       product_id, godown_id: a.godown_id, txn_date: delivery_date,
-      txn_type: 'PURCHASE_IN', qty: Number(a.qty),
+      txn_type: 'PURCHASE_IN', qty: Number(a.qty) || 0,
       is_void: false, created_by, back_dated,
       lr_number: lr_number || null,
       vehicle_number: vehicle_number || null,
@@ -859,12 +887,15 @@ export const updateDelivery = async ({ delivery_id, delivery_date, expected_deli
       await voidLiftTransaction(delivery.lifting_number, transporter_id, 'PURCHASE_IN', 'Moved to destination godown on Arrived');
     }
 
+    // transactions.qty has a chk_qty_integer constraint — round right at
+    // this boundary; purchase_delivery_godowns.qty above already stayed at
+    // full decimal precision.
     const txnRows = godown_allocations.map(a => ({
       product_id: item.product_id,
       godown_id: a.godown_id,
       txn_date: delivery_date,
       txn_type: 'PURCHASE_IN',
-      qty: Number(a.qty),
+      qty: Number(a.qty) || 0,
       is_void: false,
       created_by: user_id,
       back_dated,
@@ -890,7 +921,7 @@ export const updateDelivery = async ({ delivery_id, delivery_date, expected_deli
 
 };
 
-export const updateDeliveryStatus = async ({ delivery_id, status, user_id, received_quantity, delivery_date, godown_id }) => {
+export const updateDeliveryStatus = async ({ delivery_id, status, user_id, received_quantity, delivery_date, godown_id, recv_unit, recv_unit_qty }) => {
   const { data: delivery, error: fetchErr } = await supabase
     .from('purchase_deliveries')
     .select(`status, item_id, indent_id, delivery_date, received_quantity, lr_number, vehicle_number, lifting_number, transporter_id`)
@@ -916,6 +947,11 @@ export const updateDeliveryStatus = async ({ delivery_id, status, user_id, recei
   if (delivery_date !== undefined) {
     updateFields.delivery_date = targetDate;
   }
+  // recv_unit/recv_unit_qty are just a record of what was actually typed
+  // (unit + raw qty) — received_quantity above is always the converted,
+  // product-master-unit figure that drives stock.
+  if (recv_unit !== undefined) updateFields.recv_unit = recv_unit;
+  if (recv_unit_qty !== undefined) updateFields.recv_unit_qty = recv_unit_qty;
 
   const { error: updErr } = await supabase
     .from('purchase_deliveries')
@@ -974,12 +1010,15 @@ export const updateDeliveryStatus = async ({ delivery_id, status, user_id, recei
     if (gdErr) throw gdErr;
 
     const back_dated = targetDate < getTodayLocal();
+    // transactions.qty has a chk_qty_integer constraint — round right at
+    // this boundary; purchase_delivery_godowns.qty stays at full decimal
+    // precision.
     const txnRows = (godownAllocs || []).map(a => ({
       product_id: item.product_id,
       godown_id: a.godown_id,
       txn_date: targetDate,
       txn_type: 'PURCHASE_IN',
-      qty: Number(a.qty),
+      qty: Number(a.qty) || 0,
       is_void: false,
       created_by: user_id,
       back_dated,
@@ -1254,7 +1293,7 @@ export const getPurchaseDashboardItems = async () => {
   });
 };
 
-export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, driver_phone_number, vehicle_number, remarks, status, received_quantity, user_id, transporter_id }) => {
+export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, driver_phone_number, vehicle_number, remarks, status, received_quantity, recv_unit, recv_unit_qty, user_id, transporter_id }) => {
   const { data: existing, error: fetchErr } = await supabase
     .from('purchase_deliveries')
     .select('status, item_id, delivery_date, lifting_number, lr_number, vehicle_number, received_quantity')
@@ -1304,6 +1343,8 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
       status: 'Arrived',
       user_id,
       received_quantity,
+      recv_unit,
+      recv_unit_qty,
       godown_id: destinationGodownId,
     });
   }
@@ -1320,6 +1361,11 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
   if (received_quantity !== undefined && received_quantity !== null && received_quantity !== '') {
     updatePayload.received_quantity = Number(received_quantity);
   }
+  // recv_unit/recv_unit_qty are just a record of what was actually typed
+  // (unit + raw qty) — received_quantity above is always the converted,
+  // product-master-unit figure that drives stock.
+  if (recv_unit !== undefined) updatePayload.recv_unit = recv_unit;
+  if (recv_unit_qty !== undefined) updatePayload.recv_unit_qty = recv_unit_qty;
 
   const { data, error } = await supabase
     .from('purchase_deliveries')
@@ -1510,9 +1556,9 @@ export const getReorderStatusItems = async () => {
       item_id,
       product_id,
       quantity,
+      planning_status,
       approval_status,
       approved_godown_id,
-      approved_vendor_id,
       purchase_indents!inner(is_void, process_type),
       purchase_deliveries(status, received_quantity, purchase_delivery_godowns(godown_id, qty))
     `)

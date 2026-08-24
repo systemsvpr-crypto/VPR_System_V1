@@ -5,7 +5,6 @@ import toast from 'react-hot-toast';
 import { getAawakDeliveries, updateAawakLift } from '../../../services/purchaseService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { sanitizeQtyInput } from '@/lib/qty';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -150,6 +149,16 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     }
     if (field === 'driver_phone_number') return del.driver_phone_number || del.transporters?.driver_phone_number || '';
     if (field === 'vehicle_number') return del.vehicle_number || del.transporters?.vehicle_number || '';
+    // received_quantity defaults to what was actually dispatched
+    // (dispatch_qty_bag/kg, matching the product's master unit) rather
+    // than starting blank/zero — it's still 0 at this point for a lift
+    // that's just "In Transit" and hasn't been confirmed as received yet.
+    if (field === 'received_quantity') {
+      if (del.received_quantity) return String(del.received_quantity);
+      const masterUnit = (del.purchase_indent_items?.products?.unit || '').toLowerCase();
+      const dispatchQty = masterUnit === 'kg' ? del.dispatch_qty_kg : del.dispatch_qty_bag;
+      return dispatchQty != null ? String(dispatchQty) : '';
+    }
     return del[field] || '';
   };
 
@@ -158,6 +167,34 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
       ...prev,
       [deliveryId]: { ...prev[deliveryId], [field]: val },
     }));
+  };
+
+  // The *first* time Status is changed while multiple rows are checked, it
+  // fills in every other checked row too — a convenience for updating a
+  // batch of lifts the same way in one go. But once any row in that
+  // selection already has its own status override (i.e. the batch has
+  // already been filled, or someone changed one row individually), further
+  // changes only apply to the one row being edited — so a row can be
+  // corrected on its own afterwards without dragging the rest of the
+  // selection along with it. Same convention as Vendor Approval/Indent's
+  // setFieldForSelected.
+  const handleStatusChange = (delId, val) => {
+    if (!selectedLifts.has(delId)) {
+      setRowVal(delId, 'status', val);
+      return;
+    }
+    setEditingRows(prev => {
+      const alreadyDiverged = Array.from(selectedLifts).some(id => prev[id]?.status !== undefined);
+      const next = { ...prev };
+      if (alreadyDiverged) {
+        next[delId] = { ...(next[delId] || {}), status: val };
+      } else {
+        selectedLifts.forEach(id => {
+          next[id] = { ...(next[id] || {}), status: val };
+        });
+      }
+      return next;
+    });
   };
 
   const handleSubmit = async () => {
@@ -179,7 +216,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
       let dbStatus = edit.status;
       if (dbStatus === 'AT TPT GDN') dbStatus = 'In Transport Godown';
 
-      const editedQty = edit.received_quantity !== undefined ? Number(edit.received_quantity) : Number(del.received_quantity || 0);
+      const editedQty = edit.received_quantity !== undefined ? Number(edit.received_quantity) : Number(getRowVal(del, 'received_quantity') || 0);
       if (!editedQty || editedQty <= 0) {
         toast.error(`${del.lifting_number || 'Lift'}: enter a valid Qty.`);
         continue;
@@ -397,25 +434,27 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Name</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">LR No.</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Driver No.</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">Vehicle No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (KG)</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (Bags)</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">LR No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Driver No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">Vehicle No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Exp. Recv. Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Recv. Qty</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Godown Name</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Review</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Status</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Godown Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Review</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredDeliveries.length === 0 && (
                   <tr>
-                    <td colSpan="14" className="p-12 text-center text-slate-400">
+                    <td colSpan="16" className="p-12 text-center text-slate-400">
                       <PackageOpen size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">
                         {activeSubTab === 'pending' ? 'No pending lifts found.' : 'No arrived lifts found.'}
@@ -441,20 +480,27 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         />
                       </td>
-                      <td className="px-3 py-3 text-slate-800 font-semibold">{del.lifting_number || '—'}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-slate-500 text-xs">
+                      <td className="px-3 py-3 text-center text-slate-800 font-semibold whitespace-nowrap">{del.lifting_number || '—'}</td>
+                      <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}
                       </td>
                       <td className="px-3 py-3 text-center">
                         <IndentTypeBadge processType={del.purchase_indent_items?.purchase_indents?.process_type} />
                       </td>
-                      <td className="px-3 py-3 font-medium text-slate-800">
+                      <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
                         {prod.name || '—'}
+                        <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
                       </td>
-                      <td className="px-3 py-3 text-slate-700 font-medium whitespace-nowrap">
+                      <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
+                        {del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
+                        {del.dispatch_qty_bag != null ? Number(Number(del.dispatch_qty_bag).toFixed(2)) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
                         {del.transporters?.name || '—'}
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center">
                         <Input
                           type="text"
                           placeholder="LR No."
@@ -464,7 +510,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
                         />
                       </td>
-                      <td className="px-3 py-3 min-w-[140px]">
+                      <td className="px-3 py-3 text-center min-w-[140px]">
                         <Input
                           type="text"
                           placeholder="Driver No."
@@ -474,7 +520,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
                         />
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center">
                         <Input
                           type="text"
                           placeholder="Vehicle No."
@@ -487,18 +533,10 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap">
                         {del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}
                       </td>
-                      <td className="px-3 py-3">
-                        <Input
-                          type="text"
-                          inputMode="decimal"
-                          placeholder="Qty"
-                          disabled={locked}
-                          value={getRowVal(del, 'received_quantity')}
-                          onChange={e => setRowVal(del.delivery_id, 'received_quantity', sanitizeQtyInput(e.target.value))}
-                          className="h-8 text-xs text-center font-bold text-emerald-700 bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                        />
+                      <td className="px-3 py-3 text-center font-bold text-emerald-700 whitespace-nowrap">
+                        {getRowVal(del, 'received_quantity') || '—'}
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center">
                         <select
                           disabled={locked}
                           value={getRowVal(del, 'godown_id')}
@@ -511,7 +549,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           ))}
                         </select>
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center">
                         <Input
                           type="text"
                           placeholder="Review..."
@@ -521,11 +559,11 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
                         />
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center">
                         <select
                           disabled={locked}
                           value={uiStatus}
-                          onChange={e => setRowVal(del.delivery_id, 'status', e.target.value)}
+                          onChange={e => handleStatusChange(del.delivery_id, e.target.value)}
                           className="w-full h-8 text-xs font-semibold px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
                         >
                           <option value="In Transit">In Transit</option>
@@ -583,3 +621,4 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 };
 
 export default AawakDetailsTable;
+

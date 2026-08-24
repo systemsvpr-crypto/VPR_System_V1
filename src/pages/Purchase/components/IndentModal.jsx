@@ -1,14 +1,29 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ShoppingCart, X, Plus, ArrowRightLeft, Zap, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { createIndent, updateIndent, generateNextIndentNumber } from '../../../services/purchaseService';
+import { createIndent, updateIndent, generateNextIndentNumber, getPackagingSize } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import BulkIndentProductsModal from './BulkIndentProductsModal';
-import { sanitizeQtyInput } from '@/lib/qty';
+import { sanitizeQtyInput, roundQty } from '@/lib/qty';
+
+// Bag <-> Kg conversion. Qty is entered in whichever unit the row's Unit
+// dropdown is set to (`fromUnit`, defaulting to the product's master unit)
+// — whichever of Bag/Kg matches that entry unit just mirrors Qty as-is, the
+// other (Indent Qty) is derived via this row's own Pkg/Bag (Mux) figure.
+const convertQty = (qty, fromUnit, targetUnit, pkgSize) => {
+  const amount = Number(qty) || 0;
+  const mux = Number(pkgSize) || 0;
+  const from = (fromUnit || '').toLowerCase();
+  const target = (targetUnit || from).toLowerCase();
+  if (!from || target === from) return amount;
+  if (from === 'bag' && target === 'kg') return mux > 0 ? amount * mux : amount;
+  if (from === 'kg' && target === 'bag') return mux > 0 ? amount / mux : amount;
+  return amount;
+};
 
 const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products, godowns, vendors }) => {
   const [form, setForm] = useState({
@@ -49,12 +64,18 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
           product_id: item.product_id,
           quantity: String(item.quantity),
           rate: String(item.rate),
+          // Unit defaults to the product's master unit; Qty (raw, as typed
+          // in that unit) defaults to whatever was saved before, falling
+          // back to the item's current quantity for rows that predate this
+          // feature.
+          direct_indent_unit: item.direct_indent_unit || (item.products?.unit || '').toLowerCase(),
+          direct_indent_qty: item.direct_indent_qty != null ? String(item.direct_indent_qty) : String(item.quantity),
         })),
       });
     } else {
       setForm(prev => ({
         ...prev,
-        items: [{ product_id: '', quantity: '', rate: '' }],
+        items: [{ product_id: '', quantity: '', rate: '', direct_indent_unit: '', direct_indent_qty: '' }],
       }));
       generateNextIndentNumber().then(num => {
         setForm(prev => ({ ...prev, indent_number: num }));
@@ -70,8 +91,23 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     if (form.items.length === 0) { toast.error('Add at least one product.'); return; }
     for (const [i, item] of form.items.entries()) {
       if (!item.product_id) { toast.error(`Item ${i + 1}: Select a product.`); return; }
-      if (!Number(item.quantity) || Number(item.quantity) <= 0) { toast.error(`Item ${i + 1}: Enter a valid quantity.`); return; }
+      const product = products.find(p => p.product_id === item.product_id);
+      if (!getComputedQty(item, product)) { toast.error(`Item ${i + 1}: Enter a valid quantity.`); return; }
     }
+    // Indent Qty (quantity) is always the product's real master-unit
+    // figure, converted from whichever Unit + Qty the row was actually
+    // entered in — see getComputedQty. direct_indent_unit/direct_indent_qty
+    // are kept alongside purely as a record of that raw entry.
+    const payloadItems = form.items.map(item => {
+      const product = products.find(p => p.product_id === item.product_id);
+      const rawQty = getItemRawQty(item);
+      return {
+        ...item,
+        quantity: getComputedQty(item, product),
+        direct_indent_unit: getItemUnit(item, product),
+        direct_indent_qty: rawQty === '' ? null : Number(rawQty),
+      };
+    });
     setSubmitting(true);
     try {
       if (isEditing) {
@@ -81,7 +117,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
           godown_id: form.godown_id,
           vendor_id: form.vendor_id,
           remarks: form.remarks.trim(),
-          items: form.items,
+          items: payloadItems,
           process_type: form.process_type,
           user_id: user?.user_id,
         });
@@ -93,7 +129,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
           godown_id: form.godown_id,
           vendor_id: form.vendor_id,
           remarks: form.remarks.trim(),
-          items: form.items,
+          items: payloadItems,
           created_by: user?.user_id,
           process_type: form.process_type,
         });
@@ -106,7 +142,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   };
 
   const addItem = () => {
-    setForm({ ...form, items: [...form.items, { product_id: '', quantity: '', rate: '' }] });
+    setForm({ ...form, items: [...form.items, { product_id: '', quantity: '', rate: '', direct_indent_unit: '', direct_indent_qty: '' }] });
   };
 
   const updateItem = (index, field, value) => {
@@ -117,6 +153,55 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
 
   const removeItem = (index) => {
     setForm({ ...form, items: form.items.filter((_, i) => i !== index) });
+  };
+
+  // Unit defaults to the product's master unit; Qty (raw, as typed in that
+  // unit) defaults to whatever was saved before, falling back to the item's
+  // plain quantity for rows that predate this feature (e.g. Bulk Upload
+  // rows, which only ever set quantity directly in the master unit).
+  const getItemUnit = (item, product) => item.direct_indent_unit || (product?.unit || '').toLowerCase();
+  const getItemRawQty = (item) =>
+    item.direct_indent_qty !== undefined && item.direct_indent_qty !== null && item.direct_indent_qty !== ''
+      ? String(item.direct_indent_qty)
+      : String(item.quantity ?? '');
+
+  // Indent Qty is auto-calculated from the Unit + Qty inputs, converted into
+  // the product's master unit via that product's Pkg/Bag (Mux) figure —
+  // this is what actually gets saved as quantity (the value that drives the
+  // rest of the purchase pipeline).
+  const getComputedQty = (item, product) => {
+    const raw = getItemRawQty(item);
+    if (raw === '') return 0;
+    const masterUnit = (product?.unit || '').toLowerCase();
+    const unit = getItemUnit(item, product);
+    return roundQty(convertQty(raw, unit, masterUnit, getPackagingSize(product)));
+  };
+
+  const handleProductChange = (index, productId) => {
+    const product = products.find(p => p.product_id === productId);
+    const items = [...form.items];
+    items[index] = { ...items[index], product_id: productId, direct_indent_unit: (product?.unit || '').toLowerCase() };
+    setForm({ ...form, items });
+  };
+
+  // Switching Unit re-bases whatever Qty is currently showing into the
+  // newly picked unit (e.g. 20 bags becomes 640 when switching to Kg) so a
+  // stale number typed in the old unit doesn't linger under a new one.
+  const handleUnitChange = (index, newUnit) => {
+    const item = form.items[index];
+    const product = products.find(p => p.product_id === item.product_id);
+    const currentUnit = getItemUnit(item, product);
+    const currentQty = getItemRawQty(item);
+    const requantified = convertQty(currentQty, currentUnit, newUnit, getPackagingSize(product));
+    const items = [...form.items];
+    items[index] = { ...item, direct_indent_unit: newUnit, direct_indent_qty: requantified ? String(roundQty(requantified)) : '' };
+    setForm({ ...form, items });
+  };
+
+  const handleQtyChange = (index, value) => {
+    const items = [...form.items];
+    items[index] = { ...items[index], direct_indent_qty: sanitizeQtyInput(value) };
+    setForm({ ...form, items });
   };
 
   const handleImportProducts = (data, mode) => {
@@ -151,8 +236,11 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   };
 
   const totalAmount = useMemo(() => {
-    return form.items.reduce((sum, item) => sum + (Number(item.rate) || 0) * (Number(item.quantity) || 0), 0);
-  }, [form.items]);
+    return form.items.reduce((sum, item) => {
+      const product = products.find(p => p.product_id === item.product_id);
+      return sum + (Number(item.rate) || 0) * getComputedQty(item, product);
+    }, 0);
+  }, [form.items, products]);
 
   const productOptions = useMemo(() => {
     return products.map(p => ({ value: p.product_id, label: p.name }));
@@ -235,17 +323,25 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                 <div className="space-y-3 max-h-72 overflow-y-auto pr-1 border border-slate-200/80 rounded-xl p-3 bg-slate-50/50">
                   {form.items.map((item, i) => {
                     const selectedProduct = products.find(p => p.product_id === item.product_id);
+                    const computedQty = getComputedQty(item, selectedProduct);
                     return (
-                      <div key={i} className="grid grid-cols-12 gap-2 items-end">
-                        <div className="col-span-5">
+                      <div key={i} className="grid grid-cols-[repeat(13,minmax(0,1fr))] gap-2 items-end">
+                        <div className="col-span-4">
                           <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
-                          <Dropdown value={item.product_id} onValueChange={(v) => updateItem(i, 'product_id', v)}
+                          <Dropdown value={item.product_id} onValueChange={(v) => handleProductChange(i, v)}
                             options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
                             align="start" />
                         </div>
                         <div className="col-span-2">
                           <label className="block text-xs font-medium text-slate-500 mb-1">Unit</label>
-                          <Input value={selectedProduct?.unit || ''} readOnly placeholder="-" className="bg-slate-100/70 text-slate-600 cursor-not-allowed" />
+                          <select
+                            value={getItemUnit(item, selectedProduct)}
+                            onChange={(e) => handleUnitChange(i, e.target.value)}
+                            className="w-full h-9 text-sm px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          >
+                            <option value="bag">BAG</option>
+                            <option value="kg">KG</option>
+                          </select>
                         </div>
                         <div className="col-span-2">
                           <label className="block text-xs font-medium text-slate-500 mb-1">Rate</label>
@@ -254,8 +350,14 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                         </div>
                         <div className="col-span-2">
                           <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
-                          <Input type="number" step="0.01" min="1" placeholder="1"
-                            value={item.quantity} onChange={(e) => updateItem(i, 'quantity', sanitizeQtyInput(e.target.value))} />
+                          <Input type="text" inputMode="decimal" placeholder="Qty"
+                            value={getItemRawQty(item)} onChange={(e) => handleQtyChange(i, e.target.value)} />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Indent Qty</label>
+                          <div className="h-9 flex items-center justify-center text-sm font-semibold text-emerald-600 bg-emerald-50/50 border border-emerald-100 rounded-md">
+                            {computedQty || <span className="text-slate-300">—</span>}
+                          </div>
                         </div>
                         <div className="col-span-1 flex items-end pb-0.5">
                           <button type="button" onClick={() => removeItem(i)}

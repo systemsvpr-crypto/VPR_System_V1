@@ -2,14 +2,29 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, Save, ShoppingCart, Clock, History as HistoryIcon, Zap, ArrowRightLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getAllIndentItems, updateVendorSelection } from '../../../services/purchaseService';
+import { getAllIndentItems, updateVendorSelection, getPackagingSize } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
-import { sanitizeQtyInput } from '@/lib/qty';
+import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
+
+// Bag <-> Kg conversion. Qty is entered in whichever unit the row's Approve
+// Unit dropdown is set to (`fromUnit`, defaulting to the product's master
+// unit) — whichever of Bag/Kg matches that entry unit just mirrors Qty
+// as-is, the other is derived via this row's own Pkg/Bag (Mux) figure.
+const convertApproveQty = (qty, fromUnit, targetUnit, pkgSize) => {
+  const amount = Number(qty) || 0;
+  const mux = Number(pkgSize) || 0;
+  const from = (fromUnit || '').toLowerCase();
+  const target = (targetUnit || from).toLowerCase();
+  if (!from || target === from) return amount;
+  if (from === 'bag' && target === 'kg') return mux > 0 ? amount * mux : amount;
+  if (from === 'kg' && target === 'bag') return mux > 0 ? amount / mux : amount;
+  return amount;
+};
 
 /* ─── indent type badge — same convention as the old Indent table ── */
 const IndentTypeBadge = ({ processType }) => (
@@ -127,8 +142,26 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
     if (field === 'quantity') return String(item.quantity ?? '');
     if (field === 'planning_date') return item.planning_date || '';
     if (field === 'vendor_remarks') return item.vendor_remarks || '';
+    // Approve Unit defaults to the product's master unit; Qty (raw, as
+    // typed in that unit) defaults to whatever was saved before, falling
+    // back to the item's current quantity for rows that predate this
+    // feature (or haven't been approved yet).
+    if (field === 'approve_unit') return item.approve_unit || (item.products?.unit || '').toLowerCase();
+    if (field === 'approve_unit_qty') return item.approve_unit_qty != null ? String(item.approve_unit_qty) : String(item.quantity ?? '');
     return '';
   }, [edits]);
+
+  // Approved Qty is auto-calculated from the Approve Unit + Qty inputs,
+  // converted into the product's master unit via that product's Pkg/Bag
+  // (Mux) figure — this is what actually gets saved as quantity (the value
+  // that drives the rest of the purchase pipeline).
+  const getApprovedQtyPreview = useCallback((item) => {
+    const masterUnit = (item.products?.unit || '').toLowerCase();
+    const pkgSize = getPackagingSize(item.products);
+    const approveUnit = getValue(item, 'approve_unit');
+    const qty = getValue(item, 'approve_unit_qty');
+    return roundQty(convertApproveQty(qty, approveUnit, masterUnit, pkgSize));
+  }, [getValue]);
 
   // The *first* time Vendor or Expected Delivery Date is set while multiple
   // rows are checked, it fills in every other checked row too — a
@@ -166,6 +199,24 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
     setEdits(prev => ({ ...prev, [item.item_id]: { ...prev[item.item_id], [field]: value } }));
   };
 
+  // Switching Approve Unit re-bases whatever Qty is currently showing into
+  // the newly picked unit (e.g. 20 bags becomes 640 when switching to Kg)
+  // so a stale number typed in the old unit doesn't linger under a new one.
+  const handleApproveUnitChange = (item, newUnit) => {
+    const currentUnit = getValue(item, 'approve_unit');
+    const currentQty = getValue(item, 'approve_unit_qty');
+    const pkgSize = getPackagingSize(item.products);
+    const requantified = convertApproveQty(currentQty, currentUnit, newUnit, pkgSize);
+    setEdits(prev => ({
+      ...prev,
+      [item.item_id]: {
+        ...prev[item.item_id],
+        approve_unit: newUnit,
+        approve_unit_qty: requantified ? String(roundQty(requantified)) : '',
+      },
+    }));
+  };
+
   const toggleSelect = (itemId) => {
     setSelectedItems(prev => {
       const next = new Set(prev);
@@ -201,6 +252,13 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
       const edit = edits[itemId] || {};
       const label = item.purchase_indents?.indent_number || itemId;
 
+      // Approved Qty is always the product's real master-unit figure,
+      // regardless of which unit Qty was actually typed in — see
+      // getApprovedQtyPreview (same conversion, computed live on screen).
+      const approveUnit = getValue(item, 'approve_unit');
+      const approveUnitQty = getValue(item, 'approve_unit_qty');
+      const approveQty = getApprovedQtyPreview(item);
+
       // approval_status / approved_by are deliberately not set here — this
       // screen is planning (choosing vendor/rate/qty/date), not the final
       // approval sign-off. That's a separate, later step on the Approval tab.
@@ -208,7 +266,10 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
         vendor_id: edit.vendor_id !== undefined ? edit.vendor_id : (item.vendor_id || item.purchase_indents?.vendor_id || null),
         approved_godown_id: item.approved_godown_id || item.purchase_indents?.godown_id || null,
         rate: edit.rate !== undefined ? Number(edit.rate) : Number(item.rate || 0),
-        quantity: edit.quantity !== undefined ? Number(edit.quantity) : Number(item.quantity || 0),
+        quantity: approveQty,
+        approve_unit: approveUnit,
+        approve_unit_qty: Number(approveUnitQty) || 0,
+        approve_qty: approveQty,
         planning_date: edit.planning_date !== undefined ? edit.planning_date : item.planning_date,
         vendor_remarks: edit.vendor_remarks !== undefined ? edit.vendor_remarks : item.vendor_remarks,
         planning_status: 'Planned',
@@ -294,35 +355,36 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
           <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
-            <table className="w-full text-sm relative">
+            <table className="w-full text-sm relative [&_td]:align-middle">
               <thead className="sticky top-0 z-10 shadow-sm">
                 <tr className="bg-blue-50 border-b border-slate-200">
                   {subTab === 'pending' && (
-                    <th className="w-10 px-4 py-3">
+                    <th className="w-10 px-4 py-3 text-center">
                       <input type="checkbox"
                         checked={currentItems.length > 0 && currentItems.every(i => selectedItems.has(i.item_id))}
                         onChange={toggleSelectAll}
                         className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                     </th>
                   )}
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Number</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Number</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Items</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[180px]">Product Name</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Unit</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">Product Name</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Indent Qty</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[160px]">Vendor Name</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[160px]">Vendor Name</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Rate</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Approved Qty</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[150px]">Expected Delivery Date</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Remarks</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Approve Unit</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Qty</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]">Approved Qty</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[150px]">Expected Delivery Date</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Remarks</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {isEmpty && (
                   <tr>
-                    <td colSpan="14" className="p-12 text-center">
+                    <td colSpan="15" className="p-12 text-center">
                       <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                         <ShoppingCart size={32} className="text-slate-300" />
                       </div>
@@ -344,28 +406,27 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                   const selected = selectedItems.has(item.item_id);
                   const vendorName = vendors.find(v => v.vendor_id === item.vendor_id)?.name
                     || indent.vendors?.name || '—';
+                  const approvedQtyPreview = getApprovedQtyPreview(item);
                   return (
                     <tr key={item.item_id} className={`hover:bg-slate-50 transition-colors ${selected ? 'bg-primary/5' : ''}`}>
                       {subTab === 'pending' && (
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 text-center">
                           <input type="checkbox" checked={selected} onChange={() => toggleSelect(item.item_id)}
                             className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                         </td>
                       )}
-                      <td className="px-4 py-3 text-slate-600">
+                      <td className="px-4 py-3 text-center text-slate-600">
                         {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
                       </td>
-                      <td className="px-4 py-3 font-medium text-slate-800">{indent.indent_number || '—'}</td>
+                      <td className="px-4 py-3 text-center font-medium text-slate-800">{indent.indent_number || '—'}</td>
                       <td className="px-4 py-3 text-center"><IndentTypeBadge processType={indent.process_type} /></td>
                       <td className="px-4 py-3 text-center">
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
                           {itemNoMap.get(item.item_id) || '—'}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className="font-medium text-slate-800">{item.products?.name || '—'}</span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-4 py-3 text-center whitespace-nowrap">
+                        <span className="font-medium text-slate-800">{item.products?.name || '—'}</span>{' '}
                         <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
                       </td>
                       <td className="px-4 py-3 text-center font-medium text-slate-800">
@@ -378,7 +439,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
 
                       {subTab === 'pending' ? (
                         <>
-                          <td className="px-4 py-3 min-w-[160px]">
+                          <td className="px-4 py-3 min-w-[160px] text-center">
                             <Dropdown value={getValue(item, 'vendor_id')}
                               onValueChange={(v) => setFieldForSelected(item, 'vendor_id', v)}
                               options={vendorOptions} placeholder="Select vendor..."
@@ -398,39 +459,55 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                               className="h-8 text-xs text-center" />
                           </td>
                           <td className="px-4 py-3">
+                            <select
+                              disabled={!selected}
+                              value={getValue(item, 'approve_unit')}
+                              onChange={(e) => handleApproveUnitChange(item, e.target.value)}
+                              className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                            >
+                              <option value="bag">BAG</option>
+                              <option value="kg">KG</option>
+                            </select>
+                          </td>
+                          <td className="px-4 py-3">
                             <div className="w-20 mx-auto">
                               <Input type="text" inputMode="decimal" placeholder="Qty"
                                 disabled={!selected}
-                                value={getValue(item, 'quantity')}
-                                onChange={(e) => setItemField(item, 'quantity', sanitizeQtyInput(e.target.value))}
+                                value={getValue(item, 'approve_unit_qty')}
+                                onChange={(e) => setItemField(item, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
                                 className="h-8 text-xs text-center" />
                             </div>
                           </td>
-                          <td className="px-4 py-3 min-w-[150px]">
+                          <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums">
+                            {approvedQtyPreview || <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className="px-4 py-3 min-w-[150px] text-center">
                             <DatePicker value={getValue(item, 'planning_date')}
                               disabled={!selected}
                               onChange={(e) => setFieldForSelected(item, 'planning_date', e.target.value)}
                               placeholder="Select date..." className="h-8 text-xs" />
                           </td>
-                          <td className="px-4 py-3 min-w-[130px]">
+                          <td className="px-4 py-3 min-w-[130px] text-center">
                             <Input type="text" placeholder="Remarks"
                               disabled={!selected}
                               value={getValue(item, 'vendor_remarks')}
                               onChange={(e) => setItemField(item, 'vendor_remarks', e.target.value)}
-                              className="h-8 text-xs" />
+                              className="h-8 text-xs text-center" />
                           </td>
                         </>
                       ) : (
                         <>
-                          <td className="px-4 py-3 text-slate-700 font-medium">{vendorName}</td>
+                          <td className="px-4 py-3 text-center text-slate-700 font-medium">{vendorName}</td>
                           <td className="px-4 py-3 text-center text-slate-600 tabular-nums">
                             {item.rate ? `₹${Number(item.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
                           </td>
+                          <td className="px-4 py-3 text-center text-slate-500 uppercase text-xs">{item.approve_unit || '—'}</td>
+                          <td className="px-4 py-3 text-center text-slate-600 tabular-nums">{item.approve_unit_qty ?? '—'}</td>
                           <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums">{item.quantity ?? '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">
+                          <td className="px-4 py-3 text-center text-slate-600">
                             {item.planning_date ? format(new Date(item.planning_date), 'dd/MM/yyyy') : '—'}
                           </td>
-                          <td className="px-4 py-3 text-slate-600">{item.vendor_remarks || '—'}</td>
+                          <td className="px-4 py-3 text-center text-slate-600">{item.vendor_remarks || '—'}</td>
                         </>
                       )}
                     </tr>
