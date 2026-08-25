@@ -808,7 +808,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
               { label: 'Total Qty', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: <span className="text-amber-600">Pending Qty</span>, className: '!text-xs !font-semibold !py-3 !px-4' },
               { label: <span className="text-primary">Unit</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
-              { label: <span className="text-primary">Convert Qty</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
+              { label: <span className="text-primary">Qty</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
               { label: 'Dispatch Qty', className: 'min-w-[100px] !text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: <span className="text-primary">Dispatch Date</span>, className: 'min-w-[150px] !text-xs !font-semibold !py-3 !px-4' },
               { label: 'Unit Price', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
@@ -936,7 +936,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                         options={UNIT_OPTIONS} placeholder="Unit..." align="start" disabled={!selected} />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">Convert Qty</label>
+                      <label className="block text-[10px] text-slate-400 mb-1">Qty</label>
                       <Input type="text" inputMode="decimal" placeholder="Qty"
                         disabled={!selected} value={getDraft(item, 'quantity')}
                         onChange={e => setDraftValue(item.item_id, 'quantity', sanitizeQtyInput(e.target.value))}
