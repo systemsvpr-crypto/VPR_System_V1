@@ -21,7 +21,7 @@ const TABS = [
   { id: 'orders', label: 'Orders', icon: ShoppingCart },
   { id: 'dispatch-planning', label: 'Dispatch Planning', icon: ClipboardList },
   { id: 'dispatch-completed', label: 'Dispatch Completed', icon: CheckCircle },
-  { id: 'skip-delivered', label: 'Skip Delivered', icon: Truck },
+  { id: 'skip-delivered', label: 'Skip Delivered', icon: Truck, hidden: true },
   { id: 'inform-after-dispatch', label: 'Inform After Dispatch', icon: Mail },
 ];
 
@@ -54,7 +54,7 @@ const Sales = () => {
   const visibleTabs = useMemo(() => {
     const allowedTabs = user?.tab_access?.sales;
     if (!allowedTabs || allowedTabs.length === 0) return [];
-    return TABS.filter(tab => allowedTabs.includes(tab.id));
+    return TABS.filter(tab => allowedTabs.includes(tab.id) && !tab.hidden);
   }, [user]);
 
   // Orders are only ever fulfilled from a real "own" godown, not a

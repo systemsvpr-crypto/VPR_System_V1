@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Search, ShoppingCart, Plus, FileText, Users, CheckCircle, BadgeCheck, Truck, Zap, Download, Upload, Timer, MapPin, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
-import { getAllIndents, deleteIndent } from '../../services/purchaseService';
+import { getAllIndents, deleteIndent, deleteIndentItem } from '../../services/purchaseService';
 import { getAllProducts, getAllGodowns } from '../../services/masterService';
 import { getAllVendors } from '../../services/vendorService';
 import { getAllTransporters } from '../../services/transporterService';
@@ -139,6 +139,25 @@ const Purchase = () => {
     }
   };
 
+  // Deletes every checked row's own item — on a multi-product indent the
+  // other rows/items stay intact. Only when a given item was the last one
+  // remaining under its indent does deleteIndentItem also clean up the
+  // now-empty indent header (see purchaseService.js). The confirm dialog for
+  // this lives in IndentPendingHistoryTable itself (one prompt for the whole
+  // batch); this just does the deletion + reload.
+  const handleDeleteSelectedItems = async (itemsToDelete) => {
+    if (!itemsToDelete || itemsToDelete.length === 0) return;
+    try {
+      for (const item of itemsToDelete) {
+        await deleteIndentItem(item.item_id);
+      }
+      toast.success(`${itemsToDelete.length} item${itemsToDelete.length !== 1 ? 's' : ''} deleted`);
+      loadData();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
   const handleCloseModal = () => {
     setModalOpen(false);
     setEditingIndent(null);
@@ -206,6 +225,7 @@ const Purchase = () => {
             refreshToken={dataVersion}
             searchTerm={searchTerm}
             onSearchChange={setSearchTerm}
+            onDelete={handleDeleteSelectedItems}
             toolbarExtra={
               <>
                 <select

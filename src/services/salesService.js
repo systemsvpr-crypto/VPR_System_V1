@@ -182,6 +182,12 @@ export const createOrder = async ({ order_date, order_number, customer_id, items
       godown_id: item.godown_id,
       unit_price: Number(item.unit_price),
       quantity: Number(item.quantity),
+      // Selected_Unit/sales_qty are just a record of what was actually
+      // picked/typed on Create Order's own Unit + Qty inputs — quantity
+      // above is always the converted, product-master-unit figure that
+      // drives the rest of the sales/dispatch pipeline.
+      Selected_Unit: item.Selected_Unit || null,
+      sales_qty: item.sales_qty != null ? Number(item.sales_qty) : null,
     }));
     const { error: itemErr } = await supabase
       .from('sales_order_items')
@@ -263,6 +269,8 @@ export const updateOrder = async (order_id, { order_date, order_number, customer
           godown_id: item.godown_id,
           unit_price: Number(item.unit_price),
           quantity: Number(item.quantity),
+          Selected_Unit: item.Selected_Unit || null,
+          sales_qty: item.sales_qty != null ? Number(item.sales_qty) : null,
         })
         .eq('item_id', item.item_id);
       if (updErr) throw updErr;
@@ -275,6 +283,8 @@ export const updateOrder = async (order_id, { order_date, order_number, customer
           godown_id: item.godown_id,
           unit_price: Number(item.unit_price),
           quantity: Number(item.quantity),
+          Selected_Unit: item.Selected_Unit || null,
+          sales_qty: item.sales_qty != null ? Number(item.sales_qty) : null,
         });
       if (insErr) throw insErr;
     }

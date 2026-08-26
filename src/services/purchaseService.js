@@ -380,6 +380,71 @@ export const deleteIndent = async (indent_id) => {
   if (error) throw error;
 };
 
+// Deletes a single product line off an indent — for a multi-product indent,
+// removing one row shouldn't take the other products' rows down with it the
+// way deleteIndent does. Same permanent-delete cascade as deleteIndent, just
+// scoped to this one item's own deliveries/allocations instead of every item
+// under the indent. If this was the indent's last remaining item, the indent
+// header is now an empty shell with nothing left under it — remove that too
+// so it doesn't linger in the list.
+export const deleteIndentItem = async (item_id) => {
+  const { data: itemRow, error: itemFetchErr } = await supabase
+    .from('purchase_indent_items')
+    .select('indent_id')
+    .eq('item_id', item_id)
+    .single();
+  if (itemFetchErr) throw itemFetchErr;
+  const indent_id = itemRow?.indent_id;
+
+  // 1. Get all delivery_ids for this item
+  const { data: deliveries, error: delFetchErr } = await supabase
+    .from('purchase_deliveries')
+    .select('delivery_id')
+    .eq('item_id', item_id);
+  if (delFetchErr) throw delFetchErr;
+
+  const deliveryIds = (deliveries || []).map(d => d.delivery_id);
+
+  if (deliveryIds.length > 0) {
+    // 2. Delete godown allocations for those deliveries
+    const { error: gdErr } = await supabase
+      .from('purchase_delivery_godowns')
+      .delete()
+      .in('delivery_id', deliveryIds);
+    if (gdErr) throw gdErr;
+
+    // 3. Delete the deliveries themselves
+    const { error: delErr } = await supabase
+      .from('purchase_deliveries')
+      .delete()
+      .in('delivery_id', deliveryIds);
+    if (delErr) throw delErr;
+  }
+
+  // 4. Delete the item itself
+  const { error: itemErr } = await supabase
+    .from('purchase_indent_items')
+    .delete()
+    .eq('item_id', item_id);
+  if (itemErr) throw itemErr;
+
+  // 5. Clean up the indent header if that was its last item.
+  if (indent_id) {
+    const { count, error: countErr } = await supabase
+      .from('purchase_indent_items')
+      .select('item_id', { count: 'exact', head: true })
+      .eq('indent_id', indent_id);
+    if (countErr) throw countErr;
+    if ((count || 0) === 0) {
+      const { error: indentErr } = await supabase
+        .from('purchase_indents')
+        .delete()
+        .eq('indent_id', indent_id);
+      if (indentErr) throw indentErr;
+    }
+  }
+};
+
 export const getAllIndentItemsForVendorSelection = async () => {
   const { data: items, error: itemsErr } = await supabase
     .from('purchase_indent_items')

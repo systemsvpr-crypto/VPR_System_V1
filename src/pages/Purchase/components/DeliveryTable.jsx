@@ -353,6 +353,11 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
       const tName = edit.transporter_id ? (selectedTransporter?.name || '-') : fallbackTransporterName;
       const lrNum = edit.lr_number || fallbackLrNumber || null;
 
+      if (!lrNum) {
+        toast.error(`Please enter LR Number for indent ${item.purchase_indents?.indent_number}`);
+        continue;
+      }
+
       try {
         await createDelivery({
           item_id: item.item_id,

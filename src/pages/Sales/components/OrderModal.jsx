@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ShoppingCart, X, Plus, Truck, ArrowRightCircle, Lock, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { createOrder, updateOrder, generateNextOrderNumber } from '../../../services/salesService';
+import { createOrder, updateOrder, generateNextOrderNumber, convertQtyToMasterUnit, convertQtyFromMasterUnit } from '../../../services/salesService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import BulkOrderProductsModal from './BulkOrderProductsModal';
-import { sanitizeQtyInput } from '@/lib/qty';
+import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 
 const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, godowns, customers }) => {
   const [form, setForm] = useState({
@@ -59,13 +59,20 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
           godown_id: item.godown_id,
           unit_price: String(item.unit_price),
           quantity: String(item.quantity),
+          // Unit defaults to the product's master unit; Qty (raw, as typed
+          // in that unit) defaults to whatever was saved before, falling
+          // back to the item's current quantity for rows that predate this
+          // feature (e.g. Bulk Upload rows, which only ever set quantity
+          // directly in the master unit).
+          Selected_Unit: item.Selected_Unit || (item.products?.unit || '').toLowerCase(),
+          sales_qty: item.sales_qty != null ? String(item.sales_qty) : String(item.quantity),
         })),
       });
       setNotifyCustomer(true);
     } else {
       setForm(prev => ({
         ...prev,
-        items: [{ product_id: '', godown_id: '', unit_price: '', quantity: '' }],
+        items: [{ product_id: '', godown_id: '', unit_price: '', Selected_Unit: '', sales_qty: '' }],
       }));
       setNotifyCustomer(true);
       generateNextOrderNumber().then(num => {
@@ -82,8 +89,23 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     for (const [i, item] of form.items.entries()) {
       if (!item.product_id) { toast.error(`Item ${i + 1}: Select a product.`); return; }
       if (!item.godown_id) { toast.error(`Item ${i + 1}: Select a godown.`); return; }
-      if (!Number(item.quantity) || Number(item.quantity) <= 0) { toast.error(`Item ${i + 1}: Enter a valid quantity.`); return; }
+      const product = products.find(p => p.product_id === item.product_id);
+      if (!getComputedQty(item, product)) { toast.error(`Item ${i + 1}: Enter a valid quantity.`); return; }
     }
+    // quantity is always the product's real master-unit figure, converted
+    // from whichever Unit + Qty the row was actually entered in — see
+    // getComputedQty. Selected_Unit/sales_qty are kept alongside purely as a
+    // record of that raw entry.
+    const payloadItems = form.items.map(item => {
+      const product = products.find(p => p.product_id === item.product_id);
+      const rawQty = getItemRawQty(item);
+      return {
+        ...item,
+        quantity: getComputedQty(item, product),
+        Selected_Unit: getItemUnit(item, product),
+        sales_qty: rawQty === '' ? null : Number(rawQty),
+      };
+    });
     setSubmitting(true);
     try {
       if (isEditing) {
@@ -91,7 +113,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
           order_date: form.order_date,
           order_number: form.order_number.trim(),
           customer_id: form.customer_id,
-          items: form.items,
+          items: payloadItems,
           process_type: form.process_type,
           notify_customer: notifyCustomer,
         });
@@ -101,7 +123,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
           order_date: form.order_date,
           order_number: form.order_number.trim(),
           customer_id: form.customer_id,
-          items: form.items,
+          items: payloadItems,
           created_by: user?.user_id,
           process_type: form.process_type,
           notify_customer: notifyCustomer,
@@ -115,7 +137,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
   };
 
   const addItem = () => {
-    setForm({ ...form, items: [...form.items, { product_id: '', godown_id: '', unit_price: '', quantity: '' }] });
+    setForm({ ...form, items: [...form.items, { product_id: '', godown_id: '', unit_price: '', Selected_Unit: '', sales_qty: '' }] });
   };
 
   const updateItem = (index, field, value) => {
@@ -126,6 +148,58 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
 
   const removeItem = (index) => {
     setForm({ ...form, items: form.items.filter((_, i) => i !== index) });
+  };
+
+  // Unit defaults to the product's master unit; Qty (raw, as typed in that
+  // unit) defaults to whatever was saved before, falling back to the item's
+  // plain quantity for rows that predate this feature (e.g. Bulk Upload
+  // rows, which only ever set quantity directly in the master unit). Always
+  // a real value, never '' (which would leave the <select> showing the
+  // browser's own first-option default out of sync with state, so
+  // switching Unit before a product is picked would silently no-op).
+  const getItemUnit = (item, product) => item.Selected_Unit || (product?.unit || '').toLowerCase() || 'bag';
+  const getItemRawQty = (item) =>
+    item.sales_qty !== undefined && item.sales_qty !== null && item.sales_qty !== ''
+      ? String(item.sales_qty)
+      : String(item.quantity ?? '');
+
+  // Order Qty is auto-calculated from the Unit + Qty inputs, converted into
+  // the product's master unit via that product's Pkg/Bag (Mux) figure —
+  // this is what actually gets saved as quantity (the value that drives the
+  // rest of the sales/dispatch pipeline).
+  const getComputedQty = (item, product) => {
+    const raw = getItemRawQty(item);
+    if (raw === '') return 0;
+    const unit = getItemUnit(item, product);
+    return roundQty(convertQtyToMasterUnit(raw, unit, product));
+  };
+
+  const handleProductChange = (index, productId) => {
+    const product = products.find(p => p.product_id === productId);
+    const items = [...form.items];
+    items[index] = { ...items[index], product_id: productId, Selected_Unit: (product?.unit || '').toLowerCase() };
+    setForm({ ...form, items });
+  };
+
+  // Switching Unit re-bases whatever Qty is currently showing into the
+  // newly picked unit (e.g. 20 bags becomes 640 when switching to Kg) so a
+  // stale number typed in the old unit doesn't linger under a new one.
+  const handleUnitChange = (index, newUnit) => {
+    const item = form.items[index];
+    const product = products.find(p => p.product_id === item.product_id);
+    const currentUnit = getItemUnit(item, product);
+    const currentQty = getItemRawQty(item);
+    const masterQty = convertQtyToMasterUnit(currentQty, currentUnit, product);
+    const requantified = convertQtyFromMasterUnit(masterQty, newUnit, product);
+    const items = [...form.items];
+    items[index] = { ...item, Selected_Unit: newUnit, sales_qty: requantified ? String(roundQty(requantified)) : '' };
+    setForm({ ...form, items });
+  };
+
+  const handleQtyChange = (index, value) => {
+    const items = [...form.items];
+    items[index] = { ...items[index], sales_qty: sanitizeQtyInput(value) };
+    setForm({ ...form, items });
   };
 
   const handleImportProducts = (data, mode) => {
@@ -158,8 +232,11 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
   };
 
   const totalAmount = useMemo(() => {
-    return form.items.reduce((sum, item) => sum + (Number(item.unit_price) || 0) * (Number(item.quantity) || 0), 0);
-  }, [form.items]);
+    return form.items.reduce((sum, item) => {
+      const product = products.find(p => p.product_id === item.product_id);
+      return sum + (Number(item.unit_price) || 0) * getComputedQty(item, product);
+    }, 0);
+  }, [form.items, products]);
 
   const productOptions = useMemo(() => {
     return products.map(p => ({ value: p.product_id, label: p.name }));
@@ -192,6 +269,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                   { id: 'skip_delivered', label: 'Skip Delivered' },
                 ].map(t => (
                   <button key={t.id} type="button" onClick={() => !anyItemLocked && setForm({ ...form, process_type: t.id })}
+                    style={t.id === 'skip_delivered' ? { display: 'none' } : {}}
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
                       anyItemLocked ? 'cursor-not-allowed opacity-60' :
                       form.process_type === t.id
@@ -234,17 +312,26 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                   {form.items.map((item, i) => {
                     const itemLocked = isItemLocked(item.item_id);
                     const selectedProduct = products.find(p => p.product_id === item.product_id);
+                    const computedQty = getComputedQty(item, selectedProduct);
                     return (
-                    <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                    <div key={i} className="grid grid-cols-[repeat(14,minmax(0,1fr))] gap-2 items-end">
                       <div className="col-span-3">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
-                        <Dropdown value={item.product_id} onValueChange={(v) => updateItem(i, 'product_id', v)}
+                        <Dropdown value={item.product_id} onValueChange={(v) => handleProductChange(i, v)}
                           options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
                           align="start" disabled={itemLocked} />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Unit</label>
-                        <Input value={selectedProduct?.unit || ''} readOnly placeholder="-" className="bg-slate-100/70 text-slate-600 cursor-not-allowed" disabled={itemLocked} />
+                        <select
+                          value={getItemUnit(item, selectedProduct)}
+                          onChange={(e) => handleUnitChange(i, e.target.value)}
+                          disabled={itemLocked}
+                          className="w-full h-9 text-sm px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                        >
+                          <option value="bag">BAG</option>
+                          <option value="kg">KG</option>
+                        </select>
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Godown <span className="text-red-500">*</span></label>
@@ -260,8 +347,14 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
-                        <Input type="number" step="0.01" min="1" placeholder="1"
-                          value={item.quantity} onChange={(e) => updateItem(i, 'quantity', sanitizeQtyInput(e.target.value))} disabled={itemLocked} />
+                        <Input type="text" inputMode="decimal" placeholder="Qty"
+                          value={getItemRawQty(item)} onChange={(e) => handleQtyChange(i, e.target.value)} disabled={itemLocked} />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Order Qty</label>
+                        <div className="h-9 flex items-center justify-center text-sm font-semibold text-emerald-600 bg-emerald-50/50 border border-emerald-100 rounded-md">
+                          {computedQty || <span className="text-slate-300">—</span>}
+                        </div>
                       </div>
                       <div className="col-span-1 flex items-end pb-0.5">
                         <button type="button" onClick={() => !itemLocked && removeItem(i)}

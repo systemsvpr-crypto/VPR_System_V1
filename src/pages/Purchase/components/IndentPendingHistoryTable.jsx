@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Save, ShoppingCart, Clock, History as HistoryIcon, Zap, ArrowRightLeft, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Save, ShoppingCart, Clock, History as HistoryIcon, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAllIndentItems, updateVendorSelection, getPackagingSize } from '../../../services/purchaseService';
@@ -67,7 +67,14 @@ const buildItemNoMap = (allItems) => {
  * scoped to the Indent page, that also includes Direct-type items (which are
  * auto-approved/Planned right at creation, so they land straight in History).
  */
-const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarExtra, searchTerm = '', onSearchChange }) => {
+const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarExtra, searchTerm = '', onSearchChange, onDelete }) => {
+  // Same gating as the old Indent table: deletion is destructive (it removes
+  // the whole indent + every item/delivery under it), so only Super Admin —
+  // or a local dev build — gets the button at all.
+  const roleUpper = String(user?.role || '').trim().toUpperCase();
+  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
+  const canDelete = import.meta.env.DEV || isSuperAdmin;
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState('pending'); // 'pending' | 'history'
@@ -77,6 +84,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [edits, setEdits] = useState({});
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Reloads on mount, and again whenever the Indent page creates/edits/bulk-
   // uploads an indent (Purchase.jsx bumps refreshToken after its own
@@ -296,6 +304,20 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
     }
   };
 
+  // Bulk delete for the checkbox selection — each selected row's own item
+  // gets removed individually (not the whole indent), same as the old
+  // per-row delete button did. Confirms once for the whole batch rather than
+  // once per row.
+  const deleteSelected = async () => {
+    if (selectedCount === 0) { toast.error('No rows selected.'); return; }
+    if (!window.confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    setDeleting(true);
+    const toDelete = items.filter(i => selectedItems.has(i.item_id));
+    await onDelete?.(toDelete);
+    setDeleting(false);
+    setSelectedItems(new Set());
+  };
+
   const isEmpty = filteredItems.length === 0;
 
   return (
@@ -334,9 +356,21 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
 
         {toolbarExtra}
 
+        {subTab === 'pending' && canDelete && (
+          <Button size="sm" variant="outline" onClick={deleteSelected} disabled={deleting || saving || selectedCount === 0}
+            className="gap-1.5 text-xs h-9 w-full sm:w-auto sm:ml-auto shrink-0 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
+            {deleting ? (
+              <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-red-600" />
+            ) : (
+              <Trash2 size={14} />
+            )}
+            Delete
+          </Button>
+        )}
+
         {subTab === 'pending' && (
           <Button size="sm" onClick={saveSelected} disabled={saving || selectedCount === 0}
-            className="gap-1.5 text-xs h-9 w-full sm:w-auto sm:ml-auto shrink-0">
+            className={`gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0 ${canDelete ? '' : 'sm:ml-auto'}`}>
             {saving ? (
               <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white" />
             ) : (
@@ -368,8 +402,6 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                   )}
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Number</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Items</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">Product Name</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Indent Qty</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[160px]">Vendor Name</th>
@@ -379,6 +411,8 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                   <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]">Approved Qty</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[150px]">Expected Delivery Date</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Remarks</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Items</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -419,12 +453,6 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                         {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
                       </td>
                       <td className="px-4 py-3 text-center font-medium text-slate-800">{indent.indent_number || '—'}</td>
-                      <td className="px-4 py-3 text-center"><IndentTypeBadge processType={indent.process_type} /></td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
-                          {itemNoMap.get(item.item_id) || '—'}
-                        </span>
-                      </td>
                       <td className="px-4 py-3 text-center whitespace-nowrap">
                         <span className="font-medium text-slate-800">{item.products?.name || '—'}</span>{' '}
                         <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
@@ -510,6 +538,12 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                           <td className="px-4 py-3 text-center text-slate-600">{item.vendor_remarks || '—'}</td>
                         </>
                       )}
+                      <td className="px-4 py-3 text-center"><IndentTypeBadge processType={indent.process_type} /></td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                          {itemNoMap.get(item.item_id) || '—'}
+                        </span>
+                      </td>
                     </tr>
                   );
                 })}

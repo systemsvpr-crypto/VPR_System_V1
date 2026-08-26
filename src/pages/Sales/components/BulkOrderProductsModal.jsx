@@ -1,13 +1,13 @@
 import { useState, useRef, useMemo } from 'react';
-import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Layers, Trash2 } from 'lucide-react';
+import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Layers, Trash2, ChevronDown } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
-import { createOrder, generateMultipleOrderNumbers } from '../../../services/salesService';
-import { sanitizeQtyInput } from '@/lib/qty';
+import { createOrder, generateMultipleOrderNumbers, convertQtyToMasterUnit, convertQtyFromMasterUnit } from '../../../services/salesService';
+import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 
 const COLUMN_ALIASES = {
   'Order Date': ['order date', 'orderdate', 'date', 'order_date'],
@@ -15,6 +15,7 @@ const COLUMN_ALIASES = {
   'Product Name': ['product name', 'product', 'productname', 'item name', 'item', 'itemname', 'product_name'],
   'Godown Name': ['godown name', 'godown', 'godownname', 'warehouse', 'warehouse name', 'location', 'godown_name'],
   'Quantity': ['quantity', 'qty', 'qnty', 'count', 'amount', 'units'],
+  'Unit': ['unit', 'uom', 'unit of measure', 'unit_of_measure', 'measure'],
   'Unit Price': ['unit price', 'unitprice', 'price', 'rate', 'cost', 'unit cost', 'amount/unit'],
 };
 
@@ -192,6 +193,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
         const orderDateKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Order Date');
         const customerKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Customer Name');
         const godownKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Godown Name');
+        const unitKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Unit');
 
         const defaultDate = getTodayLocal();
         const parsedRows = json.map((row, idx) => {
@@ -201,6 +203,12 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
           const rawPrice = priceKey && row[priceKey] !== '' ? String(row[priceKey]) : '';
           const rawCust = customerKey ? String(row[customerKey] || '').trim() : '';
           const rawDate = orderDateKey ? String(row[orderDateKey] || '').trim() : '';
+          // Unit is optional — if the file gives a valid Bag/Kg value, Qty
+          // above is treated as entered in that unit; otherwise it falls
+          // back to the matched product's own master unit (Qty read as-is,
+          // same behavior as before this column existed).
+          const rawUnit = unitKey ? String(row[unitKey] || '').trim().toLowerCase() : '';
+          const fileUnit = rawUnit === 'bag' || rawUnit === 'kg' ? rawUnit : '';
 
           const parsedDate = parseExcelDate(rawDate) || defaultDate;
           const matchedProd = products.find(p => normalizeKey(p.name) === normalizeKey(rawProd));
@@ -218,6 +226,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
             product_id: matchedProd ? matchedProd.product_id : '',
             unit_price: rawPrice,
             quantity: rawQty > 0 ? String(rawQty) : '1',
+            Selected_Unit: fileUnit || (matchedProd?.unit || '').toLowerCase(),
             process_type: 'order_process',
           };
         }).filter(r => r.rawProductName || r.product_id);
@@ -248,12 +257,57 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
 
   const handleUpdateRow = (index, field, value) => {
     const updated = [...rawRows];
-    updated[index][field] = value;
+    // Picking/changing the product defaults Unit to that product's own
+    // master unit — but only when the row doesn't already have one (e.g.
+    // from the file's own Unit column), so that pick isn't silently
+    // overwritten.
+    if (field === 'product_id') {
+      const product = products.find(p => p.product_id === value);
+      updated[index] = { ...updated[index], product_id: value, Selected_Unit: updated[index].Selected_Unit || (product?.unit || '').toLowerCase() };
+    } else {
+      updated[index] = { ...updated[index], [field]: value };
+    }
     setRawRows(updated);
   };
 
   const handleRemoveRow = (index) => {
     const updated = rawRows.filter((_, i) => i !== index);
+    setRawRows(updated);
+  };
+
+  // Unit defaults to the product's master unit, falling back to Bag when
+  // neither the row nor a matched product says otherwise (e.g. a row whose
+  // product hasn't been matched/picked yet) — always a real value, never ''
+  // (which would leave the <select> showing the browser's own first-option
+  // default while state still thought nothing was selected, so switching
+  // Unit silently no-op'd instead of re-basing Qty). Qty (raw, as typed in
+  // that unit) is the row's own `quantity` field.
+  const getRowUnit = (row, product) => row.Selected_Unit || (product?.unit || '').toLowerCase() || 'bag';
+  const getRowRawQty = (row) => row.quantity ?? '';
+
+  // Order Qty is auto-calculated from the Unit + Qty inputs, converted into
+  // the product's master unit via that product's Pkg/Bag (Mux) figure —
+  // this is what actually gets saved as quantity (the value that drives the
+  // rest of the sales/dispatch pipeline).
+  const getRowComputedQty = (row, product) => {
+    const raw = getRowRawQty(row);
+    if (raw === '' || !Number(raw)) return 0;
+    const unit = getRowUnit(row, product);
+    return roundQty(convertQtyToMasterUnit(raw, unit, product));
+  };
+
+  // Switching Unit re-bases whatever Qty is currently showing into the
+  // newly picked unit (e.g. 20 bags becomes 640 when switching to Kg) so a
+  // stale number typed in the old unit doesn't linger under a new one.
+  const handleUnitChange = (index, newUnit) => {
+    const row = rawRows[index];
+    const product = products.find(p => p.product_id === row.product_id);
+    const currentUnit = getRowUnit(row, product);
+    const currentQty = getRowRawQty(row);
+    const masterQty = convertQtyToMasterUnit(currentQty, currentUnit, product);
+    const requantified = convertQtyFromMasterUnit(masterQty, newUnit, product);
+    const updated = [...rawRows];
+    updated[index] = { ...row, Selected_Unit: newUnit, quantity: requantified ? String(roundQty(requantified)) : '' };
     setRawRows(updated);
   };
 
@@ -317,12 +371,21 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
           customer_id: grp.customer_id,
           process_type: 'order_process',
           created_by: user?.user_id,
-          items: grp.items.map(item => ({
-            product_id: item.product_id,
-            godown_id: item.godown_id,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-          })),
+          // quantity sent here is always the product's real master-unit
+          // figure (see getRowComputedQty) — Selected_Unit/sales_qty are
+          // kept alongside purely as a record of the raw Unit + Qty entry.
+          items: grp.items.map(item => {
+            const product = products.find(p => p.product_id === item.product_id);
+            const rawQty = getRowRawQty(item);
+            return {
+              product_id: item.product_id,
+              godown_id: item.godown_id,
+              quantity: getRowComputedQty(item, product),
+              unit_price: item.unit_price,
+              Selected_Unit: getRowUnit(item, product),
+              sales_qty: rawQty === '' ? null : Number(rawQty),
+            };
+          }),
           notify_customer: grp.notify_customer,
         });
       }
@@ -338,7 +401,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
   };
 
   const handleExportHeaderOnly = () => {
-    const ws = XLSX.utils.aoa_to_sheet([['Order Date', 'Customer Name', 'Godown Name', 'Product Name', 'Unit Price', 'Quantity']]);
+    const ws = XLSX.utils.aoa_to_sheet([['Order Date', 'Customer Name', 'Godown Name', 'Product Name', 'Quantity', 'Unit', 'Unit Price']]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Format_Headers');
     XLSX.writeFile(wb, 'Order_Bulk_Import_Headers_Only.csv');
@@ -351,6 +414,8 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
     const sampleGodown2 = activeGodowns[1]?.name || activeGodowns[0]?.name || 'Factory Godown';
     const sampleProduct1 = products[0]?.name || 'Cement Grade A';
     const sampleProduct2 = products[1]?.name || 'Steel Rods 10mm';
+    const sampleUnit1 = (products[0]?.unit || 'bag').toUpperCase();
+    const sampleUnit2 = (products[1]?.unit || 'bag').toUpperCase();
 
     const ws = XLSX.utils.json_to_sheet([
       {
@@ -359,6 +424,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
         'Godown Name': sampleGodown1,
         'Product Name': sampleProduct1,
         'Quantity': 50,
+        'Unit': sampleUnit1,
         'Unit Price': 350
       },
       {
@@ -367,6 +433,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
         'Godown Name': sampleGodown2,
         'Product Name': sampleProduct2,
         'Quantity': 100,
+        'Unit': sampleUnit2,
         'Unit Price': 650
       },
       {
@@ -375,6 +442,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
         'Godown Name': sampleGodown1,
         'Product Name': sampleProduct1,
         'Quantity': 25,
+        'Unit': sampleUnit1,
         'Unit Price': 345
       }
     ]);
@@ -389,7 +457,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
 
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
-      <ModalContent className="max-w-4xl">
+      <ModalContent className="max-w-5xl">
         <ModalHeader>
           <div className="flex items-center gap-3">
             <div className="bg-primary/10 p-2 rounded-lg">
@@ -426,6 +494,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                 <div className="mt-2 text-xs text-slate-600 space-y-1 pl-8">
                   <p>• <strong>Order Numbers are auto-generated:</strong> Do not include Order Number in your file.</p>
                   <p>• <strong>Process Type is auto-set to Order Process:</strong> Do not include Process Type in your file.</p>
+                  <p>• <strong>Unit is optional (Bag/Kg):</strong> when given, Quantity is read in that unit and converted to Order Qty in the product's own master unit; otherwise Quantity is read as already being in the product's master unit.</p>
                   <p>• <strong>Grouping Logic:</strong> Rows with the <em>same Order Date, Customer Name, and Product Name</em> will be assigned the <strong>same auto-generated order number</strong>.</p>
                 </div>
               </div>
@@ -554,18 +623,22 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                       <table className="w-full text-xs text-left">
                         <thead className="bg-slate-100 border-b border-slate-200 font-semibold text-slate-700">
                           <tr>
-                            <th className="px-3 py-1.5">#</th>
-                            <th className="px-3 py-1.5 w-5/12">Product <span className="text-red-500">*</span></th>
-                            <th className="px-3 py-1.5 w-4/12">Godown <span className="text-red-500">*</span></th>
-                            <th className="px-3 py-1.5 w-2/12">Unit Price</th>
-                            <th className="px-3 py-1.5 w-2/12 text-right">Qty <span className="text-red-500">*</span></th>
-                            <th className="px-2 py-1.5 text-center w-1/12"></th>
+                            <th className="px-3 py-1.5 whitespace-nowrap">#</th>
+                            <th className="px-3 py-1.5 w-4/12">Product <span className="text-red-500">*</span></th>
+                            <th className="px-3 py-1.5 w-3/12">Godown <span className="text-red-500">*</span></th>
+                            <th className="px-3 py-1.5 min-w-[84px] whitespace-nowrap">Unit Price</th>
+                            <th className="px-3 py-1.5 min-w-[64px] whitespace-nowrap">Unit</th>
+                            <th className="px-3 py-1.5 min-w-[72px] whitespace-nowrap text-right">Qty <span className="text-red-500">*</span></th>
+                            <th className="px-3 py-1.5 min-w-[84px] whitespace-nowrap text-right text-emerald-700">Order Qty</th>
+                            <th className="px-2 py-1.5 text-center min-w-[40px]"></th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {group.items.map((row, i) => {
                             const origIdx = row.originalIndex;
                             const isMatched = row.product_id && row.godown_id;
+                            const rowProduct = products.find(p => p.product_id === row.product_id);
+                            const computedQty = getRowComputedQty(row, rowProduct);
                             return (
                               <tr key={origIdx} className={isMatched ? 'hover:bg-slate-50' : 'bg-amber-50/40 hover:bg-amber-50/70'}>
                                 <td className="px-3 py-1.5 text-slate-400 font-mono">{i + 1}</td>
@@ -622,6 +695,19 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                                     className="w-full h-7 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
                                   />
                                 </td>
+                                <td className="px-3 py-1.5">
+                                  <div className="relative">
+                                    <select
+                                      value={getRowUnit(row, rowProduct)}
+                                      onChange={(e) => handleUnitChange(origIdx, e.target.value)}
+                                      className="w-full h-7 pl-2 pr-6 rounded-md border border-slate-200 text-xs font-medium text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 bg-white cursor-pointer appearance-none"
+                                    >
+                                      <option value="bag">BAG</option>
+                                      <option value="kg">KG</option>
+                                    </select>
+                                    <ChevronDown size={12} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                  </div>
+                                </td>
                                 <td className="px-3 py-1.5 text-right">
                                   <input
                                     type="number"
@@ -632,6 +718,9 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                                     placeholder="1"
                                     className="w-20 h-7 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary bg-white"
                                   />
+                                </td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-emerald-600 tabular-nums">
+                                  {computedQty || <span className="text-slate-300">—</span>}
                                 </td>
                                 <td className="px-2 py-1.5 text-center">
                                   <button
