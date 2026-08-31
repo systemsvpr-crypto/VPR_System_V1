@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -37,6 +37,46 @@ const TABS = [
   { id: 'product-grouping', label: 'Product Grouping', icon: FolderTree },
 ];
 
+// Select dropdown with a search box pinned above the options — for filters with long lists.
+const FilterSelect = ({ value, onValueChange, options, placeholder, label, allLabel }) => {
+  const [search, setSearch] = useState('');
+  const searchInputRef = useRef(null);
+
+  const filteredOptions = useMemo(() => (
+    options.filter(o => o.name?.toLowerCase().includes(search.toLowerCase()))
+  ), [options, search]);
+
+  return (
+    <Select value={value} onValueChange={onValueChange}
+      onOpenChange={(open) => { if (!open) setSearch(''); }}>
+      <SelectTrigger className="w-full h-8 text-sm">
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent onOpenAutoFocus={(e) => { e.preventDefault(); searchInputRef.current?.focus(); }}>
+        <div className="sticky top-0 z-10 bg-popover p-1.5 border-b border-slate-100"
+          onKeyDown={(e) => { if (e.key !== 'Escape') e.stopPropagation(); }}>
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={12} />
+            <input ref={searchInputRef} type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search..."
+              className="w-full h-7 pl-6 pr-2 text-xs rounded-md border border-slate-200 outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary" />
+          </div>
+        </div>
+        <SelectGroup>
+          <SelectLabel>{label}</SelectLabel>
+          <SelectItem value="all">{allLabel}</SelectItem>
+          {filteredOptions.map(o => (
+            <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+          ))}
+          {filteredOptions.length === 0 && (
+            <div className="px-2 py-3 text-center text-xs text-slate-400">No matches found</div>
+          )}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+};
+
 
 const Master = () => {
   const { user } = useAuthStore();
@@ -66,6 +106,7 @@ const Master = () => {
   const [editingGroup, setEditingGroup] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [godownFilter, setGodownFilter] = useState('all');
+  const [transporterFilter, setTransporterFilter] = useState('all');
   const [godownTypeFilter, setGodownTypeFilter] = useState('Own');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
@@ -76,6 +117,14 @@ const Master = () => {
     return TABS.filter(tab => allowedTabs.includes(tab.id));
   }, [user]);
 
+  const ownGodowns = useMemo(() => (
+    godowns.filter(g => (g.godown_type || 'Own') === 'Own')
+  ), [godowns]);
+
+  const transporterGodowns = useMemo(() => (
+    godowns.filter(g => g.godown_type === 'Transporter')
+  ), [godowns]);
+
   const filteredProducts = useMemo(() => {
     let result = products.filter(p =>
       p.name?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -85,8 +134,13 @@ const Master = () => {
         allStock.some(s => s.product_id === p.product_id && s.godown_id === godownFilter)
       );
     }
+    if (transporterFilter !== 'all') {
+      result = result.filter(p =>
+        allStock.some(s => s.product_id === p.product_id && s.godown_id === transporterFilter)
+      );
+    }
     return result;
-  }, [products, searchTerm, godownFilter, allStock]);
+  }, [products, searchTerm, godownFilter, transporterFilter, allStock]);
 
   const filteredGodowns = useMemo(() => {
     return godowns.filter(g =>
@@ -187,7 +241,7 @@ const Master = () => {
   }, [visibleTabs, activeTab]);
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter, godownTypeFilter]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter, transporterFilter, godownTypeFilter]);
 
   const loadData = async () => {
     setLoading(true);
@@ -328,22 +382,28 @@ const Master = () => {
               <Input type="text" placeholder={`Search ${activeTab}...`} className="pl-8 h-8 w-full text-sm"
                 value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
-            {activeTab === 'products' && godowns.length > 0 && (
+            {activeTab === 'products' && ownGodowns.length > 0 && (
               <div className="w-full md:w-48">
-                <Select value={godownFilter} onValueChange={setGodownFilter}>
-                  <SelectTrigger className="w-full h-8 text-sm">
-                    <SelectValue placeholder="All Godowns" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectLabel>Filter by Godown</SelectLabel>
-                      <SelectItem value="all">All Godowns</SelectItem>
-                      {godowns.map(g => (
-                        <SelectItem key={g.godown_id} value={g.godown_id}>{g.name}</SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <FilterSelect
+                  value={godownFilter}
+                  onValueChange={setGodownFilter}
+                  options={ownGodowns.map(g => ({ id: g.godown_id, name: g.name }))}
+                  placeholder="All Godowns"
+                  label="Filter by Godown"
+                  allLabel="All Godowns"
+                />
+              </div>
+            )}
+            {activeTab === 'products' && transporterGodowns.length > 0 && (
+              <div className="w-full md:w-48">
+                <FilterSelect
+                  value={transporterFilter}
+                  onValueChange={setTransporterFilter}
+                  options={transporterGodowns.map(g => ({ id: g.godown_id, name: g.name }))}
+                  placeholder="All Transporters"
+                  label="Filter by Transporter"
+                  allLabel="All Transporters"
+                />
               </div>
             )}
             {activeTab === 'godowns' && (

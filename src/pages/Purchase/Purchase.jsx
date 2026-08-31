@@ -247,28 +247,26 @@ const Purchase = () => {
                   <option value="direct">Direct</option>
                   <option value="process">Process</option>
                 </select>
-                {!loading && filteredIndents.length > 0 && (
+                {filteredIndents.length > 0 && (
                   <Button variant="outline" onClick={() => exportIndentsCSV(filteredIndents)} className="gap-2 px-4 font-medium text-xs h-9 text-slate-600 border-slate-200 hover:bg-slate-50 shrink-0">
                     <Download size={16} /><span>Export</span>
                   </Button>
                 )}
-                {!loading && (
-                  <>
-                    <Button variant="outline" onClick={() => setBulkModalOpen(true)} className="gap-2 px-4 font-medium text-xs h-9 text-slate-700 border-slate-200 hover:bg-slate-50 shrink-0">
-                      <Upload size={16} /><span>Bulk Upload</span>
-                    </Button>
-                    <Button onClick={() => { setEditingIndent(null); setModalOpen(true); }} className="gap-2 px-4 font-medium text-xs h-9 shrink-0">
-                      <Plus size={16} /><span>Add Indent</span>
-                    </Button>
-                  </>
-                )}
+                <Button variant="outline" onClick={() => setBulkModalOpen(true)} className="gap-2 px-4 font-medium text-xs h-9 text-slate-700 border-slate-200 hover:bg-slate-50 shrink-0">
+                  <Upload size={16} /><span>Bulk Upload</span>
+                </Button>
+                <Button onClick={() => { setEditingIndent(null); setModalOpen(true); }} className="gap-2 px-4 font-medium text-xs h-9 shrink-0">
+                  <Plus size={16} /><span>Add Indent</span>
+                </Button>
               </>
             }
           />
 
           <IndentModal isOpen={modalOpen} onClose={handleCloseModal}
             user={user} onSuccess={loadData} editingIndent={editingIndent}
-            products={products} godowns={godowns} vendors={vendors} />
+            products={products} godowns={godowns} vendors={vendors}
+            onImportProducts={(product) => setProducts(prev => [...prev, product])}
+            onImportVendors={(vendor) => setVendors(prev => [...prev, vendor])} />
 
           <BulkIndentProductsModal
             isOpen={bulkModalOpen}
@@ -277,6 +275,8 @@ const Purchase = () => {
             products={products}
             godowns={godowns}
             vendors={vendors}
+            onImportProducts={(product) => setProducts(prev => [...prev, product])}
+            onImportVendors={(vendor) => setVendors(prev => [...prev, vendor])}
             onSuccess={loadData}
           />
         </div>

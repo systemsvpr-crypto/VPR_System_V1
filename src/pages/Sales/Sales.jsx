@@ -96,14 +96,18 @@ const Sales = () => {
 
   const loadData = async () => {
     setLoading(true);
+    // Reference data and orders are independent — fire both off together
+    // (rather than awaiting one before starting the other) so the Orders
+    // tab's total load time is the slower of the two, not the sum.
+    const refDataPromise = Promise.all([getAllProducts(), getAllGodowns(), getAllCustomers()]);
+    const ordersPromise = getAllOrders();
+
     try {
-      const [p, g, c] = await Promise.all([
-        getAllProducts(), getAllGodowns(), getAllCustomers(),
-      ]);
+      const [p, g, c] = await refDataPromise;
       setProducts(p); setGodowns(g); setCustomers(c);
     } catch (err) { toast.error('Failed to load reference data'); }
     try {
-      const o = await getAllOrders();
+      const o = await ordersPromise;
       setOrders(o);
     } catch (err) {
       setOrders([]);
@@ -277,7 +281,9 @@ const Sales = () => {
 
           <OrderModal isOpen={modalOpen} onClose={handleCloseModal}
             user={user} onSuccess={loadData} editingOrder={editingOrder}
-            products={products} godowns={godowns} customers={customers} />
+            products={products} godowns={godowns} customers={customers}
+            onImportProducts={(product) => setProducts(prev => [...prev, product])}
+            onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])} />
 
           <BulkOrderProductsModal
             isOpen={bulkModalOpen}
@@ -286,6 +292,8 @@ const Sales = () => {
             products={products}
             godowns={godowns}
             customers={customers}
+            onImportProducts={(product) => setProducts(prev => [...prev, product])}
+            onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])}
             onSuccess={loadData}
           />
         </div>

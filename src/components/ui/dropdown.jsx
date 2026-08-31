@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
-import { Search, ChevronDown, X, Check } from "lucide-react"
+import { Search, ChevronDown, X, Check, PlusCircle } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 
 function Dropdown({
@@ -18,6 +18,11 @@ function Dropdown({
   disabled,
   className,
   children,
+  // Optional "+ Add New ..." row pinned to the bottom of the list, always
+  // visible (even mid-search or with zero results) — for letting the user
+  // create a missing record without leaving the dropdown.
+  onAddNew,
+  addNewLabel = "+ Add New",
 }) {
   const [open, setOpen] = React.useState(false)
   const [searchValue, setSearchValue] = React.useState("")
@@ -119,6 +124,22 @@ function Dropdown({
             </div>
           )}
         </div>
+        {onAddNew && (
+          <div className="border-t border-input p-1">
+            <button
+              type="button"
+              data-slot="dropdown-add-new"
+              onClick={() => {
+                setOpen(false)
+                onAddNew()
+              }}
+              className="flex w-full items-center gap-2 rounded-md py-1.5 pl-2.5 pr-2.5 text-sm font-medium text-primary outline-none select-none transition-colors hover:bg-primary/5"
+            >
+              <PlusCircle className="size-4 shrink-0" />
+              <span className="flex-1 text-left truncate">{addNewLabel}</span>
+            </button>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   )

@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
-import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Layers, Trash2, ChevronDown } from 'lucide-react';
+import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Layers, Trash2, ChevronDown, PlusCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,8 @@ import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { createOrder, generateMultipleOrderNumbers, convertQtyToMasterUnit, convertQtyFromMasterUnit } from '../../../services/salesService';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
+import ProductModal from '../../Master/components/ProductModal';
+import CustomerModal from '../../Master/components/CustomerModal';
 
 const COLUMN_ALIASES = {
   'Order Date': ['order date', 'orderdate', 'date', 'order_date'],
@@ -53,6 +55,20 @@ const levenshtein = (a, b) => {
 };
 
 const similarity = (a, b) => {
+  if (!a || !b) return 0;
+  // A short/partial value that's fully contained in the full name (or vice
+  // versa) is a strong signal even when the raw length difference would tank
+  // a plain edit-distance score — e.g. a bulk file listing just "10*15"
+  // against the full product name "51 Mic Ld 10*15 (30 Kg)". Plain
+  // Levenshtein penalizes that gap so heavily (edit distance grows with the
+  // number of inserted characters) that a real, obvious partial match can
+  // score below any reasonable cutoff — so containment gets scored on its
+  // own, more forgiving scale instead.
+  if (a.length >= 3 && b.length >= 3 && (a.includes(b) || b.includes(a))) {
+    const shorter = Math.min(a.length, b.length);
+    const longer = Math.max(a.length, b.length);
+    return 0.6 + 0.4 * (shorter / longer); // always >= 0.6
+  }
   const maxLen = Math.max(a.length, b.length);
   if (maxLen === 0) return 1;
   return 1 - levenshtein(a, b) / maxLen;
@@ -66,7 +82,7 @@ const getProductSuggestions = (rawName, allProducts, limit = 3) => {
   if (!raw) return [];
   return allProducts
     .map(p => ({ product: p, score: similarity(raw, normalizeKey(p.name)) }))
-    .filter(x => x.score >= 0.4)
+    .filter(x => x.score >= 0.3)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map(x => x.product);
@@ -106,26 +122,52 @@ const parseExcelDate = (val) => {
   return '';
 };
 
-const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns = [], customers = [], onImportProducts, onSuccess }) => {
+const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns = [], customers = [], onImportProducts, onImportCustomers, onSuccess }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [fileName, setFileName] = useState('');
   const [rawRows, setRawRows] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
+  // Products/customers created on the fly (via "+ Add New Product/Customer" below) —
+  // kept alongside the lists loaded from the parent so a just-created record is
+  // immediately selectable/matchable without waiting for a full page reload.
+  const [extraProducts, setExtraProducts] = useState([]);
+  const [extraCustomers, setExtraCustomers] = useState([]);
+  const [productQuickAddOpen, setProductQuickAddOpen] = useState(false);
+  const [customerQuickAddOpen, setCustomerQuickAddOpen] = useState(false);
+  const [quickAddProductRow, setQuickAddProductRow] = useState(null); // originalIndex of the row that asked for a new product
+  const [quickAddCustomerGroup, setQuickAddCustomerGroup] = useState(null); // group key that asked for a new customer
+
+  // De-duplicated by id: a quick-added record lives in extraProducts/extraCustomers
+  // immediately, and — once the parent syncs its own list back down as an updated
+  // prop — the very same record also arrives via products/customers. Merging by id
+  // (last one wins) keeps it appearing exactly once in the dropdown either way.
+  const allProducts = useMemo(() => {
+    const map = new Map();
+    [...products, ...extraProducts].forEach(p => map.set(p.product_id, p));
+    return Array.from(map.values());
+  }, [products, extraProducts]);
+
+  const allCustomers = useMemo(() => {
+    const map = new Map();
+    [...customers, ...extraCustomers].forEach(c => map.set(c.customer_id, c));
+    return Array.from(map.values());
+  }, [customers, extraCustomers]);
+
   const activeGodowns = useMemo(() => godowns.filter(g => g.is_active), [godowns]);
 
   const productOptions = useMemo(() => {
-    return products.map(p => ({ value: p.product_id, label: p.name }));
-  }, [products]);
+    return allProducts.map(p => ({ value: p.product_id, label: p.name }));
+  }, [allProducts]);
 
   const godownOptions = useMemo(() => {
     return activeGodowns.map(g => ({ value: g.godown_id, label: g.name }));
   }, [activeGodowns]);
 
   const customerOptions = useMemo(() => {
-    return customers.map(c => ({ value: c.customer_id, label: c.name }));
-  }, [customers]);
+    return allCustomers.map(c => ({ value: c.customer_id, label: c.name }));
+  }, [allCustomers]);
 
   // For every unmatched product name in the file, precompute the closest
   // existing products so we can offer one-click "Did you mean...?" picks.
@@ -133,23 +175,53 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
     const map = {};
     rawRows.forEach(row => {
       if (!row.product_id && row.rawProductName && !map[row.rawProductName]) {
-        map[row.rawProductName] = getProductSuggestions(row.rawProductName, products, 3);
+        map[row.rawProductName] = getProductSuggestions(row.rawProductName, allProducts, 3);
       }
     });
     return map;
-  }, [rawRows, products]);
+  }, [rawRows, allProducts]);
 
   const reset = () => {
     setStep('upload');
     setFileName('');
     setRawRows([]);
     setSubmitting(false);
+    setExtraProducts([]);
+    setExtraCustomers([]);
+    setQuickAddProductRow(null);
+    setQuickAddCustomerGroup(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleClose = () => {
     reset();
     onClose();
+  };
+
+  // New product saved from the "+ Add New Product" quick-add form — make it
+  // usable everywhere in this preview (dropdown, suggestions) and drop it
+  // straight into the row that asked for it, same as picking it manually.
+  const handleProductQuickAdded = (product) => {
+    setExtraProducts(prev => [...prev, product]);
+    if (quickAddProductRow !== null) {
+      setRawRows(prev => prev.map((row, i) => (
+        i === quickAddProductRow
+          ? { ...row, product_id: product.product_id, Selected_Unit: row.Selected_Unit || (product.unit || '').toLowerCase() }
+          : row
+      )));
+    }
+    onImportProducts?.(product);
+    setQuickAddProductRow(null);
+  };
+
+  // Same idea for a new customer — applies to every row in the group that asked for it.
+  const handleCustomerQuickAdded = (customer) => {
+    setExtraCustomers(prev => [...prev, customer]);
+    if (quickAddCustomerGroup !== null) {
+      handleGroupHeaderChange(quickAddCustomerGroup, 'customer_id', customer.customer_id);
+    }
+    onImportCustomers?.(customer);
+    setQuickAddCustomerGroup(null);
   };
 
   const handleFile = (file) => {
@@ -262,7 +334,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
     // from the file's own Unit column), so that pick isn't silently
     // overwritten.
     if (field === 'product_id') {
-      const product = products.find(p => p.product_id === value);
+      const product = allProducts.find(p => p.product_id === value);
       updated[index] = { ...updated[index], product_id: value, Selected_Unit: updated[index].Selected_Unit || (product?.unit || '').toLowerCase() };
     } else {
       updated[index] = { ...updated[index], [field]: value };
@@ -301,7 +373,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
   // stale number typed in the old unit doesn't linger under a new one.
   const handleUnitChange = (index, newUnit) => {
     const row = rawRows[index];
-    const product = products.find(p => p.product_id === row.product_id);
+    const product = allProducts.find(p => p.product_id === row.product_id);
     const currentUnit = getRowUnit(row, product);
     const currentQty = getRowRawQty(row);
     const masterQty = convertQtyToMasterUnit(currentQty, currentUnit, product);
@@ -319,7 +391,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
       const prodKey = row.product_id || row.rawProductName || 'unassigned';
       const key = `${row.order_date}_${custKey}_${prodKey}`;
       if (!groups[key]) {
-        const custObj = customers.find(c => c.customer_id === row.customer_id);
+        const custObj = allCustomers.find(c => c.customer_id === row.customer_id);
         groups[key] = {
           key,
           order_date: row.order_date,
@@ -333,7 +405,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
       groups[key].items.push({ ...row, originalIndex: idx });
     });
     return Object.values(groups);
-  }, [rawRows, customers]);
+  }, [rawRows, allCustomers]);
 
   const handleGroupHeaderChange = (groupKey, field, value) => {
     const updated = rawRows.map(row => {
@@ -375,7 +447,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
           // figure (see getRowComputedQty) — Selected_Unit/sales_qty are
           // kept alongside purely as a record of the raw Unit + Qty entry.
           items: grp.items.map(item => {
-            const product = products.find(p => p.product_id === item.product_id);
+            const product = allProducts.find(p => p.product_id === item.product_id);
             const rawQty = getRowRawQty(item);
             return {
               product_id: item.product_id,
@@ -398,13 +470,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleExportHeaderOnly = () => {
-    const ws = XLSX.utils.aoa_to_sheet([['Order Date', 'Customer Name', 'Godown Name', 'Product Name', 'Quantity', 'Unit', 'Unit Price']]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Format_Headers');
-    XLSX.writeFile(wb, 'Order_Bulk_Import_Headers_Only.csv');
   };
 
   const handleDownloadTemplate = () => {
@@ -456,6 +521,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
   }, [rawRows]);
 
   return (
+    <>
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
       <ModalContent className="max-w-5xl">
         <ModalHeader>
@@ -474,22 +540,13 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
           <>
             <ModalBody className="space-y-4">
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 shadow-2xs">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-                      <FileText size={16} />
-                    </div>
-                    <span className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
-                      <Info size={15} className="text-primary" /> Document Format & Auto Order-Number Guidelines
-                    </span>
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+                    <FileText size={16} />
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleExportHeaderOnly}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-primary/5 text-primary border border-primary/30 rounded-lg text-xs font-semibold shadow-2xs transition-all hover:border-primary shrink-0"
-                  >
-                    <Download size={13} /> Export Format (Headers Only)
-                  </button>
+                  <span className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
+                    <Info size={15} className="text-primary" /> Document Format & Auto Order-Number Guidelines
+                  </span>
                 </div>
                 <div className="mt-2 text-xs text-slate-600 space-y-1 pl-8">
                   <p>• <strong>Order Numbers are auto-generated:</strong> Do not include Order Number in your file.</p>
@@ -597,6 +654,8 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                           placeholder={group.customer_name ? `Match "${group.customer_name}"...` : "Select customer..."}
                           searchPlaceholder="Search customers..."
                           align="start"
+                          onAddNew={() => { setQuickAddCustomerGroup(group.key); setCustomerQuickAddOpen(true); }}
+                          addNewLabel="+ Add New Customer"
                         />
                         {!group.customer_id && group.customer_name && (
                           <span className="text-[10px] text-red-600 font-medium block mt-0.5">
@@ -637,7 +696,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                           {group.items.map((row, i) => {
                             const origIdx = row.originalIndex;
                             const isMatched = row.product_id && row.godown_id;
-                            const rowProduct = products.find(p => p.product_id === row.product_id);
+                            const rowProduct = allProducts.find(p => p.product_id === row.product_id);
                             const computedQty = getRowComputedQty(row, rowProduct);
                             return (
                               <tr key={origIdx} className={isMatched ? 'hover:bg-slate-50' : 'bg-amber-50/40 hover:bg-amber-50/70'}>
@@ -650,6 +709,8 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                                     placeholder={row.rawProductName ? `Match "${row.rawProductName}"...` : "Select product..."}
                                     searchPlaceholder="Search products..."
                                     align="start"
+                                    onAddNew={() => { setQuickAddProductRow(origIdx); setProductQuickAddOpen(true); }}
+                                    addNewLabel="+ Add New Product"
                                   />
                                   {!row.product_id && row.rawProductName && (
                                     <div className="mt-0.5">
@@ -671,6 +732,13 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                                           ))}
                                         </div>
                                       )}
+                                      <button
+                                        type="button"
+                                        onClick={() => { setQuickAddProductRow(origIdx); setProductQuickAddOpen(true); }}
+                                        className="mt-1 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-primary/5 text-primary border border-primary/30 hover:bg-primary/10 font-semibold transition-colors"
+                                      >
+                                        <PlusCircle size={11} /> Add New Product
+                                      </button>
                                     </div>
                                   )}
                                 </td>
@@ -695,8 +763,8 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                                     className="w-full h-7 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
                                   />
                                 </td>
-                                <td className="px-3 py-1.5">
-                                  <div className="relative">
+                                <td className="px-3 py-1.5 whitespace-nowrap">
+                                  <div className="relative w-[72px]">
                                     <select
                                       value={getRowUnit(row, rowProduct)}
                                       onChange={(e) => handleUnitChange(origIdx, e.target.value)}
@@ -752,6 +820,21 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
         )}
       </ModalContent>
     </Modal>
+
+    <ProductModal
+      isOpen={productQuickAddOpen}
+      onClose={() => setProductQuickAddOpen(false)}
+      onSuccess={handleProductQuickAdded}
+      user={user}
+      quickAdd
+    />
+    <CustomerModal
+      isOpen={customerQuickAddOpen}
+      onClose={() => setCustomerQuickAddOpen(false)}
+      onSuccess={handleCustomerQuickAdded}
+      user={user}
+    />
+    </>
   );
 };
 

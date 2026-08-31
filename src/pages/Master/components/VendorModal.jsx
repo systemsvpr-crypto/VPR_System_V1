@@ -44,14 +44,16 @@ const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor, user, onDelete
     try {
       const payload = { name: name.trim(), location: location.trim(), phone_number: phoneNumber.trim(), email: email.trim(), gst_number: gstNumber.trim() };
       if (isEditing) {
-        await updateVendor({ ...payload, vendor_id: editingVendor.vendor_id });
+        const updated = await updateVendor({ ...payload, vendor_id: editingVendor.vendor_id });
         toast.success('Vendor updated successfully');
+        onClose();
+        onSuccess(updated);
       } else {
-        await createVendor(payload);
+        const created = await createVendor(payload);
         toast.success('Vendor created successfully');
+        onClose();
+        onSuccess(created);
       }
-      onClose();
-      onSuccess();
     } catch (err) { toast.error(err.message); }
     setSubmitting(false);
   };

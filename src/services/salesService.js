@@ -121,46 +121,34 @@ export const getProductCurrentStockAndTransit = async (productIds) => {
 };
 
 export const getAllOrders = async () => {
+  // One round-trip instead of three: dispatch_plans and their transactions
+  // are pulled in the same nested select as the orders/items themselves
+  // (PostgREST follows the FK relationships), instead of separately fetching
+  // dispatch_plans for every item's id and then transactions for every
+  // plan's id as two more sequential round-trips. Each round-trip costs a
+  // full network RTT on top of query time, so collapsing 3 into 1 is a large
+  // win regardless of data volume — this was the main cause of the Orders
+  // tab's slow load.
   const { data: orders, error: ordersErr } = await supabase
     .from('sales_orders')
-    .select('*, process_type, customers:customer_id(name), sales_order_items(*, products:product_id(name, unit), godowns:godown_id(name))')
+    .select(`*, process_type, customers:customer_id(name),
+      sales_order_items(*, products:product_id(name, unit), godowns:godown_id(name),
+        dispatch_plans(*, transactions(qty, is_void)))`)
     .order('created_at', { ascending: false });
   if (ordersErr) throw ordersErr;
   if (!orders || orders.length === 0) return [];
-
-  const itemIds = orders.flatMap(o => (o.sales_order_items || []).map(i => i.item_id));
-  if (itemIds.length === 0) return orders;
-
-  const { data: plans, error: plansErr } = await supabase
-    .from('dispatch_plans')
-    .select('*')
-    .in('order_item_id', itemIds);
-  if (plansErr) throw plansErr;
-
-  const planIds = (plans || []).map(p => p.plan_id).filter(Boolean);
-  const dispatchedMap = {};
-  if (planIds.length > 0) {
-    const { data: txns } = await supabase
-      .from('transactions')
-      .select('dispatch_plan_id, qty')
-      .in('dispatch_plan_id', planIds)
-      .eq('is_void', false);
-    (txns || []).forEach(t => {
-      dispatchedMap[t.dispatch_plan_id] = (dispatchedMap[t.dispatch_plan_id] || 0) + Number(t.qty);
-    });
-  }
-
-  const planMap = {};
-  (plans || []).forEach(p => {
-    if (!planMap[p.order_item_id]) planMap[p.order_item_id] = [];
-    planMap[p.order_item_id].push({ ...p, already_dispatched: dispatchedMap[p.plan_id] || 0 });
-  });
 
   return orders.map(o => ({
     ...o,
     sales_order_items: (o.sales_order_items || []).map(i => ({
       ...i,
-      dispatch_plans: planMap[i.item_id] || [],
+      dispatch_plans: (i.dispatch_plans || []).map(p => {
+        const { transactions, ...plan } = p;
+        const already_dispatched = (transactions || [])
+          .filter(t => !t.is_void)
+          .reduce((sum, t) => sum + Number(t.qty), 0);
+        return { ...plan, already_dispatched };
+      }),
     })),
   }));
 };

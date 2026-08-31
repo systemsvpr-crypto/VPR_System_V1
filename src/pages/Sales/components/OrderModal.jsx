@@ -8,9 +8,11 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import BulkOrderProductsModal from './BulkOrderProductsModal';
+import ProductModal from '../../Master/components/ProductModal';
+import CustomerModal from '../../Master/components/CustomerModal';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 
-const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, godowns, customers }) => {
+const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, godowns, customers, onImportProducts, onImportCustomers }) => {
   const [form, setForm] = useState({
     order_date: new Date().toISOString().split('T')[0],
     order_number: '',
@@ -21,6 +23,31 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
   const [submitting, setSubmitting] = useState(false);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
   const [notifyCustomer, setNotifyCustomer] = useState(true);
+
+  // Products/customers created on the fly (via the "+ Add New Product/Customer"
+  // row pinned inside their dropdowns) — kept alongside the lists loaded from
+  // the parent so a just-created record is immediately selectable here without
+  // waiting for a full page reload.
+  const [extraProducts, setExtraProducts] = useState([]);
+  const [extraCustomers, setExtraCustomers] = useState([]);
+  const [productQuickAddOpen, setProductQuickAddOpen] = useState(false);
+  const [customerQuickAddOpen, setCustomerQuickAddOpen] = useState(false);
+  const [quickAddProductRow, setQuickAddProductRow] = useState(null); // items index that asked for a new product
+
+  // De-duplicated by id — see BulkOrderProductsModal for why this matters:
+  // once the parent syncs its own list back down as an updated prop, the same
+  // record could otherwise arrive from both sources and show twice.
+  const allProducts = useMemo(() => {
+    const map = new Map();
+    [...products, ...extraProducts].forEach(p => map.set(p.product_id, p));
+    return Array.from(map.values());
+  }, [products, extraProducts]);
+
+  const allCustomers = useMemo(() => {
+    const map = new Map();
+    [...customers, ...extraCustomers].forEach(c => map.set(c.customer_id, c));
+    return Array.from(map.values());
+  }, [customers, extraCustomers]);
 
   const isEditing = !!editingOrder;
 
@@ -47,6 +74,9 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
         items: [],
       });
       setNotifyCustomer(true);
+      setExtraProducts([]);
+      setExtraCustomers([]);
+      setQuickAddProductRow(null);
     } else if (editingOrder) {
       setForm({
         order_date: editingOrder.order_date?.split('T')[0] || new Date().toISOString().split('T')[0],
@@ -89,7 +119,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     for (const [i, item] of form.items.entries()) {
       if (!item.product_id) { toast.error(`Item ${i + 1}: Select a product.`); return; }
       if (!item.godown_id) { toast.error(`Item ${i + 1}: Select a godown.`); return; }
-      const product = products.find(p => p.product_id === item.product_id);
+      const product = allProducts.find(p => p.product_id === item.product_id);
       if (!getComputedQty(item, product)) { toast.error(`Item ${i + 1}: Enter a valid quantity.`); return; }
     }
     // quantity is always the product's real master-unit figure, converted
@@ -97,7 +127,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     // getComputedQty. Selected_Unit/sales_qty are kept alongside purely as a
     // record of that raw entry.
     const payloadItems = form.items.map(item => {
-      const product = products.find(p => p.product_id === item.product_id);
+      const product = allProducts.find(p => p.product_id === item.product_id);
       const rawQty = getItemRawQty(item);
       return {
         ...item,
@@ -175,7 +205,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
   };
 
   const handleProductChange = (index, productId) => {
-    const product = products.find(p => p.product_id === productId);
+    const product = allProducts.find(p => p.product_id === productId);
     const items = [...form.items];
     items[index] = { ...items[index], product_id: productId, Selected_Unit: (product?.unit || '').toLowerCase() };
     setForm({ ...form, items });
@@ -186,7 +216,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
   // stale number typed in the old unit doesn't linger under a new one.
   const handleUnitChange = (index, newUnit) => {
     const item = form.items[index];
-    const product = products.find(p => p.product_id === item.product_id);
+    const product = allProducts.find(p => p.product_id === item.product_id);
     const currentUnit = getItemUnit(item, product);
     const currentQty = getItemRawQty(item);
     const masterQty = convertQtyToMasterUnit(currentQty, currentUnit, product);
@@ -200,6 +230,26 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     const items = [...form.items];
     items[index] = { ...items[index], sales_qty: sanitizeQtyInput(value) };
     setForm({ ...form, items });
+  };
+
+  // New product saved from the "+ Add New Product" row inside that item's
+  // dropdown — make it usable everywhere here and drop it straight into the
+  // row that asked for it, same as picking it manually.
+  const handleProductQuickAdded = (product) => {
+    setExtraProducts(prev => [...prev, product]);
+    if (quickAddProductRow !== null) {
+      handleProductChange(quickAddProductRow, product.product_id);
+    }
+    onImportProducts?.(product);
+    setQuickAddProductRow(null);
+  };
+
+  // Same idea for a new customer — this order only ever has one, so it's
+  // applied straight to the form.
+  const handleCustomerQuickAdded = (customer) => {
+    setExtraCustomers(prev => [...prev, customer]);
+    setForm(prev => ({ ...prev, customer_id: customer.customer_id }));
+    onImportCustomers?.(customer);
   };
 
   const handleImportProducts = (data, mode) => {
@@ -233,14 +283,14 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
 
   const totalAmount = useMemo(() => {
     return form.items.reduce((sum, item) => {
-      const product = products.find(p => p.product_id === item.product_id);
+      const product = allProducts.find(p => p.product_id === item.product_id);
       return sum + (Number(item.unit_price) || 0) * getComputedQty(item, product);
     }, 0);
-  }, [form.items, products]);
+  }, [form.items, allProducts]);
 
   const productOptions = useMemo(() => {
-    return products.map(p => ({ value: p.product_id, label: p.name }));
-  }, [products]);
+    return allProducts.map(p => ({ value: p.product_id, label: p.name }));
+  }, [allProducts]);
 
   const activeGodowns = godowns.filter(g => g.is_active);
 
@@ -297,9 +347,11 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Customer <span className="text-red-500">*</span></label>
                   <Dropdown value={form.customer_id} onValueChange={(v) => setForm({ ...form, customer_id: v })}
-                    options={customers.map(c => ({ value: c.customer_id, label: c.name }))}
+                    options={allCustomers.map(c => ({ value: c.customer_id, label: c.name }))}
                     placeholder="Select customer..." searchPlaceholder="Search customers..."
-                    align="start" disabled={anyItemLocked} />
+                    align="start" disabled={anyItemLocked}
+                    onAddNew={anyItemLocked ? undefined : () => setCustomerQuickAddOpen(true)}
+                    addNewLabel="+ Add New Customer" />
                 </div>
               </div>
 
@@ -311,7 +363,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                 <div className="space-y-3 max-h-72 overflow-y-auto pr-1 border border-slate-200/80 rounded-xl p-3 bg-slate-50/50">
                   {form.items.map((item, i) => {
                     const itemLocked = isItemLocked(item.item_id);
-                    const selectedProduct = products.find(p => p.product_id === item.product_id);
+                    const selectedProduct = allProducts.find(p => p.product_id === item.product_id);
                     const computedQty = getComputedQty(item, selectedProduct);
                     return (
                     <div key={i} className="grid grid-cols-[repeat(14,minmax(0,1fr))] gap-2 items-end">
@@ -319,7 +371,9 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                         <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
                         <Dropdown value={item.product_id} onValueChange={(v) => handleProductChange(i, v)}
                           options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
-                          align="start" disabled={itemLocked} />
+                          align="start" disabled={itemLocked}
+                          onAddNew={itemLocked ? undefined : () => { setQuickAddProductRow(i); setProductQuickAddOpen(true); }}
+                          addNewLabel="+ Add New Product" />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Unit</label>
@@ -410,13 +464,29 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
         isOpen={bulkModalOpen}
         onClose={() => setBulkModalOpen(false)}
         user={user}
-        products={products}
+        products={allProducts}
         godowns={godowns}
-        customers={customers}
+        customers={allCustomers}
+        onImportProducts={(product) => { setExtraProducts(prev => [...prev, product]); onImportProducts?.(product); }}
+        onImportCustomers={(customer) => { setExtraCustomers(prev => [...prev, customer]); onImportCustomers?.(customer); }}
         onSuccess={() => {
           if (onSuccess) onSuccess();
           onClose();
         }}
+      />
+
+      <ProductModal
+        isOpen={productQuickAddOpen}
+        onClose={() => setProductQuickAddOpen(false)}
+        onSuccess={handleProductQuickAdded}
+        user={user}
+        quickAdd
+      />
+      <CustomerModal
+        isOpen={customerQuickAddOpen}
+        onClose={() => setCustomerQuickAddOpen(false)}
+        onSuccess={handleCustomerQuickAdded}
+        user={user}
       />
     </>
   );

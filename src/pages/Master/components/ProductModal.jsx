@@ -11,7 +11,7 @@ import {
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { sanitizeQtyInput } from '@/lib/qty';
 
-const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduct, onDelete }) => {
+const ProductModal = ({ isOpen, onClose, godowns = [], user, onSuccess, editingProduct, onDelete, quickAdd = false }) => {
   const [form, setForm] = useState({
     brand_name: '', category: '', unit: 'bag', product_type: '', mux: '', allow_negative_stock: true,
     as_of_date: new Date().toISOString().split('T')[0], entries: [],
@@ -68,7 +68,7 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
     setSubmitting(true);
     try {
       if (isEditing) {
-        await updateProduct({
+        const updated = await updateProduct({
           product_id: editingProduct.product_id,
           name: computedName,
           unit: form.unit,
@@ -79,17 +79,19 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
           allow_negative_stock: form.allow_negative_stock,
         });
         toast.success('Product updated successfully');
+        onClose();
+        onSuccess(updated);
       } else {
-        await createProduct({
+        const created = await createProduct({
           name: computedName, unit: form.unit, product_type: form.product_type.trim(),
           brand_name: form.brand_name.trim(), category: form.category.trim(), mux: formattedMux,
           allow_negative_stock: form.allow_negative_stock,
           openingEntries: form.entries, as_of_date: form.as_of_date, created_by: user?.user_id,
         });
         toast.success('Product created successfully');
+        onClose();
+        onSuccess(created);
       }
-      onClose();
-      onSuccess();
     } catch (err) {
       if (err.code === 'DUPLICATE_PRODUCT') {
         setDuplicateNotice(err.message);
@@ -184,14 +186,14 @@ const ProductModal = ({ isOpen, onClose, godowns, user, onSuccess, editingProduc
                 <span>{duplicateNotice}</span>
               </div>
             )}
-            {!isEditing && (
+            {!isEditing && !quickAdd && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">As of Date</label>
                 <DatePicker value={form.as_of_date} onChange={(e) => setForm({ ...form, as_of_date: e.target.value })} />
               </div>
             )}
 
-            {!isEditing && (
+            {!isEditing && !quickAdd && (
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="text-sm font-medium text-slate-700">Opening Stock (per Godown)</label>

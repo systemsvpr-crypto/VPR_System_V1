@@ -8,6 +8,8 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import BulkIndentProductsModal from './BulkIndentProductsModal';
+import ProductModal from '../../Master/components/ProductModal';
+import VendorModal from '../../Master/components/VendorModal';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 
 // Bag <-> Kg conversion. Qty is entered in whichever unit the row's Unit
@@ -25,7 +27,7 @@ const convertQty = (qty, fromUnit, targetUnit, pkgSize) => {
   return amount;
 };
 
-const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products, godowns, vendors }) => {
+const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products, godowns, vendors, onImportProducts, onImportVendors }) => {
   const [form, setForm] = useState({
     indent_date: new Date().toISOString().split('T')[0],
     indent_number: '',
@@ -37,6 +39,31 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   });
   const [submitting, setSubmitting] = useState(false);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
+
+  // Products/vendors created on the fly (via the "+ Add New Product/Vendor"
+  // row pinned inside their dropdowns) — kept alongside the lists loaded
+  // from the parent so a just-created record is immediately selectable here
+  // without waiting for a full page reload.
+  const [extraProducts, setExtraProducts] = useState([]);
+  const [extraVendors, setExtraVendors] = useState([]);
+  const [productQuickAddOpen, setProductQuickAddOpen] = useState(false);
+  const [vendorQuickAddOpen, setVendorQuickAddOpen] = useState(false);
+  const [quickAddProductRow, setQuickAddProductRow] = useState(null); // items index that asked for a new product
+
+  // De-duplicated by id — see BulkIndentProductsModal for why this matters:
+  // once the parent syncs its own list back down as an updated prop, the same
+  // record could otherwise arrive from both sources and show twice.
+  const allProducts = useMemo(() => {
+    const map = new Map();
+    [...products, ...extraProducts].forEach(p => map.set(p.product_id, p));
+    return Array.from(map.values());
+  }, [products, extraProducts]);
+
+  const allVendors = useMemo(() => {
+    const map = new Map();
+    [...vendors, ...extraVendors].forEach(v => map.set(v.vendor_id, v));
+    return Array.from(map.values());
+  }, [vendors, extraVendors]);
 
   const isEditing = !!editingIndent;
 
@@ -51,6 +78,9 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         items: [],
         process_type: 'direct',
       });
+      setExtraProducts([]);
+      setExtraVendors([]);
+      setQuickAddProductRow(null);
     } else if (editingIndent) {
       setForm({
         indent_date: editingIndent.indent_date?.split('T')[0] || new Date().toISOString().split('T')[0],
@@ -91,7 +121,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     if (form.items.length === 0) { toast.error('Add at least one product.'); return; }
     for (const [i, item] of form.items.entries()) {
       if (!item.product_id) { toast.error(`Item ${i + 1}: Select a product.`); return; }
-      const product = products.find(p => p.product_id === item.product_id);
+      const product = allProducts.find(p => p.product_id === item.product_id);
       if (!getComputedQty(item, product)) { toast.error(`Item ${i + 1}: Enter a valid quantity.`); return; }
     }
     // Indent Qty (quantity) is always the product's real master-unit
@@ -99,7 +129,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     // entered in — see getComputedQty. direct_indent_unit/direct_indent_qty
     // are kept alongside purely as a record of that raw entry.
     const payloadItems = form.items.map(item => {
-      const product = products.find(p => p.product_id === item.product_id);
+      const product = allProducts.find(p => p.product_id === item.product_id);
       const rawQty = getItemRawQty(item);
       return {
         ...item,
@@ -178,7 +208,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   };
 
   const handleProductChange = (index, productId) => {
-    const product = products.find(p => p.product_id === productId);
+    const product = allProducts.find(p => p.product_id === productId);
     const items = [...form.items];
     items[index] = { ...items[index], product_id: productId, direct_indent_unit: (product?.unit || '').toLowerCase() };
     setForm({ ...form, items });
@@ -189,7 +219,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   // stale number typed in the old unit doesn't linger under a new one.
   const handleUnitChange = (index, newUnit) => {
     const item = form.items[index];
-    const product = products.find(p => p.product_id === item.product_id);
+    const product = allProducts.find(p => p.product_id === item.product_id);
     const currentUnit = getItemUnit(item, product);
     const currentQty = getItemRawQty(item);
     const requantified = convertQty(currentQty, currentUnit, newUnit, getPackagingSize(product));
@@ -202,6 +232,26 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     const items = [...form.items];
     items[index] = { ...items[index], direct_indent_qty: sanitizeQtyInput(value) };
     setForm({ ...form, items });
+  };
+
+  // New product saved from the "+ Add New Product" row inside that item's
+  // dropdown — make it usable everywhere here and drop it straight into the
+  // row that asked for it, same as picking it manually.
+  const handleProductQuickAdded = (product) => {
+    setExtraProducts(prev => [...prev, product]);
+    if (quickAddProductRow !== null) {
+      handleProductChange(quickAddProductRow, product.product_id);
+    }
+    onImportProducts?.(product);
+    setQuickAddProductRow(null);
+  };
+
+  // Same idea for a new vendor — this indent only ever has one, so it's
+  // applied straight to the form.
+  const handleVendorQuickAdded = (vendor) => {
+    setExtraVendors(prev => [...prev, vendor]);
+    setForm(prev => ({ ...prev, vendor_id: vendor.vendor_id }));
+    onImportVendors?.(vendor);
   };
 
   const handleImportProducts = (data, mode) => {
@@ -237,14 +287,14 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
 
   const totalAmount = useMemo(() => {
     return form.items.reduce((sum, item) => {
-      const product = products.find(p => p.product_id === item.product_id);
+      const product = allProducts.find(p => p.product_id === item.product_id);
       return sum + (Number(item.rate) || 0) * getComputedQty(item, product);
     }, 0);
-  }, [form.items, products]);
+  }, [form.items, allProducts]);
 
   const productOptions = useMemo(() => {
-    return products.map(p => ({ value: p.product_id, label: p.name }));
-  }, [products]);
+    return allProducts.map(p => ({ value: p.product_id, label: p.name }));
+  }, [allProducts]);
 
   // Only real (Own) godowns are valid delivery destinations for an indent —
   // Transporter-type godowns are just stock-tracking placeholders.
@@ -255,8 +305,8 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   }, [godowns]);
 
   const vendorOptions = useMemo(() => {
-    return vendors.map(v => ({ value: v.vendor_id, label: v.name }));
-  }, [vendors]);
+    return allVendors.map(v => ({ value: v.vendor_id, label: v.name }));
+  }, [allVendors]);
 
   return (
     <>
@@ -307,7 +357,8 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Vendor Name <span className="text-slate-400 font-normal">(optional)</span></label>
                   <Dropdown value={form.vendor_id} onValueChange={(v) => setForm({ ...form, vendor_id: v })}
-                    options={vendorOptions} placeholder="Decide later..." searchPlaceholder="Search vendors..." align="start" />
+                    options={vendorOptions} placeholder="Decide later..." searchPlaceholder="Search vendors..." align="start"
+                    onAddNew={() => setVendorQuickAddOpen(true)} addNewLabel="+ Add New Vendor" />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
@@ -322,7 +373,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                 )}
                 <div className="space-y-3 max-h-72 overflow-y-auto pr-1 border border-slate-200/80 rounded-xl p-3 bg-slate-50/50">
                   {form.items.map((item, i) => {
-                    const selectedProduct = products.find(p => p.product_id === item.product_id);
+                    const selectedProduct = allProducts.find(p => p.product_id === item.product_id);
                     const computedQty = getComputedQty(item, selectedProduct);
                     return (
                       <div key={i} className="grid grid-cols-[repeat(13,minmax(0,1fr))] gap-2 items-end">
@@ -330,7 +381,9 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                           <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
                           <Dropdown value={item.product_id} onValueChange={(v) => handleProductChange(i, v)}
                             options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
-                            align="start" />
+                            align="start"
+                            onAddNew={() => { setQuickAddProductRow(i); setProductQuickAddOpen(true); }}
+                            addNewLabel="+ Add New Product" />
                         </div>
                         <div className="col-span-2">
                           <label className="block text-xs font-medium text-slate-500 mb-1">Unit</label>
@@ -406,13 +459,29 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         isOpen={bulkModalOpen}
         onClose={() => setBulkModalOpen(false)}
         user={user}
-        products={products}
+        products={allProducts}
         godowns={godowns}
-        vendors={vendors}
+        vendors={allVendors}
+        onImportProducts={(product) => { setExtraProducts(prev => [...prev, product]); onImportProducts?.(product); }}
+        onImportVendors={(vendor) => { setExtraVendors(prev => [...prev, vendor]); onImportVendors?.(vendor); }}
         onSuccess={() => {
           if (onSuccess) onSuccess();
           onClose();
         }}
+      />
+
+      <ProductModal
+        isOpen={productQuickAddOpen}
+        onClose={() => setProductQuickAddOpen(false)}
+        onSuccess={handleProductQuickAdded}
+        user={user}
+        quickAdd
+      />
+      <VendorModal
+        isOpen={vendorQuickAddOpen}
+        onClose={() => setVendorQuickAddOpen(false)}
+        onSuccess={handleVendorQuickAdded}
+        user={user}
       />
     </>
   );

@@ -47,14 +47,16 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDe
     try {
       const payload = { name: name.trim(), location: location.trim(), phone_number: phoneNumber.trim(), email: email.trim(), gst_number: gstNumber.trim(), crm_follow_up: crmFollowUp.trim() };
       if (isEditing) {
-        await updateCustomer({ ...payload, customer_id: editingCustomer.customer_id });
+        const updated = await updateCustomer({ ...payload, customer_id: editingCustomer.customer_id });
         toast.success('Customer updated successfully');
+        onClose();
+        onSuccess(updated);
       } else {
-        await createCustomer(payload);
+        const created = await createCustomer(payload);
         toast.success('Customer created successfully');
+        onClose();
+        onSuccess(created);
       }
-      onClose();
-      onSuccess();
     } catch (err) { toast.error(err.message); }
     setSubmitting(false);
   };
