@@ -750,6 +750,50 @@ export const deleteOrder = async (order_id) => {
   if (orderDelErr) throw orderDelErr;
 };
 
+// Deletes specific order-item rows (Dispatch Planning's "Delete Selected") —
+// and everything derived from just those items (their dispatch plans, stock
+// transactions) — rather than a whole order, so removing a few selected rows
+// never touches sibling items on the same order that weren't selected. Once
+// an order has no items left, its sales_orders row is removed too, mirroring
+// deleteOrder's full cleanup but scoped down to the rows actually picked.
+export const deleteOrderItemsBulk = async (itemIds) => {
+  const ids = [...new Set(itemIds)].filter(Boolean);
+  if (ids.length === 0) return { deletedItemCount: 0, deletedOrderCount: 0 };
+
+  const items = await fetchInChunks(ids, (chunk) =>
+    supabase.from('sales_order_items').select('item_id, order_id').in('item_id', chunk)
+  );
+  const orderIds = [...new Set(items.map(i => i.order_id).filter(Boolean))];
+
+  const plans = await fetchInChunks(ids, (chunk) =>
+    supabase.from('dispatch_plans').select('plan_id').in('order_item_id', chunk)
+  );
+  const planIds = plans.map(p => p.plan_id).filter(Boolean);
+
+  if (planIds.length > 0) {
+    await fetchInChunks(planIds, (chunk) => supabase.from('transactions').delete().in('dispatch_plan_id', chunk));
+    await fetchInChunks(planIds, (chunk) => supabase.from('dispatch_plans').delete().in('plan_id', chunk));
+  }
+
+  await fetchInChunks(ids, (chunk) => supabase.from('sales_order_items').delete().in('item_id', chunk));
+
+  // Clean up any parent order left with zero items after this deletion.
+  let deletedOrderCount = 0;
+  if (orderIds.length > 0) {
+    const remaining = await fetchInChunks(orderIds, (chunk) =>
+      supabase.from('sales_order_items').select('order_id').in('order_id', chunk)
+    );
+    const ordersWithItemsLeft = new Set(remaining.map(r => r.order_id));
+    const emptyOrderIds = orderIds.filter(id => !ordersWithItemsLeft.has(id));
+    if (emptyOrderIds.length > 0) {
+      await fetchInChunks(emptyOrderIds, (chunk) => supabase.from('sales_orders').delete().in('order_id', chunk));
+      deletedOrderCount = emptyOrderIds.length;
+    }
+  }
+
+  return { deletedItemCount: ids.length, deletedOrderCount };
+};
+
 export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown_id, quantity, dispatch_date, dispatch_number, created_by }) => {
   const getTodayLocal = () => {
     const d = new Date();

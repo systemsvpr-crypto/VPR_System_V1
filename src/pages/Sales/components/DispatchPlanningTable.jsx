@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  ClipboardList, Package, Truck, Search,
+  ClipboardList, Package, Truck, Search, Trash2,
   AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Sparkles, PackageCheck, PackageX, PackageSearch,
 } from 'lucide-react';
@@ -8,7 +8,7 @@ import { format, differenceInCalendarDays } from 'date-fns';
 import toast from 'react-hot-toast';
 import {
   getAllOrderItemsForDispatch, getAllDispatchPlans, saveDispatchPlan,
-  convertQtyToMasterUnit, convertQtyFromMasterUnit,
+  convertQtyToMasterUnit, convertQtyFromMasterUnit, deleteOrderItemsBulk,
 } from '../../../services/salesService';
 import { getAllProductStock } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
@@ -102,6 +102,12 @@ const buildProductNoMap = (rawItems) => {
    Main component
 ────────────────────────────────────────────────────────── */
 const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchChange, onFilterChange, onSave, user }) => {
+  // Same gate as the "Delete order" button in the main Sales orders list —
+  // this wipes rows out of sales_order_items/sales_orders permanently.
+  const roleUpper = String(user?.role || '').trim().toUpperCase();
+  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
+  const canDelete = import.meta.env.DEV || isSuperAdmin;
+
   const [items, setItems]                   = useState([]);
   const [historyPlans, setHistoryPlans]     = useState([]);
   const [stockRows, setStockRows]           = useState([]);
@@ -114,6 +120,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   const [selectedForDispatch, setSelectedForDispatch] = useState(new Set());
   const [dispatchDraft, setDispatchDraft]   = useState({}); // { [item_id]: { quantity, dispatch_date, godown_id } }
   const [dispatchingAll, setDispatchingAll] = useState(false);
+  const [deletingSelected, setDeletingSelected] = useState(false);
 
   // smart dispatch planning controls (pending view only)
   const [sortBy]                            = useState('priority');
@@ -578,7 +585,9 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     // convertedQty is the master-unit equivalent — what stock deduction and
     // pending-qty checks below actually compare against, since a dispatch
     // recorded in Kg still has to come out of a bag-tracked godown balance.
-    const convertedQty = Math.round(convertQtyToMasterUnit(quantity, unit, item.products));
+    // roundQty (2 decimals), not Math.round (whole numbers) — a dispatch of
+    // 3.5 must stay 3.5 into the DB, not get rounded up to 4.
+    const convertedQty = roundQty(convertQtyToMasterUnit(quantity, unit, item.products));
     return {
       quantity, unit, convertedQty,
       godownId: draft.godown_id || item.godown_id,
@@ -589,7 +598,11 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
 
   const validateDispatchPayload = (item, payload) => {
     if (!payload.quantity || payload.quantity <= 0) return 'Enter a valid dispatch quantity.';
-    if (payload.convertedQty > item.remaining) return `Quantity (${payload.convertedQty}) exceeds pending (${item.remaining}).`;
+    // Dispatching more than the order's own pending qty is allowed on
+    // purpose (e.g. order is for 2, but 4 is dispatched because stock is
+    // available) — the only hard limit left is actual godown stock, checked
+    // just below. saveDispatchPlan itself never looked at "remaining" either,
+    // so this was purely a UI cap; removing it doesn't touch any other flow.
     if (!payload.godownId) return 'Select a dispatch godown.';
 
     // Check available stock (in the product's master unit)
@@ -640,6 +653,35 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
       await loadItems();
       onSave?.();
     }
+  };
+
+  // Permanently removes the checked rows from sales_order_items — and,
+  // for any order that ends up with no items left, sales_orders too — along
+  // with their dispatch plans/stock transactions. Unlike Dispatch Selected
+  // this can't be undone, so it's gated behind canDelete and confirmed first.
+  const handleDeleteSelected = async () => {
+    const toDelete = currentItems.filter(i => selectedForDispatch.has(i.item_id));
+    if (toDelete.length === 0) { toast.error('No rows selected.'); return; }
+
+    const confirmMsg = toDelete.length === 1
+      ? `Permanently delete this row (order ${toDelete[0].sales_orders?.order_number || toDelete[0].item_id})? This cannot be undone.`
+      : `Permanently delete ${toDelete.length} selected rows? This cannot be undone.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setDeletingSelected(true);
+    try {
+      const { deletedItemCount, deletedOrderCount } = await deleteOrderItemsBulk(toDelete.map(i => i.item_id));
+      setSelectedForDispatch(new Set());
+      toast.success(
+        `Deleted ${deletedItemCount} item${deletedItemCount !== 1 ? 's' : ''}` +
+        (deletedOrderCount > 0 ? ` (${deletedOrderCount} order${deletedOrderCount !== 1 ? 's' : ''} fully removed).` : '.')
+      );
+      await loadItems();
+      onSave?.();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete selected rows.');
+    }
+    setDeletingSelected(false);
   };
 
   const isEmpty = isPendingView ? dashboardItems.length === 0 : historyRows.length === 0;
@@ -701,6 +743,17 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
               )}
               Dispatch Selected
             </Button>
+
+            {canDelete && (
+              <Button size="sm" variant="destructive" onClick={handleDeleteSelected} disabled={deletingSelected || selectedCount === 0} className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0">
+                {deletingSelected ? (
+                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-current" />
+                ) : (
+                  <Trash2 size={14} />
+                )}
+                Delete Selected
+              </Button>
+            )}
           </>
         )}
 
