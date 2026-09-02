@@ -42,6 +42,19 @@ const normalizeMux = (mux) => {
   return /^\d+(\.\d+)?$/.test(trimmed) ? `${trimmed} Kg` : trimmed;
 };
 
+// The file's Unit column can come in any casing or plural form — "Bag",
+// "BAGS", "bags", "Kg's", "KGS" etc. — all of that collapses to the same
+// canonical 'bag' / 'kg' the rest of the system stores and matches against,
+// so the DB never ends up with inconsistent unit spellings from an import.
+// Anything else is passed through as-is (trimmed) rather than forced.
+const normalizeUnit = (raw) => {
+  const trimmed = String(raw ?? '').trim();
+  const key = trimmed.toLowerCase().replace(/[^a-z]/g, '');
+  if (key === 'bag' || key === 'bags') return 'bag';
+  if (key === 'kg' || key === 'kgs') return 'kg';
+  return trimmed;
+};
+
 const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
@@ -116,7 +129,7 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
           const brandName = String(row[brandKey] || '').trim();
           const category = String(row[categoryKey] || '').trim();
           const productType = typeKey ? String(row[typeKey] || '').trim() : '';
-          const unit = unitKey ? String(row[unitKey] || '').trim() : '';
+          const unit = unitKey ? normalizeUnit(row[unitKey]) : '';
           const mux = muxKey ? normalizeMux(row[muxKey]) : '';
           const godownName = String(row[godownKey] || '').trim();
           const qty = Number(row[qtyKey]) || 0;

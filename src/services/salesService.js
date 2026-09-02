@@ -295,6 +295,24 @@ export const updateOrder = async (order_id, { order_date, order_number, customer
   }
 };
 
+// PostgREST (Supabase's REST layer) can reject a GET with a "400 Bad Request"
+// once its URL gets too long — an .in() filter built from every id in a
+// large/growing table (e.g. every sales order item ever created, or every
+// dispatch plan tied to them) can cross that line silently as the business
+// scales, with no useful error surfaced to the page. Batch such lookups into
+// bounded chunks and merge the results so the id list handed to any single
+// request always stays well under that limit.
+const IN_CHUNK_SIZE = 150;
+const fetchInChunks = async (ids, chunkFn) => {
+  const results = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK_SIZE) {
+    const { data, error } = await chunkFn(ids.slice(i, i + IN_CHUNK_SIZE));
+    if (error) throw error;
+    if (data) results.push(...data);
+  }
+  return results;
+};
+
 export const getAllOrderItemsForDispatch = async () => {
   const { data: items, error: itemsErr } = await supabase
     .from('sales_order_items')
@@ -312,27 +330,23 @@ export const getAllOrderItemsForDispatch = async () => {
   if (!items || items.length === 0) return [];
 
   const ids = items.map(i => i.item_id);
-  const { data: plans, error: plansErr } = await supabase
-    .from('dispatch_plans')
-    .select('*')
-    .in('order_item_id', ids);
-  if (plansErr) throw plansErr;
+  const plans = await fetchInChunks(ids, (chunk) =>
+    supabase.from('dispatch_plans').select('*').in('order_item_id', chunk)
+  );
 
-  const planIds = (plans || []).map(p => p.plan_id).filter(Boolean);
+  const planIds = plans.map(p => p.plan_id).filter(Boolean);
   const dispatchedMap = {};
   if (planIds.length > 0) {
-    const { data: txns } = await supabase
-      .from('transactions')
-      .select('dispatch_plan_id, qty')
-      .in('dispatch_plan_id', planIds)
-      .eq('is_void', false);
-    (txns || []).forEach(t => {
+    const txns = await fetchInChunks(planIds, (chunk) =>
+      supabase.from('transactions').select('dispatch_plan_id, qty').in('dispatch_plan_id', chunk).eq('is_void', false)
+    );
+    txns.forEach(t => {
       dispatchedMap[t.dispatch_plan_id] = (dispatchedMap[t.dispatch_plan_id] || 0) + Number(t.qty);
     });
   }
 
   const planMap = {};
-  (plans || []).forEach(p => {
+  plans.forEach(p => {
     if (!planMap[p.order_item_id]) planMap[p.order_item_id] = [];
     planMap[p.order_item_id].push({ ...p, already_dispatched: dispatchedMap[p.plan_id] || 0 });
   });
@@ -361,27 +375,23 @@ export const getSkipDeliveredItems = async () => {
   if (!items || items.length === 0) return [];
 
   const ids = items.map(i => i.item_id);
-  const { data: plans, error: plansErr } = await supabase
-    .from('dispatch_plans')
-    .select('*, users:created_by(full_name)')
-    .in('order_item_id', ids);
-  if (plansErr) throw plansErr;
+  const plans = await fetchInChunks(ids, (chunk) =>
+    supabase.from('dispatch_plans').select('*, users:created_by(full_name)').in('order_item_id', chunk)
+  );
 
-  const planIds = (plans || []).map(p => p.plan_id).filter(Boolean);
+  const planIds = plans.map(p => p.plan_id).filter(Boolean);
   const dispatchedMap = {};
   if (planIds.length > 0) {
-    const { data: txns } = await supabase
-      .from('transactions')
-      .select('dispatch_plan_id, qty')
-      .in('dispatch_plan_id', planIds)
-      .eq('is_void', false);
-    (txns || []).forEach(t => {
+    const txns = await fetchInChunks(planIds, (chunk) =>
+      supabase.from('transactions').select('dispatch_plan_id, qty').in('dispatch_plan_id', chunk).eq('is_void', false)
+    );
+    txns.forEach(t => {
       dispatchedMap[t.dispatch_plan_id] = (dispatchedMap[t.dispatch_plan_id] || 0) + Number(t.qty);
     });
   }
 
   const planMap = {};
-  (plans || []).forEach(p => {
+  plans.forEach(p => {
     if (!planMap[p.order_item_id]) planMap[p.order_item_id] = [];
     planMap[p.order_item_id].push({ ...p, already_dispatched: dispatchedMap[p.plan_id] || 0 });
   });
