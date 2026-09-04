@@ -32,6 +32,7 @@ const TransactionFilters = ({ filters, onChange, products, godowns }) => (
             <SelectItem value="all">All Types</SelectItem>
             <SelectItem value="OPEN_STOCK">Opening Stock</SelectItem>
             <SelectItem value="IN_FACTORY">Factory In</SelectItem>
+            <SelectItem value="PRODUCTION_IN">Production In</SelectItem>
             <SelectItem value="TRANSFER_IN">Transfer In</SelectItem>
             <SelectItem value="TRANSFER_OUT">Transfer Out</SelectItem>
             <SelectItem value="OUT_GODOWN">Dispatch Out</SelectItem>
@@ -49,10 +50,10 @@ const TransactionFilters = ({ filters, onChange, products, godowns }) => (
   </div>
 );
 
-const canEdit = (type) => ['IN_FACTORY', 'OUT_GODOWN', 'TRANSFER_OUT', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT', 'OPEN_STOCK', 'PURCHASE_IN'].includes(type);
+const canEdit = (type) => ['IN_FACTORY', 'PRODUCTION_IN', 'OUT_GODOWN', 'TRANSFER_OUT', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT', 'OPEN_STOCK', 'PURCHASE_IN'].includes(type);
 
-const TransactionTable = ({ 
-  transactions, totalItems, loading, onEdit, onVoid,
+const TransactionTable = ({
+  transactions, totalItems, loading, onEdit, onDelete,
   currentPage, totalPages, pageSize, onPageChange, onPageSizeChange
 }) => {
   if (loading) {
@@ -106,6 +107,7 @@ const TransactionTable = ({
               <span className={`text-[10px] sm:text-xs font-medium px-2 py-1 rounded-full ${
                 t.txn_type === 'OPEN_STOCK' ? 'bg-purple-50 text-purple-700' :
                 t.txn_type === 'IN_FACTORY' ? 'bg-green-50 text-green-700' :
+                t.txn_type === 'PRODUCTION_IN' ? 'bg-indigo-50 text-indigo-700' :
                 t.txn_type === 'TRANSFER_IN' ? 'bg-blue-50 text-blue-700' :
                 t.txn_type === 'TRANSFER_OUT' ? 'bg-amber-50 text-amber-700' :
                 t.txn_type === 'OUT_GODOWN' ? 'bg-rose-50 text-rose-700' :
@@ -117,9 +119,9 @@ const TransactionTable = ({
               {t.txn_type === 'PURCHASE_IN' ? (t.lifting_number || '—') : (t.dispatch_number || t.lr_number || '—')}
             </td>
             <td className={`px-4 py-3 text-center font-medium tabular-nums ${
-              ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? 'text-green-600' : 'text-red-600'
+              ['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? 'text-green-600' : 'text-red-600'
             }`}>
-              {['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? '+' : '-'}
+              {['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? '+' : '-'}
               {formatQty(t.qty)}
             </td>
             <td className="px-4 py-3 text-center">
@@ -128,7 +130,7 @@ const TransactionTable = ({
                   <button onClick={() => onEdit(t)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-primary transition-colors" title="Edit transaction">
                     <Pencil size={15} />
                   </button>
-                  <button onClick={() => onVoid(t)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors" title="Void transaction">
+                  <button onClick={() => onDelete(t)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors" title="Delete transaction">
                     <Trash2 size={15} />
                   </button>
                 </div>
@@ -142,9 +144,9 @@ const TransactionTable = ({
             <div className="text-xs text-slate-500 flex justify-between">
               <span>{t.txn_date}</span>
               <span className={`font-medium ${
-                ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? 'text-green-600' : 'text-red-600'
+                ['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? 'text-green-600' : 'text-red-600'
               }`}>
-                {['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? '+' : '-'}
+                {['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? '+' : '-'}
                 {formatQty(t.qty)}
               </span>
             </div>
@@ -152,6 +154,7 @@ const TransactionTable = ({
               <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
                 t.txn_type === 'OPEN_STOCK' ? 'bg-purple-50 text-purple-700' :
                 t.txn_type === 'IN_FACTORY' ? 'bg-green-50 text-green-700' :
+                t.txn_type === 'PRODUCTION_IN' ? 'bg-indigo-50 text-indigo-700' :
                 t.txn_type === 'TRANSFER_IN' ? 'bg-blue-50 text-blue-700' :
                 t.txn_type === 'TRANSFER_OUT' ? 'bg-amber-50 text-amber-700' :
                 t.txn_type === 'OUT_GODOWN' ? 'bg-rose-50 text-rose-700' :
@@ -161,7 +164,7 @@ const TransactionTable = ({
               {canEdit(t.txn_type) && (
                 <div className="flex items-center gap-2">
                   <button onClick={() => onEdit(t)} className="p-1 rounded hover:bg-slate-100 text-slate-400"><Pencil size={13} /></button>
-                  <button onClick={() => onVoid(t)} className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"><Trash2 size={13} /></button>
+                  <button onClick={() => onDelete(t)} className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete transaction"><Trash2 size={13} /></button>
                 </div>
               )}
             </div>

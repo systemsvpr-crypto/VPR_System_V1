@@ -21,7 +21,7 @@ export const getStockBalanceBeforeTxn = async (productId, godownId, txnId, txnDa
   let balance = 0;
   for (const row of data || []) {
     if (row.txn_id === txnId) return balance;
-    const inc = ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
+    const inc = ['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
     balance += inc;
   }
   return balance;
@@ -58,7 +58,11 @@ export const getGodown = async (godownId) => {
   return data;
 };
 
-export const addFactoryStock = async ({ product_id, godown_id, qty, txn_date, created_by }) => {
+// Shared by Factory Stock In (IN_FACTORY) and Production (PRODUCTION_IN) —
+// same shape (Product, Godown, Qty, Date), only the recorded txn_type
+// differs, so it's one insert path parameterized by type rather than two
+// near-identical copies.
+const addStockInTxn = async (txn_type, { product_id, godown_id, qty, txn_date, created_by }) => {
   if (!qty || Number(qty) <= 0) throw new Error('Quantity must be greater than zero.');
   if (!hasValidQtyPrecision(Number(qty))) throw new Error('Quantity can have at most two decimal places.');
   if (txn_date > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
@@ -83,7 +87,7 @@ export const addFactoryStock = async ({ product_id, godown_id, qty, txn_date, cr
   const { data, error } = await supabase
     .from('transactions')
     .insert([{
-      product_id, godown_id, txn_date, txn_type: 'IN_FACTORY',
+      product_id, godown_id, txn_date, txn_type,
       qty: Number(qty), is_void: false, created_by, back_dated,
     }])
     .select()
@@ -91,6 +95,9 @@ export const addFactoryStock = async ({ product_id, godown_id, qty, txn_date, cr
   if (error) throw error;
   return data;
 };
+
+export const addFactoryStock = (payload) => addStockInTxn('IN_FACTORY', payload);
+export const addProductionStock = (payload) => addStockInTxn('PRODUCTION_IN', payload);
 
 export const transferStock = async ({ product_id, from_godown_id, to_godown_id, qty, txn_date, created_by }) => {
   if (!qty || Number(qty) <= 0) throw new Error('Quantity must be greater than zero.');
@@ -172,7 +179,7 @@ export const runFSG = async (productId, godownId, fromDate, { removeTxnIds = [],
     .lt('txn_date', fromDate);
 
   const anchorBalance = (anchorRows || []).reduce((sum, r) => {
-    return sum + (['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(r.txn_type) ? Number(r.qty) : -Number(r.qty));
+    return sum + (['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(r.txn_type) ? Number(r.qty) : -Number(r.qty));
   }, 0);
 
   const { data: futureRows } = await supabase
@@ -198,7 +205,7 @@ export const runFSG = async (productId, godownId, fromDate, { removeTxnIds = [],
 
   let running = anchorBalance;
   for (const row of merged) {
-    const inc = ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
+    const inc = ['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
     running += inc;
     if (running < 0 && !product.allow_negative_stock) {
       return {
@@ -224,7 +231,7 @@ export const getAffectedTransactionsImpact = async (productId, godownId, fromDat
     .lt('txn_date', fromDate);
 
   const anchorBalance = (anchorRows || []).reduce((sum, r) => {
-    return sum + (['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(r.txn_type) ? Number(r.qty) : -Number(r.qty));
+    return sum + (['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(r.txn_type) ? Number(r.qty) : -Number(r.qty));
   }, 0);
 
   const { data: futureRows } = await supabase
@@ -251,7 +258,7 @@ export const getAffectedTransactionsImpact = async (productId, godownId, fromDat
   const rows = [];
   let running = anchorBalance;
   for (const row of merged) {
-    const inc = ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
+    const inc = ['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(row.txn_type) ? Number(row.qty) : -Number(row.qty);
     running += inc;
     rows.push({
       txn_id: row.txn_id,
@@ -564,6 +571,55 @@ export const voidTransaction = async (txnId, reason, created_by) => {
   }
 
   return { voided: [txnId] };
+};
+
+// Stock Management's "Transaction History" delete action — a genuine hard
+// delete (the row is gone from the transactions table for good, no
+// void_reason/audit trail kept), unlike voidTransaction above which is a
+// soft void used internally (e.g. salesService's dispatch-cancellation
+// flow). Deliberately touches ONLY the transactions table — no linked
+// dispatch_plans status update — so a dispatch-linked row left behind after
+// its transaction is deleted may go stale; the confirm dialog warns about
+// that rather than this function silently fixing it up.
+export const deleteTransactionRow = async (txnId) => {
+  const { data: original, error: fetchErr } = await supabase
+    .from('transactions')
+    .select('*')
+    .eq('txn_id', txnId)
+    .single();
+  if (fetchErr) throw new Error('Transaction not found.');
+
+  // A transfer's two legs (TRANSFER_OUT/TRANSFER_IN) share a pair_id and
+  // both live in this same table — deleting only one would silently leave
+  // stock moved into/out of nowhere, so both go together.
+  const rowsToDelete = [original];
+  if (original.pair_id) {
+    const { data: pair } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('pair_id', original.pair_id)
+      .eq('is_void', false);
+    for (const leg of pair || []) {
+      if (!rowsToDelete.some(r => r.txn_id === leg.txn_id)) rowsToDelete.push(leg);
+    }
+  }
+  const idsToDelete = rowsToDelete.map(r => r.txn_id);
+
+  // Same future-stock guard used before voiding — deleting a transaction
+  // that a later transaction's balance depends on could push it negative.
+  const checked = new Set();
+  for (const row of rowsToDelete) {
+    const key = `${row.product_id}|${row.godown_id}`;
+    if (checked.has(key)) continue;
+    checked.add(key);
+    const result = await runFSG(row.product_id, row.godown_id, row.txn_date, { removeTxnIds: idsToDelete, addRows: [] });
+    if (!result.passed) throw new Error(result.message);
+  }
+
+  const { error: delErr } = await supabase.from('transactions').delete().in('txn_id', idsToDelete);
+  if (delErr) throw delErr;
+
+  return { deleted: idsToDelete };
 };
 
 export const getAllTransactions = async ({ product_id, godown_id, txn_type, from_date, to_date } = {}) => {

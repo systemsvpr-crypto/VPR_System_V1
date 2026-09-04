@@ -15,7 +15,7 @@ const txnTypeLabel = (type) => {
   return map[type] || type.replace(/_/g, ' ');
 };
 
-const isInType = (type) => ['OPEN_STOCK','IN_FACTORY','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(type);
+const isInType = (type) => ['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(type);
 
 const VoidedEntry = ({ txn, impact }) => {
   const qty = Number(txn.qty || 0);

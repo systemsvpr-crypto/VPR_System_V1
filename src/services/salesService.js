@@ -93,7 +93,7 @@ export const getProductCurrentStockAndTransit = async (productIds) => {
   const stockMap = {};
   for (const txn of txns || []) {
     if (!stockMap[txn.product_id]) stockMap[txn.product_id] = 0;
-    if (['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN', 'PURCHASE_IN(TPT)'].includes(txn.txn_type)) {
+    if (['OPEN_STOCK', 'IN_FACTORY', 'PRODUCTION_IN', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN', 'PURCHASE_IN(TPT)'].includes(txn.txn_type)) {
       stockMap[txn.product_id] += Number(txn.qty);
     } else {
       stockMap[txn.product_id] -= Number(txn.qty);

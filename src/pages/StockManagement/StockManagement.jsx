@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Factory, ArrowLeftRight, Truck, Package, Warehouse } from 'lucide-react';
+import { Factory, ArrowLeftRight, Truck, Package, Warehouse, Download, PackagePlus } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllProducts, getAllGodowns, getAllProductStock } from '../../services/masterService';
-import { getAllTransactions, voidTransaction } from '../../services/stockService';
+import { getAllTransactions, deleteTransactionRow } from '../../services/stockService';
 import Pagination from '@/components/ui/pagination';
+import { formatQty } from '@/lib/qty';
 
 const GODOWN_COLORS = [
   { badge: 'bg-blue-50 text-blue-600 border-blue-100' },
@@ -22,11 +24,12 @@ import FactoryInModal from './components/FactoryInModal';
 import TransferModal from './components/TransferModal';
 import DispatchModal from './components/DispatchModal';
 import BulkDispatchModal from './components/BulkDispatchModal';
-import VoidConfirmModal from './components/VoidConfirmModal';
+import DeleteConfirmModal from './components/DeleteConfirmModal';
 import { TransactionFilters, TransactionTable } from './components/TransactionTable';
 
 const ACTIONS = [
   { id: 'factory-in', label: 'Factory Stock In', icon: Factory, color: 'bg-blue-50 text-blue-600 border-blue-200' },
+  { id: 'production', label: 'Production', icon: PackagePlus, color: 'bg-indigo-50 text-indigo-600 border-indigo-200' },
   { id: 'transfer', label: 'Transfer Stock', icon: ArrowLeftRight, color: 'bg-amber-50 text-amber-600 border-amber-200' },
   { id: 'dispatch', label: 'Dispatch Out', icon: Truck, color: 'bg-rose-50 text-rose-600 border-rose-200' },
 ];
@@ -41,8 +44,8 @@ const StockManagement = () => {
   const [productStockMap, setProductStockMap] = useState({});
   const [transactions, setTransactions] = useState([]);
   const [txnLoading, setTxnLoading] = useState(true);
-  const [voidingTransaction, setVoidingTransaction] = useState(null);
-  const [voidLoading, setVoidLoading] = useState(false);
+  const [deletingTransaction, setDeletingTransaction] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [filters, setFilters] = useState({ product_id: '', godown_id: '', txn_type: '', from_date: '', to_date: '' });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -102,24 +105,25 @@ const StockManagement = () => {
     }
     setEditingTransaction(editTxn);
     if (txn.txn_type === 'IN_FACTORY' || txn.txn_type === 'ADJUSTMENT_IN' || txn.txn_type === 'OPEN_STOCK' || txn.txn_type === 'PURCHASE_IN') setActiveModal('factory-in');
+    else if (txn.txn_type === 'PRODUCTION_IN') setActiveModal('production');
     else if (txn.pair_id) setActiveModal('transfer');
     else if (txn.txn_type === 'OUT_GODOWN' || txn.txn_type === 'ADJUSTMENT_OUT') setActiveModal('dispatch');
   };
 
-  const handleVoid = (txn) => {
-    setVoidingTransaction(txn);
+  const handleDeleteClick = (txn) => {
+    setDeletingTransaction(txn);
   };
 
-  const handleVoidConfirm = async (reason) => {
-    if (!voidingTransaction) return;
-    setVoidLoading(true);
+  const handleDeleteConfirm = async () => {
+    if (!deletingTransaction) return;
+    setDeleteLoading(true);
     try {
-      await voidTransaction(voidingTransaction.txn_id, reason, user?.user_id);
-      toast.success('Transaction voided successfully');
-      setVoidingTransaction(null);
+      await deleteTransactionRow(deletingTransaction.txn_id);
+      toast.success('Transaction deleted successfully');
+      setDeletingTransaction(null);
       fetchTransactions();
     } catch (err) { toast.error(err.message); }
-    setVoidLoading(false);
+    setDeleteLoading(false);
   };
 
   const handleCloseModal = () => {
@@ -128,6 +132,30 @@ const StockManagement = () => {
   };
 
   const handleSuccess = () => { setActiveModal(null); setEditingTransaction(null); fetchTransactions(); };
+
+  // Exports every transaction matching the current filters (not just the
+  // current page) — same columns and Type/Lift-Dispatch/Qty-sign conventions
+  // as the on-screen table, so the file reads exactly like what's shown.
+  const IN_TYPES = ['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN', 'PURCHASE_IN(TPT)'];
+  const handleExport = () => {
+    if (transactions.length === 0) {
+      toast.error('No transactions to export.');
+      return;
+    }
+    const rows = transactions.map(t => ({
+      'Date': t.txn_date,
+      'Product Name': t.products?.name || '-',
+      'Unit': t.products?.unit ? t.products.unit.toUpperCase() : '-',
+      'Godown': t.godowns?.name || '-',
+      'Type': t.txn_type.replace(/_/g, ' '),
+      'Lift/Dispatch #': t.txn_type === 'PURCHASE_IN' ? (t.lifting_number || '—') : (t.dispatch_number || t.lr_number || '—'),
+      'Qty': `${IN_TYPES.includes(t.txn_type) ? '+' : '-'}${formatQty(t.qty)}`,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Transaction History');
+    XLSX.writeFile(wb, `Transaction_History_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
 
   const totalTransactionPages = Math.max(1, Math.ceil(transactions.length / pageSize));
   const currentTransactions = useMemo(() => {
@@ -139,7 +167,7 @@ const StockManagement = () => {
     <div className="flex flex-col gap-6 h-full min-h-0">
 
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 shrink-0">
         {ACTIONS.map(action => (
           <button key={action.id} onClick={() => setActiveModal(activeModal === action.id ? null : action.id)}
             className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${
@@ -158,15 +186,22 @@ const StockManagement = () => {
         <TransactionFilters filters={filters} onChange={handleFilterChange} products={products} godowns={godowns} />
       </div>
       <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
-        <div className="px-5 py-4 border-b border-slate-100 shrink-0">
+        <div className="px-5 py-4 border-b border-slate-100 shrink-0 flex items-center justify-between gap-3">
           <h3 className="font-semibold text-slate-800">Transaction History</h3>
+          <button
+            type="button"
+            onClick={handleExport}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline shrink-0"
+          >
+            <Download size={14} /> Export
+          </button>
         </div>
         <TransactionTable 
           transactions={currentTransactions} 
           totalItems={transactions.length} 
           loading={txnLoading} 
-          onEdit={handleEdit} 
-          onVoid={handleVoid} 
+          onEdit={handleEdit}
+          onDelete={handleDeleteClick}
           currentPage={currentPage}
           totalPages={totalTransactionPages}
           pageSize={pageSize}
@@ -177,7 +212,12 @@ const StockManagement = () => {
 
       <FactoryInModal isOpen={activeModal === 'factory-in'} onClose={handleCloseModal}
         products={products} godowns={godowns} productStockMap={productStockMap} user={user} onSuccess={handleSuccess}
+        onImportProducts={(product) => setProducts(prev => [...prev, product])}
         editingTransaction={['IN_FACTORY', 'ADJUSTMENT_IN', 'OPEN_STOCK', 'PURCHASE_IN'].includes(editingTransaction?.txn_type) ? editingTransaction : null} />
+      <FactoryInModal mode="production" isOpen={activeModal === 'production'} onClose={handleCloseModal}
+        products={products} godowns={godowns} productStockMap={productStockMap} user={user} onSuccess={handleSuccess}
+        onImportProducts={(product) => setProducts(prev => [...prev, product])}
+        editingTransaction={editingTransaction?.txn_type === 'PRODUCTION_IN' ? editingTransaction : null} />
       <TransferModal isOpen={activeModal === 'transfer'} onClose={handleCloseModal}
         products={products} godowns={godowns} productStockMap={productStockMap} user={user} onSuccess={handleSuccess}
         editingTransaction={editingTransaction?.pair_id ? editingTransaction : null} />
@@ -188,8 +228,8 @@ const StockManagement = () => {
       <BulkDispatchModal isOpen={activeModal === 'bulk-dispatch'} onClose={handleCloseModal}
         user={user} onSuccess={handleSuccess} />
 
-      <VoidConfirmModal isOpen={!!voidingTransaction} onClose={() => setVoidingTransaction(null)}
-        transaction={voidingTransaction} onConfirm={handleVoidConfirm} loading={voidLoading}
+      <DeleteConfirmModal isOpen={!!deletingTransaction} onClose={() => setDeletingTransaction(null)}
+        transaction={deletingTransaction} onConfirm={handleDeleteConfirm} loading={deleteLoading}
         products={products} godowns={godowns} />
     </div>
   );

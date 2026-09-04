@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Factory } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Factory, PackagePlus } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { addFactoryStock, editTransaction, getStockBalance, getStockBalanceBeforeTxn, getAffectedTransactionsImpact } from '../../../services/stockService';
+import { addFactoryStock, addProductionStock, editTransaction, getStockBalance, getStockBalanceBeforeTxn, getAffectedTransactionsImpact } from '../../../services/stockService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -11,9 +11,17 @@ import {
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
 import ImpactPreview from './ImpactPreview';
+import ProductModal from '../../Master/components/ProductModal';
 import { sanitizeQtyInput, formatQty } from '@/lib/qty';
 
-const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = {}, user, onSuccess, editingTransaction }) => {
+// Same form as Factory Stock In (Product, Godown, Qty, Date) — mode="production"
+// switches only the title/icon and the txn_type actually saved (PRODUCTION_IN
+// instead of IN_FACTORY). Editing an existing transaction is unaffected by
+// `mode`: editTransaction keeps whatever txn_type the row already had, and
+// StockManagement routes an existing PRODUCTION_IN row into a
+// mode="production" instance so its title/icon still match.
+const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = {}, user, onSuccess, onImportProducts, editingTransaction, mode = 'factory' }) => {
+  const isProduction = mode === 'production';
   const [form, setForm] = useState({
     product_id: '', godown_id: '', qty: '', txn_date: new Date().toISOString().split('T')[0],
   });
@@ -21,6 +29,18 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
   const [stockBalance, setStockBalance] = useState(null);
   const [impactData, setImpactData] = useState(null);
   const [impactStatus, setImpactStatus] = useState('idle');
+
+  // Product created on the fly via "+ Add New Product" — kept alongside the
+  // list loaded from the parent so it's immediately selectable here even
+  // before the parent's own product list has synced back down.
+  const [extraProducts, setExtraProducts] = useState([]);
+  const [productQuickAddOpen, setProductQuickAddOpen] = useState(false);
+
+  const allProducts = useMemo(() => {
+    const map = new Map();
+    [...products, ...extraProducts].forEach(p => map.set(p.product_id, p));
+    return Array.from(map.values());
+  }, [products, extraProducts]);
 
   const isEditing = !!editingTransaction;
   const isPurchaseIn = editingTransaction?.txn_type === 'PURCHASE_IN';
@@ -120,6 +140,15 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
     return () => clearTimeout(t);
   }, [form.qty, form.godown_id, form.txn_date, isOpen, isEditing]);
 
+  // New product saved from the "+ Add New Product" row inside the Product
+  // dropdown — make it usable everywhere here and select it straight away,
+  // same as picking an existing one.
+  const handleProductQuickAdded = (product) => {
+    setExtraProducts(prev => [...prev, product]);
+    setForm(f => ({ ...f, product_id: product.product_id }));
+    onImportProducts?.(product);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.product_id || !form.godown_id || form.qty === '' || form.qty === undefined || form.qty === null || Number(form.qty) < 0) {
@@ -132,6 +161,9 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
         const payload = { ...form, created_by: user?.user_id };
         await editTransaction(editingTransaction.txn_id, payload);
         toast.success('Stock entry updated');
+      } else if (isProduction) {
+        await addProductionStock({ ...form, created_by: user?.user_id });
+        toast.success('Production stock added successfully');
       } else {
         await addFactoryStock({ ...form, created_by: user?.user_id });
         toast.success('Stock added successfully');
@@ -145,6 +177,7 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
   const editTitle = editingTransaction?.txn_type === 'OPEN_STOCK' ? 'Edit Opening Stock'
     : editingTransaction?.txn_type === 'ADJUSTMENT_IN' ? 'Edit Adjustment In'
     : editingTransaction?.txn_type === 'PURCHASE_IN' ? 'Edit Purchase In'
+    : editingTransaction?.txn_type === 'PRODUCTION_IN' ? 'Edit Production'
     : 'Edit Factory Stock In';
   // Own godowns first (stock normally comes in to one of these), then
   // Transporter stock-tracking godowns below — each group alphabetical.
@@ -153,7 +186,7 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
   const byGodownName = (a, b) => a.name.localeCompare(b.name);
   const ownGodowns = activeGodowns.filter(isOwnGodown).sort(byGodownName);
   const transporterGodowns = activeGodowns.filter(g => !isOwnGodown(g)).sort(byGodownName);
-  const selectedProduct = products.find(p => p.product_id === form.product_id);
+  const selectedProduct = allProducts.find(p => p.product_id === form.product_id);
   const productName = selectedProduct?.name || '';
 
   const renderProductOption = (option) => {
@@ -179,12 +212,15 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
   };
 
   return (
+    <>
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <ModalContent className={isEditing ? "max-w-5xl" : "max-w-2xl"}>
         <ModalHeader>
-          <div className="bg-blue-50 p-2 rounded-lg"><Factory size={20} className="text-blue-600" /></div>
+          <div className={`p-2 rounded-lg ${isProduction ? 'bg-indigo-50' : 'bg-blue-50'}`}>
+            {isProduction ? <PackagePlus size={20} className="text-indigo-600" /> : <Factory size={20} className="text-blue-600" />}
+          </div>
           <ModalTitle asChild>
-            <h2 className="text-xl font-bold text-slate-800">{isEditing ? editTitle : 'Factory Stock In'}</h2>
+            <h2 className="text-xl font-bold text-slate-800">{isEditing ? editTitle : (isProduction ? 'Production' : 'Factory Stock In')}</h2>
           </ModalTitle>
           {isEditing && (editingTransaction?.lifting_number || editingTransaction?.dispatch_number) && (
             <div className="flex items-center gap-2 pt-1">
@@ -193,7 +229,7 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
               </span>
             </div>
           )}
-          <ModalDescription className="sr-only">{isEditing ? `Editing ${editTitle}` : 'Add factory stock'}</ModalDescription>
+          <ModalDescription className="sr-only">{isEditing ? `Editing ${editTitle}` : (isProduction ? 'Add production stock' : 'Add factory stock')}</ModalDescription>
         </ModalHeader>
         <form onSubmit={handleSubmit}>
           <ModalBody>
@@ -201,7 +237,8 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
               <div className={isEditing ? "col-span-2 space-y-4" : "space-y-4"}>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Product</label>
-                  <Dropdown value={form.product_id} onValueChange={(v) => setForm({ ...form, product_id: v })} options={products.map(p => ({ value: p.product_id, label: p.name }))} placeholder="Select Product" renderOption={renderProductOption} disabled={isEditing} contentClassName="w-full">
+                  <Dropdown value={form.product_id} onValueChange={(v) => setForm({ ...form, product_id: v })} options={allProducts.map(p => ({ value: p.product_id, label: p.name }))} placeholder="Select Product" renderOption={renderProductOption} disabled={isEditing} contentClassName="w-full"
+                    onAddNew={() => setProductQuickAddOpen(true)} addNewLabel="+ Add New Product">
                     {selectedProduct?.name}
                   </Dropdown>
                 </div>
@@ -260,6 +297,15 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
         </form>
       </ModalContent>
     </Modal>
+
+    <ProductModal
+      isOpen={productQuickAddOpen}
+      onClose={() => setProductQuickAddOpen(false)}
+      onSuccess={handleProductQuickAdded}
+      user={user}
+      quickAdd
+    />
+    </>
   );
 };
 

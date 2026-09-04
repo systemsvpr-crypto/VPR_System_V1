@@ -6,14 +6,16 @@ import { getVoidTransactionImpact } from '../../../services/stockService';
 import ImpactPreview from './ImpactPreview';
 import { formatQty } from '@/lib/qty';
 
-const VoidConfirmModal = ({ isOpen, onClose, transaction, onConfirm, loading, products, godowns }) => {
-  const [reason, setReason] = useState('');
+// Confirms a permanent delete from Transaction History. Unlike the old
+// Void flow this is a real hard delete — no reason is kept (there's no row
+// left to attach it to) and only the transactions table is ever touched, so
+// a dispatch-linked row is flagged here rather than silently patched up.
+const DeleteConfirmModal = ({ isOpen, onClose, transaction, onConfirm, loading, products, godowns }) => {
   const [impactData, setImpactData] = useState(null);
   const [impactStatus, setImpactStatus] = useState('idle');
 
   useEffect(() => {
     if (isOpen) {
-      setReason('');
       setImpactData(null);
       setImpactStatus('idle');
     }
@@ -39,11 +41,6 @@ const VoidConfirmModal = ({ isOpen, onClose, transaction, onConfirm, loading, pr
     fetchImpact();
   }, [isOpen]);
 
-  const handleConfirm = () => {
-    if (!reason.trim()) return;
-    onConfirm(reason.trim());
-  };
-
   if (!transaction) return null;
 
   const isTransfer = !!transaction.pair_id;
@@ -56,7 +53,7 @@ const VoidConfirmModal = ({ isOpen, onClose, transaction, onConfirm, loading, pr
         <ModalHeader>
           <div className="bg-red-50 p-2 rounded-lg w-fit"><AlertTriangle size={20} className="text-red-600" /></div>
           <h2 className="text-xl font-bold text-slate-800">
-            Void Transaction
+            Delete Transaction
             {transaction?.dispatch_number && (
               <span className="ml-2 text-sm font-normal text-slate-400">(Dispatch #{transaction.dispatch_number})</span>
             )}
@@ -72,17 +69,12 @@ const VoidConfirmModal = ({ isOpen, onClose, transaction, onConfirm, loading, pr
                 <div><span className="text-slate-500">Quantity:</span> <span className="font-medium">{formatQty(transaction.qty)}</span></div>
                 <div><span className="text-slate-500">Date:</span> <span className="font-medium">{transaction.txn_date}</span></div>
                 {isTransfer && (
-                  <div className="text-amber-600 text-xs mt-1">This is part of a transfer — both legs will be voided together.</div>
+                  <div className="text-amber-600 text-xs mt-1">This is part of a transfer — both legs will be permanently deleted together.</div>
                 )}
                 {transaction.dispatch_plan_id && (
-                  <div className="text-amber-600 text-xs mt-1">This is linked to Dispatch #{transaction.dispatch_number} from Sales. Voiding will reset the dispatch status to Pending.</div>
+                  <div className="text-amber-600 text-xs mt-1">This is linked to Dispatch #{transaction.dispatch_number} from Sales. Deleting it only removes this transaction — that dispatch's status will NOT be updated and may become inconsistent.</div>
                 )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Reason for voiding *</label>
-                <textarea value={reason} onChange={(e) => setReason(e.target.value)}
-                  className="w-full h-20 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-300 resize-none"
-                  placeholder="Explain why this transaction is being voided..." />
+                <div className="text-red-600 text-xs font-medium mt-2">This permanently removes the transaction from the database. This cannot be undone.</div>
               </div>
             </div>
             <div className="col-span-3">
@@ -92,9 +84,9 @@ const VoidConfirmModal = ({ isOpen, onClose, transaction, onConfirm, loading, pr
         </ModalBody>
         <ModalFooter>
           <Button type="button" variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
-          <Button type="button" onClick={handleConfirm} disabled={loading || !reason.trim()}
+          <Button type="button" onClick={onConfirm} disabled={loading}
             className="bg-red-600 hover:bg-red-700 text-white">
-            {loading ? 'Voiding...' : 'Void Transaction'}
+            {loading ? 'Deleting...' : 'Delete Transaction'}
           </Button>
         </ModalFooter>
       </ModalContent>
@@ -102,4 +94,4 @@ const VoidConfirmModal = ({ isOpen, onClose, transaction, onConfirm, loading, pr
   );
 };
 
-export default VoidConfirmModal;
+export default DeleteConfirmModal;
