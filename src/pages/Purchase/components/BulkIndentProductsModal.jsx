@@ -8,6 +8,7 @@ import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { createIndent, generateNextIndentNumber, getPackagingSize } from '../../../services/purchaseService';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
+import { parseFileDate } from '@/lib/parseFileDate';
 import ProductModal from '../../Master/components/ProductModal';
 import VendorModal from '../../Master/components/VendorModal';
 
@@ -107,35 +108,6 @@ const getProductSuggestions = (rawName, allProducts, limit = 3) => {
 const getTodayLocal = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
-
-const parseExcelDate = (val) => {
-  if (!val) return '';
-  if (typeof val === 'number') {
-    try {
-      const dateObj = XLSX.SSF.parse_date_code(val);
-      if (dateObj) {
-        const y = dateObj.y;
-        const m = String(dateObj.m).padStart(2, '0');
-        const d = String(dateObj.d).padStart(2, '0');
-        return `${y}-${m}-${d}`;
-      }
-    } catch (err) {}
-  }
-  const str = String(val).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-  const match = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-  if (match) {
-    const d = String(match[1]).padStart(2, '0');
-    const m = String(match[2]).padStart(2, '0');
-    const y = match[3];
-    return `${y}-${m}-${d}`;
-  }
-  const d = new Date(str);
-  if (!isNaN(d.getTime())) {
-    return d.toISOString().split('T')[0];
-  }
-  return '';
 };
 
 const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns = [], vendors = [], onImportProducts, onImportVendors, onSuccess }) => {
@@ -300,7 +272,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
           const rawUnit = unitKey ? String(row[unitKey] || '').trim().toLowerCase() : '';
           const fileUnit = rawUnit === 'bag' || rawUnit === 'kg' ? rawUnit : '';
 
-          const parsedDate = parseExcelDate(rawDate) || defaultDate;
+          const parsedDate = parseFileDate(rawDate) || defaultDate;
           const matchedProd = products.find(p => normalizeKey(p.name) === normalizeKey(rawProd));
           const matchedVendor = vendors.find(v => normalizeKey(v.name) === normalizeKey(rawVendor));
           const matchedGodown = activeGodowns.find(g => normalizeKey(g.name) === normalizeKey(rawGodown));

@@ -699,6 +699,10 @@ export const bulkDispatchStock = async ({ rows, created_by }) => {
       errors.push({ row: `Row ${i + 1}: ${row.productName}`, message: 'Godown name is empty' });
       continue;
     }
+    if (row.dateInvalid) {
+      errors.push({ row: `Row ${i + 1}: ${row.productName} → ${row.godownName}`, message: "Date column has a value that couldn't be read — check its format (expected dd/mm/yyyy)." });
+      continue;
+    }
     if (isNaN(qty) || qty <= 0 || !hasValidQtyPrecision(qty)) {
       errors.push({ row: `Row ${i + 1}: ${row.productName} → ${row.godownName}`, message: 'Quantity must be a valid positive number with at most two decimal places' });
       continue;

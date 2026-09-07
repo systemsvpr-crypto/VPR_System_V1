@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { bulkDispatchStock } from '../../../services/stockService';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { parseFileDate } from '@/lib/parseFileDate';
 
 const REQUIRED_COLUMNS = ['Product Name', 'Godown Name', 'Quantity'];
 
@@ -93,31 +94,22 @@ const BulkDispatchModal = ({ isOpen, onClose, user, onSuccess }) => {
         const dateKey = Object.keys(normalizedMap).find(k => normalizedMap[k] === 'Date');
 
         const parsed = json.map((row) => {
-          let rowDate = getTodayLocal();
-          if (dateKey && row[dateKey]) {
-            let d = row[dateKey];
-            if (typeof d === 'number') {
-              const excelEpoch = new Date(1899, 11, 30);
-              const jsDate = new Date(excelEpoch.getTime() + d * 86400000);
-              rowDate = jsDate.toISOString().split('T')[0];
-            } else {
-              const dStr = String(d).trim();
-              if (dStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                rowDate = dStr;
-              } else {
-                 const pd = new Date(dStr);
-                 if (!isNaN(pd.getTime())) {
-                   rowDate = pd.toISOString().split('T')[0];
-                 }
-              }
-            }
-          }
+          // A value IS present but fails to parse must never silently
+          // become today's date — that's exactly how a real 2024/2025 date
+          // in the file used to turn into today's (wrong) year. It's
+          // flagged instead (dateInvalid) so the row shows as an error
+          // rather than quietly dispatching under the wrong date.
+          const rawDateVal = dateKey ? row[dateKey] : '';
+          const hasRawDate = rawDateVal !== undefined && rawDateVal !== null && rawDateVal !== '';
+          const parsedDate = hasRawDate ? parseFileDate(rawDateVal) : '';
+          const dateInvalid = hasRawDate && !parsedDate;
 
           return {
             productName: String(row[productKey] || '').trim(),
             godownName: String(row[godownKey] || '').trim(),
             qty: Number(row[qtyKey]) || 0,
-            date: rowDate,
+            date: parsedDate || (hasRawDate ? '' : getTodayLocal()),
+            dateInvalid,
           };
         }).filter(r => r.productName || r.godownName);
 
@@ -313,7 +305,9 @@ const BulkDispatchModal = ({ isOpen, onClose, user, onSuccess }) => {
                         <td className="px-3 py-2 text-slate-700">{r.productName || <span className="text-red-400 italic">empty</span>}</td>
                         <td className="px-3 py-2 text-slate-700">{r.godownName || <span className="text-red-400 italic">empty</span>}</td>
                         <td className="px-3 py-2 text-right font-medium">{r.qty || <span className="text-red-400 italic">0</span>}</td>
-                        <td className="px-3 py-2 text-right text-slate-500">{r.date}</td>
+                        <td className="px-3 py-2 text-right text-slate-500">
+                          {r.dateInvalid ? <span className="text-red-500 italic">Invalid date</span> : r.date}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
