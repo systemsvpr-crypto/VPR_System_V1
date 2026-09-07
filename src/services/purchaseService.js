@@ -77,22 +77,36 @@ export const generateNextIndentNumber = async () => {
   const { data, error } = await supabase
     .from('purchase_indents')
     .select('indent_number')
-    .like('indent_number', 'VPR/IN-%')
-    .order('indent_number', { ascending: false })
-    .limit(1);
+    .order('created_at', { ascending: false })
+    .limit(100);
 
   if (error) throw error;
 
-  if (!data || data.length === 0) {
-    return 'VPR/IN-001';
+  let maxNum = 0;
+  if (data && data.length > 0) {
+    for (const r of data) {
+      const match = r.indent_number?.match(/VPR\/IN-(\d+)/);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    }
   }
 
-  const last = data[0].indent_number;
-  const match = last.match(/VPR\/IN-(\d+)/);
-  if (!match) return 'VPR/IN-001';
+  let next = maxNum + 1;
+  while (true) {
+    const candidate = `VPR/IN-${String(next).padStart(3, '0')}`;
+    const { data: exists } = await supabase
+      .from('purchase_indents')
+      .select('indent_number')
+      .eq('indent_number', candidate)
+      .limit(1);
 
-  const next = parseInt(match[1], 10) + 1;
-  return `VPR/IN-${String(next).padStart(3, '0')}`;
+    if (!exists || exists.length === 0) {
+      return candidate;
+    }
+    next++;
+  }
 };
 
 // True only for the specific "indent_number already taken" conflict — other

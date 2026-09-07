@@ -355,13 +355,12 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
     setRawRows(updated);
   };
 
-  // Group rows by unique (Order Date, Customer, Product) combination
+  // Group rows by unique (Order Date, Customer) combination
   const groupedOrders = useMemo(() => {
     const groups = {};
     rawRows.forEach((row, idx) => {
       const custKey = row.customer_id || row.rawCustomerName || 'unassigned';
-      const prodKey = row.product_id || row.rawProductName || 'unassigned';
-      const key = `${row.order_date}_${custKey}_${prodKey}`;
+      const key = `${row.order_date}_${custKey}`;
       if (!groups[key]) {
         const custObj = allCustomers.find(c => c.customer_id === row.customer_id);
         groups[key] = {
@@ -382,8 +381,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
   const handleGroupHeaderChange = (groupKey, field, value) => {
     const updated = rawRows.map(row => {
       const cKey = row.customer_id || row.rawCustomerName || 'unassigned';
-      const pKey = row.product_id || row.rawProductName || 'unassigned';
-      const k = `${row.order_date}_${cKey}_${pKey}`;
+      const k = `${row.order_date}_${cKey}`;
       if (k === groupKey) {
         return { ...row, [field]: value };
       }
@@ -402,7 +400,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
     setSubmitting(true);
     try {
 
-      // Automatically create sales orders for each (Date, Customer, Product) group with system-generated order numbers
+      // Automatically create sales orders for each (Date, Customer) group with system-generated order numbers
       const generatedNumbers = await generateMultipleOrderNumbers(groupedOrders.length);
 
       for (let i = 0; i < groupedOrders.length; i++) {
@@ -503,7 +501,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
             </div>
             <div>
               <h2 className="text-xl font-bold text-slate-800">Bulk Upload Sales Orders</h2>
-              <p className="text-xs text-slate-500">Import orders via Excel or CSV. Order numbers will be auto-generated for each unique date, customer & product.</p>
+              <p className="text-xs text-slate-500">Import orders via Excel or CSV. Order numbers will be auto-generated for each unique date & customer.</p>
             </div>
           </div>
         </ModalHeader>
@@ -523,8 +521,8 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                 <div className="mt-2 text-xs text-slate-600 space-y-1 pl-8">
                   <p>• <strong>Order Numbers are auto-generated:</strong> Do not include Order Number in your file.</p>
                   <p>• <strong>Process Type is auto-set to Order Process:</strong> Do not include Process Type in your file.</p>
-                  <p>• <strong>Unit is optional (Bag/Kg):</strong> when given, Quantity is read in that unit and converted to Order Qty in the product's own master unit; otherwise Quantity is read as already being in the product's master unit.</p>
-                  <p>• <strong>Grouping Logic:</strong> Rows with the <em>same Order Date, Customer Name, and Product Name</em> will be assigned the <strong>same auto-generated order number</strong>.</p>
+                  <p>• <strong>Unit is optional (Bag/Kg):</strong> When given, Quantity is read in that unit and converted to Order Qty in the product's own master unit; otherwise Quantity is read as already being in the product's master unit.</p>
+                  <p>• <strong>Grouping Logic:</strong> Rows with the <em>same Order Date and Customer Name</em> will be assigned the <strong>same auto-generated order number</strong>.</p>
                 </div>
               </div>
 

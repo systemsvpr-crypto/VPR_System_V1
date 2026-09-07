@@ -31,53 +31,53 @@ export const convertQtyFromMasterUnit = (qty, toUnit, product) => {
   return amount;
 };
 
-export const generateNextOrderNumber = async () => {
-  const { data, error } = await supabase
-    .from('sales_orders')
-    .select('order_number')
-    .like('order_number', 'VPR/OR-%')
-    .order('order_number', { ascending: false })
-    .limit(1);
-
-  if (error) throw error;
-
-  if (!data || data.length === 0) {
-    return 'VPR/OR-001';
-  }
-
-  const last = data[0].order_number;
-  const match = last.match(/VPR\/OR-(\d+)/);
-  if (!match) return 'VPR/OR-001';
-
-  const next = parseInt(match[1], 10) + 1;
-  return `VPR/OR-${String(next).padStart(3, '0')}`;
-};
-
 export const generateMultipleOrderNumbers = async (count) => {
   if (!count || count <= 0) return [];
+
+  // Sort by created_at descending to find the highest existing numeric order number,
+  // avoiding alphabetical string sort issues where 'VPR/OR-999' > 'VPR/OR-1043'.
   const { data, error } = await supabase
     .from('sales_orders')
     .select('order_number')
-    .like('order_number', 'VPR/OR-%')
-    .order('order_number', { ascending: false })
-    .limit(1);
+    .order('created_at', { ascending: false })
+    .limit(100);
 
   if (error) throw error;
 
-  let startNum = 1;
+  let maxNum = 0;
   if (data && data.length > 0) {
-    const last = data[0].order_number;
-    const match = last.match(/VPR\/OR-(\d+)/);
-    if (match) {
-      startNum = parseInt(match[1], 10) + 1;
+    for (const r of data) {
+      const match = r.order_number?.match(/VPR\/OR-(\d+)/);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
     }
   }
 
+  // Generate non-conflicting consecutive order numbers
+  let next = maxNum + 1;
   const numbers = [];
-  for (let i = 0; i < count; i++) {
-    numbers.push(`VPR/OR-${String(startNum + i).padStart(3, '0')}`);
+  while (numbers.length < count) {
+    const candidate = `VPR/OR-${String(next).padStart(3, '0')}`;
+    const { data: exists } = await supabase
+      .from('sales_orders')
+      .select('order_number')
+      .eq('order_number', candidate)
+      .limit(1);
+
+    if (!exists || exists.length === 0) {
+      numbers.push(candidate);
+    }
+    next++;
   }
+
   return numbers;
+};
+
+export const generateNextOrderNumber = async () => {
+  const numbers = await generateMultipleOrderNumbers(1);
+  return numbers[0] || 'VPR/OR-001';
 };
 
 export const getProductCurrentStockAndTransit = async (productIds) => {
