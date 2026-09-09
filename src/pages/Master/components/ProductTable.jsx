@@ -1,13 +1,15 @@
 import { Package, Edit2 } from 'lucide-react';
+import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import DataTable from '@/components/DataTable';
 import { formatQty } from '@/lib/qty';
+import { getProductGrouping } from '@/lib/productGrouping';
 
 const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stockMap, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
   return (
     <DataTable
       headers={[
-        'Product Name', 'Unit', 'Product Type', 'Brand', 'Category', 'Mux', 'Stock', 'Created Date', 'Actions'
+        'Product Name', 'Unit', 'Size', 'Brand', 'Category', 'Mux', 'Grouping', 'Stock', 'Created Date', 'Actions'
       ]}
       data={products}
       currentPage={currentPage}
@@ -24,6 +26,7 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
           <td className="px-4 py-3 text-center text-slate-600">{p.brand_name || <span className="text-slate-300">—</span>}</td>
           <td className="px-4 py-3 text-center text-slate-600">{p.category || <span className="text-slate-300">—</span>}</td>
           <td className="px-4 py-3 text-center text-slate-600">{p.mux || <span className="text-slate-300">—</span>}</td>
+          <td className="px-4 py-3 text-center text-slate-600">{getProductGrouping(p) || <span className="text-slate-300">—</span>}</td>
           <td className="px-4 py-3 text-center">
             <div className="flex flex-wrap items-center justify-center gap-1.5">
               {stockMap?.[p.product_id]?.length > 0
@@ -37,7 +40,7 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
               }
             </div>
           </td>
-          <td className="px-4 py-3 text-center text-slate-400 text-xs">{new Date(p.created_at).toLocaleDateString()}</td>
+          <td className="px-4 py-3 text-center text-slate-400 text-xs">{format(new Date(p.created_at), 'dd/MM/yyyy')}</td>
           <td className="px-4 py-3 text-center">
             <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(p)}
               className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
@@ -71,8 +74,12 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
               <span className="text-slate-700">{p.mux || '—'}</span>
             </div>
             <div className="bg-slate-50 p-2 rounded-lg">
+              <span className="text-slate-500 block mb-1">Grouping</span>
+              <span className="text-slate-700">{getProductGrouping(p) || '—'}</span>
+            </div>
+            <div className="bg-slate-50 p-2 rounded-lg">
               <span className="text-slate-500 block mb-1">Created</span>
-              <span className="text-slate-700">{new Date(p.created_at).toLocaleDateString()}</span>
+              <span className="text-slate-700">{format(new Date(p.created_at), 'dd/MM/yyyy')}</span>
             </div>
           </div>
           <div className="bg-slate-50 p-2 rounded-lg text-xs">

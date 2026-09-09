@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import useAuthStore from '../../../store/authStore';
 
-const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm }) => {
+const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm, selectedIds, onToggleSelect, onToggleSelectAll }) => {
   const { user } = useAuthStore();
   const roleUpper = String(user?.role || '').trim().toUpperCase();
   const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
@@ -36,6 +36,14 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm 
       <table className="w-full text-sm relative">
         <thead className="sticky top-0 z-10 shadow-sm">
           <tr className="bg-blue-50 border-b border-slate-200">
+            {canDelete && (
+              <th className="w-10 px-2 py-3 text-center">
+                <input type="checkbox"
+                  checked={orders.length > 0 && orders.every(o => selectedIds?.has(o.order_id))}
+                  onChange={onToggleSelectAll}
+                  className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+              </th>
+            )}
             <th className="w-10" />
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Order Date</th>
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Order No.</th>
@@ -50,7 +58,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm 
         <tbody className="divide-y divide-slate-100">
           {totalItems === 0 && (
             <tr>
-              <td colSpan="9" className="p-12 text-center">
+              <td colSpan={canDelete ? 10 : 9} className="p-12 text-center">
                 <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                   <ShoppingCart size={32} className="text-slate-300" />
                 </div>
@@ -65,8 +73,14 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm 
             const isExpanded = expandedOrders.has(o.order_id);
             const items = o.sales_order_items || [];
             const rows = [
-              <tr key={o.order_id} className="hover:bg-slate-50 transition-colors group cursor-pointer"
+              <tr key={o.order_id} className={`hover:bg-slate-50 transition-colors group cursor-pointer ${selectedIds?.has(o.order_id) ? 'bg-primary/5' : ''}`}
                 onClick={() => toggleExpand(o.order_id)}>
+                {canDelete && (
+                  <td className="px-2 py-3 text-center" onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={!!selectedIds?.has(o.order_id)} onChange={() => onToggleSelect(o.order_id)}
+                      className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+                  </td>
+                )}
                 <td className="px-2 py-3">
                   {items.length > 0 && (
                     <ChevronDown size={16}
@@ -114,7 +128,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm 
             if (isExpanded && items.length > 0) {
               rows.push(
                 <tr key={`${o.order_id}-details`}>
-                  <td colSpan={9} className="px-0 py-0">
+                  <td colSpan={canDelete ? 10 : 9} className="px-0 py-0">
                     <div className="bg-slate-50 border-t border-slate-100">
                       <table className="w-full text-sm">
                         <thead>

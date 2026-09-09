@@ -11,7 +11,7 @@ import { sanitizeQtyInput } from '@/lib/qty';
 const COLUMN_ALIASES = {
   'Brand Name': ['brand name', 'brand', 'brandname'],
   'Category': ['category', 'categories'],
-  'Product Type': ['product type', 'producttype', 'type', 'item type'],
+  'Product Type': ['product type', 'producttype', 'type', 'item type', 'size'],
   'Unit': ['unit', 'units', 'uom'],
   'mux': ['mux', 'weight', 'packaging weight', 'packaging'],
   'Godown Name': ['godown name', 'godown', 'godownname', 'warehouse', 'warehouse name'],
@@ -309,8 +309,8 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
                       <span className="px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-600 text-[10px] font-medium">Formats: .xlsx, .xls, .csv</span>
                     </div>
                     <p className="text-slate-600 text-[11px] leading-relaxed">
-                      Your document can include headers for <strong>Brand Name</strong>, <strong>Category</strong>, <strong>Product Type</strong>, <strong>Unit</strong>,
-                      <strong> mux</strong>, <strong>Godown Name</strong>, and <strong>Qty</strong> — none are mandatory. Product Name is auto-generated as Brand + Category + Product Type + (mux) and matched
+                      Your document can include headers for <strong>Brand Name</strong>, <strong>Category</strong>, <strong>Size</strong>, <strong>Unit</strong>,
+                      <strong> mux</strong>, <strong>Godown Name</strong>, and <strong>Qty</strong> — none are mandatory. Product Name is auto-generated as Brand + Category + Size + (mux) and matched
                       against existing products — a combination not found in the system will be auto-created. Godowns must already exist in Master records.
                     </p>
                   </div>
@@ -329,7 +329,7 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
                         <tr>
                           <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Brand Name</th>
                           <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Category</th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Product Type</th>
+                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Size</th>
                           <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Unit</th>
                           <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">mux</th>
                           <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Godown Name</th>
@@ -390,7 +390,7 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
                       <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Product Name</th>
                       <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Brand Name</th>
                       <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Category</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Product Type</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Size</th>
                       <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Unit</th>
                       <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">mux</th>
                       <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Godown Name</th>

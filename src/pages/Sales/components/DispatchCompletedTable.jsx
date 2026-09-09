@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { CheckCircle, Square, CheckSquare, Save, Lock, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CheckCircle, Square, CheckSquare, Save, Lock, AlertTriangle, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getAllDispatchPlans, completeDispatchWithStockOut, batchUpdateInformAfterDispatch } from '../../../services/salesService';
+import { getAllDispatchPlans, completeDispatchWithStockOut, batchUpdateInformAfterDispatch, deleteDispatchPlansBulk } from '../../../services/salesService';
 import { getAllProductStock } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,13 @@ import { Search } from 'lucide-react';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
-const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, onFilterChange, onSave, products, godowns }) => {
+const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, onFilterChange, onSave, products, godowns, user }) => {
+  // Same gate as Dispatch Planning's "Delete Selected" — this permanently
+  // wipes rows out of dispatch_plans/transactions.
+  const roleUpper = String(user?.role || '').trim().toUpperCase();
+  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
+  const canDelete = import.meta.env.DEV || isSuperAdmin;
+
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -20,6 +26,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
   const [checkedRows, setCheckedRows] = useState(() => new Set());
   const [editValues, setEditValues] = useState({});
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingSelected, setDeletingSelected] = useState(false);
   const [stockMap, setStockMap] = useState({});
 
   const [orderFilter, setOrderFilter] = useState('');
@@ -184,11 +191,6 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  const isFutureDate = (dateStr) => {
-    if (!dateStr) return false;
-    return dateStr > getTodayLocal();
-  };
-
   const handleSave = async () => {
     if (checkedRows.size === 0) return;
     setIsSaving(true);
@@ -206,8 +208,11 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
         continue;
       }
 
+      // Dispatch Planning already allows a future dispatch_date (stock is
+      // reduced immediately at planning time regardless of date), so
+      // Complete & Notify has to accept that same future date rather than
+      // reject it here.
       const dispatchDate = vals.dispatch_date || getTodayLocal();
-      if (isFutureDate(dispatchDate)) { errors.push(`${plan.dispatch_number || 'Plan'}: Dispatch date cannot be in the future.`); continue; }
 
       const productId = plan.sales_order_items?.product_id;
 
@@ -261,6 +266,35 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
     setIsSaving(false);
   };
 
+  // Permanently removes the checked plans and their stock transactions —
+  // for undoing a wrongly created/planned dispatch. The order item itself
+  // is untouched (unlike Dispatch Planning's "Delete Selected", which also
+  // removes the sales_order_items row), so it simply becomes pending again.
+  // Locked (Dispatch Done/Cancelled) rows can't be checked in the first
+  // place, so this only ever runs against Pending/Planned/Partially
+  // Dispatched plans.
+  const handleDeleteSelected = async () => {
+    if (checkedRows.size === 0) return;
+    const planIds = [...checkedRows];
+    const confirmMsg = planIds.length === 1
+      ? 'Permanently delete this dispatch plan and its stock transaction? This cannot be undone.'
+      : `Permanently delete ${planIds.length} selected dispatch plans and their stock transactions? This cannot be undone.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setDeletingSelected(true);
+    try {
+      const { deletedCount } = await deleteDispatchPlansBulk(planIds);
+      setCheckedRows(new Set());
+      toast.success(`Deleted ${deletedCount} dispatch plan${deletedCount !== 1 ? 's' : ''}.`);
+      await loadPlans();
+      await loadStock();
+      onSave?.();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete selected plans.');
+    }
+    setDeletingSelected(false);
+  };
+
   const activeGodowns = godowns?.filter(g => g.is_active) || [];
   const godownOptions = activeGodowns.map(g => ({ value: g.godown_id, label: g.name }));
 
@@ -299,47 +333,55 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
             value={searchTerm} onChange={(e) => onSearchChange?.(e.target.value)} />
         </div>
 
-        <select
+        <Dropdown
           value={orderFilter}
-          onChange={e => setOrderFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[120px] shrink-0"
-        >
-          <option value="">All Orders</option>
-          {filterOptions.orders.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
+          onValueChange={setOrderFilter}
+          options={[{ value: '', label: 'All Orders' }, ...filterOptions.orders.map(o => ({ value: o, label: o }))]}
+          placeholder="All Orders"
+          searchPlaceholder="Search orders..."
+          className="h-9 w-full sm:w-[130px] shrink-0 text-xs"
+        />
 
-        <select
+        <Dropdown
           value={productFilter}
-          onChange={e => setProductFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[120px] shrink-0"
-        >
-          <option value="">All Products</option>
-          {filterOptions.products.map(p => <option key={p} value={p}>{p}</option>)}
-        </select>
+          onValueChange={setProductFilter}
+          options={[{ value: '', label: 'All Products' }, ...filterOptions.products.map(p => ({ value: p, label: p }))]}
+          placeholder="All Products"
+          searchPlaceholder="Search products..."
+          className="h-9 w-full sm:w-[130px] shrink-0 text-xs"
+        />
 
-        <select
+        <Dropdown
           value={customerFilter}
-          onChange={e => setCustomerFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[120px] shrink-0"
-        >
-          <option value="">All Customers</option>
-          {filterOptions.customers.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+          onValueChange={setCustomerFilter}
+          options={[{ value: '', label: 'All Customers' }, ...filterOptions.customers.map(c => ({ value: c, label: c }))]}
+          placeholder="All Customers"
+          searchPlaceholder="Search customers..."
+          className="h-9 w-full sm:w-[130px] shrink-0 text-xs"
+        />
 
-        <select
+        <Dropdown
           value={godownFilter}
-          onChange={e => setGodownFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[120px] shrink-0"
-        >
-          <option value="">All Godowns</option>
-          {filterOptions.godowns.map(g => <option key={g} value={g}>{g}</option>)}
-        </select>
+          onValueChange={setGodownFilter}
+          options={[{ value: '', label: 'All Godowns' }, ...filterOptions.godowns.map(g => ({ value: g, label: g }))]}
+          placeholder="All Godowns"
+          searchPlaceholder="Search godowns..."
+          className="h-9 w-full sm:w-[130px] shrink-0 text-xs"
+        />
 
         <Button onClick={handleSave} disabled={checkedRows.size === 0 || isSaving}
           className="gap-2 px-4 font-medium h-9 w-full sm:w-auto text-xs sm:ml-auto shrink-0">
           <Save size={16} />
-          {isSaving ? 'Completing...' : 'Complete & Notify'}
+          {isSaving ? 'Completing...' : 'Complete'}
         </Button>
+
+        {canDelete && (
+          <Button variant="destructive" onClick={handleDeleteSelected} disabled={checkedRows.size === 0 || deletingSelected}
+            className="gap-2 px-4 font-medium h-9 w-full sm:w-auto text-xs shrink-0">
+            <Trash2 size={16} />
+            {deletingSelected ? 'Deleting...' : 'Delete'}
+          </Button>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">

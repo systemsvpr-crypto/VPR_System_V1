@@ -188,8 +188,12 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
   // browser's own first-option default out of sync with state, so
   // switching Unit before a product is picked would silently no-op).
   const getItemUnit = (item, product) => item.Selected_Unit || (product?.unit || '').toLowerCase() || 'bag';
+  // Falls back to the item's saved `quantity` only when sales_qty has never
+  // been set at all (undefined/null) — an explicit '' means the user just
+  // cleared the field and must stay '' so the input can actually go empty
+  // while they type a new value, instead of snapping back to the old qty.
   const getItemRawQty = (item) =>
-    item.sales_qty !== undefined && item.sales_qty !== null && item.sales_qty !== ''
+    item.sales_qty !== undefined && item.sales_qty !== null
       ? String(item.sales_qty)
       : String(item.quantity ?? '');
 

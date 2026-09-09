@@ -31,7 +31,7 @@ const TransactionFilters = ({ filters, onChange, products, godowns }) => (
             <SelectLabel>Types</SelectLabel>
             <SelectItem value="all">All Types</SelectItem>
             <SelectItem value="OPEN_STOCK">Opening Stock</SelectItem>
-            <SelectItem value="IN_FACTORY">Factory In</SelectItem>
+            <SelectItem value="IN_FACTORY">Godown IN</SelectItem>
             <SelectItem value="PRODUCTION_IN">Production In</SelectItem>
             <SelectItem value="TRANSFER_IN">Transfer In</SelectItem>
             <SelectItem value="TRANSFER_OUT">Transfer Out</SelectItem>
@@ -51,6 +51,14 @@ const TransactionFilters = ({ filters, onChange, products, godowns }) => (
 );
 
 const canEdit = (type) => ['IN_FACTORY', 'PRODUCTION_IN', 'OUT_GODOWN', 'TRANSFER_OUT', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT', 'OPEN_STOCK', 'PURCHASE_IN'].includes(type);
+
+// A dispatch (OUT_GODOWN) posts its stock-ledger txn_date on the day it was
+// planned/completed (capped at today, per the DB's txn_date <= CURRENT_DATE
+// rule) — but the row should still read as the actual Dispatch Date the
+// user picked in Dispatch Planning, which lives on the linked dispatch_plans
+// row. Falls back to txn_date for every other transaction type (and for any
+// OUT_GODOWN row with no linked plan, e.g. a manual Dispatch Out).
+const displayDate = (t) => t.dispatch_plans?.dispatch_date || t.txn_date;
 
 const TransactionTable = ({
   transactions, totalItems, loading, onEdit, onDelete,
@@ -93,7 +101,7 @@ const TransactionTable = ({
         data={transactions}
         renderRow={(t) => (
           <tr key={t.txn_id} className="hover:bg-slate-50 transition-colors group text-xs">
-            <td className="px-4 py-3 text-center text-slate-600">{t.txn_date}</td>
+            <td className="px-4 py-3 text-center text-slate-600">{displayDate(t)}</td>
             <td className="px-4 py-3 text-center font-medium text-slate-800">{t.products?.name || '-'}</td>
             <td className="px-4 py-3 text-center">
               {t.products?.unit ? (
@@ -113,7 +121,7 @@ const TransactionTable = ({
                 t.txn_type === 'OUT_GODOWN' ? 'bg-rose-50 text-rose-700' :
                 t.txn_type === 'PURCHASE_IN' ? 'bg-teal-50 text-teal-700' :
                 'bg-slate-50 text-slate-600'
-              }`}>{t.txn_type.replace(/_/g, ' ')}</span>
+              }`}>{t.txn_type === 'IN_FACTORY' ? 'GODOWN IN' : t.txn_type.replace(/_/g, ' ')}</span>
             </td>
             <td className="px-4 py-3 text-center text-slate-500">
               {t.txn_type === 'PURCHASE_IN' ? (t.lifting_number || '—') : (t.dispatch_number || t.lr_number || '—')}
@@ -142,7 +150,7 @@ const TransactionTable = ({
           <div key={t.txn_id} className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2">
             <div className="font-semibold text-slate-800 text-xs">{t.products?.name || '-'}</div>
             <div className="text-xs text-slate-500 flex justify-between">
-              <span>{t.txn_date}</span>
+              <span>{displayDate(t)}</span>
               <span className={`font-medium ${
                 ['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? 'text-green-600' : 'text-red-600'
               }`}>
@@ -160,7 +168,7 @@ const TransactionTable = ({
                 t.txn_type === 'OUT_GODOWN' ? 'bg-rose-50 text-rose-700' :
                 t.txn_type === 'PURCHASE_IN' ? 'bg-teal-50 text-teal-700' :
                 'bg-slate-50 text-slate-600'
-              }`}>{t.txn_type.replace(/_/g, ' ')}</span>
+              }`}>{t.txn_type === 'IN_FACTORY' ? 'GODOWN IN' : t.txn_type.replace(/_/g, ' ')}</span>
               {canEdit(t.txn_type) && (
                 <div className="flex items-center gap-2">
                   <button onClick={() => onEdit(t)} className="p-1 rounded hover:bg-slate-100 text-slate-400"><Pencil size={13} /></button>

@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { supabase, fetchAllRows, fetchAllRowsWithCount } from '../supabase';
 
 export const getAllGodowns = async () => {
   const { data, error } = await supabase
@@ -17,45 +17,45 @@ export const getGodownSummary = async (date, signal) => {
 
   const [
     godowns,
-    { data: balances },
-    { data: stockIns },
-    { data: stockOuts },
-    { data: openingStocks },
-    { data: transportDeliveries },
+    balances,
+    stockIns,
+    stockOuts,
+    openingStocks,
+    transportDeliveries,
   ] = await Promise.all([
     getAllGodowns(),
-    supabase
+    fetchAllRows(() => supabase
       .from('transactions')
       .select('godown_id, qty, txn_type')
       .eq('is_void', false)
       .lte('txn_date', prevDateStr)
-      .abortSignal(signal),
-    supabase
+      .abortSignal(signal)),
+    fetchAllRows(() => supabase
       .from('transactions')
       .select('godown_id, qty')
       .eq('is_void', false)
       .eq('txn_date', date)
       .in('txn_type', ['IN_FACTORY', 'PRODUCTION_IN', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'])
-      .abortSignal(signal),
-    supabase
+      .abortSignal(signal)),
+    fetchAllRows(() => supabase
       .from('transactions')
       .select('godown_id, qty')
       .eq('is_void', false)
       .eq('txn_date', date)
       .in('txn_type', ['OUT_GODOWN', 'TRANSFER_OUT', 'ADJUSTMENT_OUT'])
-      .abortSignal(signal),
-    supabase
+      .abortSignal(signal)),
+    fetchAllRows(() => supabase
       .from('transactions')
       .select('godown_id, qty')
       .eq('is_void', false)
       .eq('txn_date', date)
       .eq('txn_type', 'OPEN_STOCK')
-      .abortSignal(signal),
-    supabase
+      .abortSignal(signal)),
+    fetchAllRows(() => supabase
       .from('purchase_deliveries')
       .select('received_quantity, transporters:transporter_id(name)')
       .in('status', ['In Transport Godown', 'AT TPT GDN'])
-      .abortSignal(signal),
+      .abortSignal(signal)),
   ]);
 
   const openingMap = {};
@@ -144,40 +144,46 @@ export const getDashboardData = async (date, signal, options = {}) => {
   // queries don't need to wait on the products query to know which IDs to
   // filter by, so they can be fired in the SAME round trip (see below)
   // instead of a second one after products resolves.
+  // Each query is wrapped in fetchAllRows so it pages past Supabase's
+  // default 1000-row-per-request cap instead of silently truncating once the
+  // ledger (or a single day's worth of postings) grows past that — see
+  // fetchAllRows in ../supabase for why. fetchAllRows resolves straight to
+  // the row array (no {data,error} wrapper), which is why the callers below
+  // read these results directly rather than via `.data`.
   const buildTxnQueries = (productIds) => {
     const scoped = (q) => (productIds ? q.in('product_id', productIds) : q);
     return [
-      scoped(
+      fetchAllRows(() => scoped(
         supabase
           .from('transactions')
           .select('product_id, godown_id, qty, txn_type, txn_date')
           .eq('is_void', false)
           .lte('txn_date', balanceCutoffStr)
-      ).abortSignal(signal),
-      scoped(
+      ).abortSignal(signal)),
+      fetchAllRows(() => scoped(
         supabase
           .from('transactions')
           .select('product_id, godown_id, qty')
           .eq('is_void', false)
           .eq('txn_date', date)
           .in('txn_type', ['IN_FACTORY', 'PRODUCTION_IN', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'])
-      ).abortSignal(signal),
-      scoped(
+      ).abortSignal(signal)),
+      fetchAllRows(() => scoped(
         supabase
           .from('transactions')
           .select('product_id, godown_id, qty')
           .eq('is_void', false)
           .eq('txn_date', date)
           .in('txn_type', ['OUT_GODOWN', 'TRANSFER_OUT', 'ADJUSTMENT_OUT'])
-      ).abortSignal(signal),
-      scoped(
+      ).abortSignal(signal)),
+      fetchAllRows(() => scoped(
         supabase
           .from('transactions')
           .select('product_id, godown_id, qty')
           .eq('is_void', false)
           .eq('txn_date', date)
           .eq('txn_type', 'OPEN_STOCK')
-      ).abortSignal(signal),
+      ).abortSignal(signal)),
     ];
   };
 
@@ -187,23 +193,32 @@ export const getDashboardData = async (date, signal, options = {}) => {
     // Export path: nothing downstream needs to wait on the product list, so
     // fire every query in one concurrent wave — cuts a full network
     // round-trip versus fetching products first, then transactions.
+    // No `.range()` was applied to productsQuery above (this is the "all"
+    // export path), so it must page past the 1000-row cap itself too, or a
+    // catalog that grows past 1000 products silently loses rows off the end
+    // of every full export.
     const [godownsRes, productsRes, balancesRes, stockInsRes, stockOutsRes, openingRes] = await Promise.all([
       getAllGodowns(),
-      productsQuery,
+      fetchAllRowsWithCount(() => productsQuery),
       ...buildTxnQueries(null),
     ]);
     godowns = godownsRes;
     products = productsRes.data;
     count = productsRes.count;
-    allBalances = balancesRes.data;
-    allStockIns = stockInsRes.data;
-    allStockOuts = stockOutsRes.data;
-    openingStocks = openingRes.data;
+    allBalances = balancesRes;
+    allStockIns = stockInsRes;
+    allStockOuts = stockOutsRes;
+    openingStocks = openingRes;
   } else {
     // Paginated / searched dashboard view — the transaction queries must be
     // scoped to this page's exact product_id list, which isn't known until
     // the products query resolves, so this stays two sequential round trips.
-    const [godownsRes, productsRes] = await Promise.all([getAllGodowns(), productsQuery]);
+    // A search has no `.range()` on productsQuery (it's meant to return every
+    // match, not one page of them), so it needs the same full-fetch pagination
+    // as the export path above; a plain (unsearched) page listing already has
+    // its own `.range()` and stays a single bounded fetch.
+    const productsPromise = search ? fetchAllRowsWithCount(() => productsQuery) : productsQuery;
+    const [godownsRes, productsRes] = await Promise.all([getAllGodowns(), productsPromise]);
     godowns = godownsRes;
     products = productsRes.data;
     count = productsRes.count;
@@ -214,10 +229,10 @@ export const getDashboardData = async (date, signal, options = {}) => {
 
     const productIds = products.map(p => p.product_id);
     const [balancesRes, stockInsRes, stockOutsRes, openingRes] = await Promise.all(buildTxnQueries(productIds));
-    allBalances = balancesRes.data;
-    allStockIns = stockInsRes.data;
-    allStockOuts = stockOutsRes.data;
-    openingStocks = openingRes.data;
+    allBalances = balancesRes;
+    allStockIns = stockInsRes;
+    allStockOuts = stockOutsRes;
+    openingStocks = openingRes;
   }
 
   if (!products || products.length === 0) {

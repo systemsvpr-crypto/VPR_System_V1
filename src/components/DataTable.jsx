@@ -21,19 +21,34 @@ const DataTable = ({
   onItemsPerPageChange,
   totalResults,
   itemsPerPageOptions = [50, 100, 150, 200],
-  emptyState = null
+  emptyState = null,
+  viewMode = 'responsive' // 'responsive' | 'card' | 'table'
 }) => {
+  const isCardView = viewMode === 'card';
+  const isTableView = viewMode === 'table';
+
+  const cardWrapperClass = isCardView 
+    ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-5 p-4 overflow-y-auto flex-1 bg-slate-50/50 scrollbar-hide content-start'
+    : isTableView
+    ? 'hidden'
+    : 'md:hidden grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 overflow-y-auto flex-1 bg-slate-50/50 scrollbar-hide content-start';
+
+  const tableWrapperClass = isTableView
+    ? 'flex flex-col flex-1 min-h-0 overflow-hidden'
+    : isCardView
+    ? 'hidden'
+    : 'hidden md:flex flex-col flex-1 min-h-0 overflow-hidden';
   return (
     <div className="flex flex-col h-full min-h-0 bg-white w-full">
-      {/* Mobile Card View (Hidden on Desktop) */}
-      <div className="md:hidden grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 overflow-y-auto flex-1 bg-slate-50/50 scrollbar-hide content-start">
+      {/* Card View */}
+      <div className={cardWrapperClass}>
         {data.length > 0 && (
           data.map((item, index) => renderCard(item, index))
         )}
       </div>
 
-      {/* Desktop Table View (Hidden on Mobile) */}
-      <div className="hidden md:flex flex-col flex-1 min-h-0 overflow-hidden">
+      {/* Table View */}
+      <div className={tableWrapperClass}>
         <DragScrollTable className="w-full flex-1 min-h-0">
           <table className={`w-full relative border-collapse ${minWidth}`}>
             <thead className="bg-blue-50 border-b-2 border-slate-200 sticky top-0 z-10 shadow-sm">
@@ -137,6 +152,7 @@ const areEqual = (prevProps, nextProps) => {
   if (prevProps.itemsPerPage !== nextProps.itemsPerPage) return false;
   if (prevProps.totalResults !== nextProps.totalResults) return false;
   if (prevProps.minWidth !== nextProps.minWidth) return false;
+  if (prevProps.viewMode !== nextProps.viewMode) return false;
 
   // Compare headers (usually static, but check length)
   if (prevProps.headers.length !== nextProps.headers.length) return false;

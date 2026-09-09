@@ -102,16 +102,16 @@ const buildBrandStockCard = (brandTotals) => {
       <table class="report-table category-table no-size-table">
         <tbody>
           ${brands
-      .map((brand) => {
-        const val = brandTotals.get(brand) || 0;
-        return `
+        .map((brand) => {
+          const val = brandTotals.get(brand) || 0;
+          return `
               <tr>
                 <td class="text-left font-medium no-size-brand" title="${brand}">${brand}</td>
                 <td class="text-right ${val > 0 ? 'font-medium' : 'text-muted'}">${formatNum(val)}</td>
               </tr>
             `;
-      })
-      .join('')}
+        })
+        .join('')}
         </tbody>
       </table>
     `;

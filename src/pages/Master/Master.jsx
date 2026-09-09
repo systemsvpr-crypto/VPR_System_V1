@@ -11,6 +11,7 @@ import { getAllGroups, deleteGroup } from '../../services/productGroupingService
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/Select';
+import { getProductGrouping } from '@/lib/productGrouping';
 
 import ProductModal from './components/ProductModal';
 import ProductTable from './components/ProductTable';
@@ -107,6 +108,7 @@ const Master = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [godownFilter, setGodownFilter] = useState('all');
   const [transporterFilter, setTransporterFilter] = useState('all');
+  const [groupingFilter, setGroupingFilter] = useState('all');
   const [godownTypeFilter, setGodownTypeFilter] = useState('Own');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
@@ -125,6 +127,18 @@ const Master = () => {
     godowns.filter(g => g.godown_type === 'Transporter')
   ), [godowns]);
 
+  // Unique Grouping (Brand + Category) values across every product, for the
+  // Grouping filter dropdown — sorted alphabetically, empty ones excluded
+  // since "no grouping" isn't a useful filter option.
+  const productGroupings = useMemo(() => {
+    const names = new Set();
+    products.forEach(p => {
+      const grouping = getProductGrouping(p);
+      if (grouping) names.add(grouping);
+    });
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [products]);
+
   const filteredProducts = useMemo(() => {
     let result = products.filter(p =>
       p.name?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -139,8 +153,11 @@ const Master = () => {
         allStock.some(s => s.product_id === p.product_id && s.godown_id === transporterFilter)
       );
     }
+    if (groupingFilter !== 'all') {
+      result = result.filter(p => getProductGrouping(p) === groupingFilter);
+    }
     return result;
-  }, [products, searchTerm, godownFilter, transporterFilter, allStock]);
+  }, [products, searchTerm, godownFilter, transporterFilter, groupingFilter, allStock]);
 
   const filteredGodowns = useMemo(() => {
     return godowns.filter(g =>
@@ -241,7 +258,7 @@ const Master = () => {
   }, [visibleTabs, activeTab]);
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter, transporterFilter, godownTypeFilter]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter, transporterFilter, groupingFilter, godownTypeFilter]);
 
   const loadData = async () => {
     setLoading(true);
@@ -376,14 +393,14 @@ const Master = () => {
             </h3>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto xl:justify-end">
-            <div className="relative w-full sm:w-56">
+          <div className="flex flex-nowrap items-center gap-3 w-full xl:w-auto xl:justify-end overflow-x-auto pb-1 xl:pb-0">
+            <div className="relative w-full sm:w-48 shrink-0">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={14} />
               <Input type="text" placeholder={`Search ${activeTab}...`} className="pl-8 h-8 w-full text-sm"
                 value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
             {activeTab === 'products' && ownGodowns.length > 0 && (
-              <div className="w-full md:w-48">
+              <div className="w-40 shrink-0">
                 <FilterSelect
                   value={godownFilter}
                   onValueChange={setGodownFilter}
@@ -395,7 +412,7 @@ const Master = () => {
               </div>
             )}
             {activeTab === 'products' && transporterGodowns.length > 0 && (
-              <div className="w-full md:w-48">
+              <div className="w-40 shrink-0">
                 <FilterSelect
                   value={transporterFilter}
                   onValueChange={setTransporterFilter}
@@ -403,6 +420,18 @@ const Master = () => {
                   placeholder="All Transporters"
                   label="Filter by Transporter"
                   allLabel="All Transporters"
+                />
+              </div>
+            )}
+            {activeTab === 'products' && productGroupings.length > 0 && (
+              <div className="w-40 shrink-0">
+                <FilterSelect
+                  value={groupingFilter}
+                  onValueChange={setGroupingFilter}
+                  options={productGroupings.map(name => ({ id: name, name }))}
+                  placeholder="All Groupings"
+                  label="Filter by Grouping"
+                  allLabel="All Groupings"
                 />
               </div>
             )}

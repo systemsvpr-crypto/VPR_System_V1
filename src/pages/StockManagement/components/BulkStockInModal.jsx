@@ -1,18 +1,18 @@
 import { useState, useRef, useMemo } from 'react';
-import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Trash2, PlusCircle, AlertCircle } from 'lucide-react';
+import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Trash2, PlusCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { DatePicker } from '@/components/ui/date-picker';
-import { bulkAddManualDispatchStock } from '../../../services/stockService';
+import { bulkAddFactoryStock, bulkAddProductionStock } from '../../../services/stockService';
 import { sanitizeQtyInput } from '@/lib/qty';
 import { parseFileDate } from '@/lib/parseFileDate';
 import ProductModal from '../../Master/components/ProductModal';
 
 const COLUMN_ALIASES = {
-  'Date': ['date', 'txn date', 'txndate', 'transaction date', 'entry date', 'dispatch date'],
+  'Date': ['date', 'txn date', 'txndate', 'transaction date', 'entry date'],
   'Product Name': ['product name', 'product', 'productname', 'item name', 'item', 'itemname', 'product_name'],
   'Godown Name': ['godown name', 'godown', 'godownname', 'warehouse', 'warehouse name', 'location', 'godown_name', 'store id', 'store'],
   'Quantity': ['quantity', 'qty', 'qnty', 'count', 'amount', 'units'],
@@ -74,7 +74,7 @@ const getTodayLocal = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [], productStockMap = {}, onImportProducts, onSuccess }) => {
+const BulkStockInModal = ({ isOpen, onClose, user, products = [], godowns = [], isProduction = false, onImportProducts, onSuccess }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [fileName, setFileName] = useState('');
@@ -208,7 +208,7 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
         }).filter(r => r.rawProductName || r.product_id);
 
         if (parsedRows.length === 0) {
-          toast.error('No valid data rows found in the uploaded document.');
+          toast.error('No valid product rows found in the uploaded document.');
           return;
         }
 
@@ -259,13 +259,17 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
         created_by: user?.user_id
       }));
 
-      await bulkAddManualDispatchStock(payload);
-      toast.success(`Successfully dispatched ${rawRows.length} entries`);
-      
+      if (isProduction) {
+        await bulkAddProductionStock(payload);
+        toast.success(`Successfully added ${rawRows.length} production entries`);
+      } else {
+        await bulkAddFactoryStock(payload);
+        toast.success(`Successfully added ${rawRows.length} stock entries`);
+      }
       if (onSuccess) onSuccess();
       handleClose();
     } catch (err) {
-      toast.error('Failed to bulk dispatch stock: ' + err.message);
+      toast.error('Failed to bulk add stock: ' + err.message);
     } finally {
       setSubmitting(false);
     }
@@ -290,30 +294,8 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
       }
     ]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Dispatch_Out_Template');
-    XLSX.writeFile(wb, 'Bulk_Dispatch_Out_Template.xlsx');
-  };
-
-  const getRowSufficiencyStatus = (row, index) => {
-    if (!row.product_id || !row.godown_id || !Number(row.qty)) return { ok: true };
-    const stockEntries = productStockMap[row.product_id];
-    const available = stockEntries?.find(s => s.godownId === row.godown_id)?.qty || 0;
-    
-    const previousRequested = rawRows
-      .slice(0, index)
-      .filter(r => r.product_id === row.product_id && r.godown_id === row.godown_id)
-      .reduce((sum, r) => sum + Number(r.qty || 0), 0);
-      
-    const totalRequested = previousRequested + Number(row.qty);
-    const product = allProducts.find(p => p.product_id === row.product_id);
-    
-    if (totalRequested > available && !product?.allow_negative_stock) {
-      return {
-        ok: false,
-        msg: `Need ${totalRequested} total (Available: ${available})`
-      };
-    }
-    return { ok: true };
+    XLSX.utils.book_append_sheet(wb, ws, 'Stock_In_Template');
+    XLSX.writeFile(wb, 'Bulk_Stock_In_Template.xlsx');
   };
 
   const validRowsCount = useMemo(() => {
@@ -326,12 +308,12 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
       <ModalContent className="max-w-5xl">
         <ModalHeader>
           <div className="flex items-center gap-3">
-            <div className="bg-rose-50 p-2 rounded-lg">
-              <FileSpreadsheet size={20} className="text-rose-600" />
+            <div className="bg-primary/10 p-2 rounded-lg">
+              <FileSpreadsheet size={20} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-800">Bulk Dispatch Out</h2>
-              <p className="text-xs text-slate-500">Import multiple dispatch entries from an Excel or CSV file.</p>
+              <h2 className="text-xl font-bold text-slate-800">Bulk Upload {isProduction ? 'Production' : 'Godown IN'}</h2>
+              <p className="text-xs text-slate-500">Import multiple stock entries from an Excel or CSV file.</p>
             </div>
           </div>
         </ModalHeader>
@@ -341,17 +323,17 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
             <ModalBody className="space-y-4">
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 shadow-sm">
                 <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-rose-50 text-rose-600">
+                  <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
                     <FileText size={16} />
                   </div>
                   <span className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
-                    <Info size={15} className="text-rose-500" /> Required Columns
+                    <Info size={15} className="text-primary" /> Required Columns
                   </span>
                 </div>
                 <div className="mt-2 text-xs text-slate-600 space-y-1 pl-8">
                   <p>• <strong>Product Name:</strong> Matches your existing products or allows adding new ones.</p>
                   <p>• <strong>Godown Name:</strong> Matches your existing godowns/stores.</p>
-                  <p>• <strong>Quantity:</strong> Valid positive number. (Must have sufficient stock!)</p>
+                  <p>• <strong>Quantity:</strong> Valid positive number.</p>
                   <p>• <strong>Date:</strong> Optional (defaults to today).</p>
                 </div>
               </div>
@@ -360,10 +342,10 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-rose-500 hover:bg-rose-50 transition-all group"
+                className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all group"
               >
                 <div className="w-12 h-12 rounded-2xl bg-slate-100 group-hover:bg-white flex items-center justify-center mx-auto mb-3 border border-slate-200 shadow-sm transition-all">
-                  <Upload size={24} className="text-slate-500 group-hover:text-rose-500 transition-colors" />
+                  <Upload size={24} className="text-slate-500 group-hover:text-primary transition-colors" />
                 </div>
                 <p className="text-sm font-semibold text-slate-700 mb-1">Click to upload document or drag and drop</p>
                 <p className="text-xs text-slate-400">Excel spreadsheets (.xlsx, .xls) or CSV files</p>
@@ -381,7 +363,7 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
                 <button
                   type="button"
                   onClick={handleDownloadTemplate}
-                  className="text-rose-600 hover:underline flex items-center gap-1.5 font-semibold transition-colors"
+                  className="text-primary hover:underline flex items-center gap-1.5 font-semibold transition-colors"
                 >
                   <Download size={14} /> Download Sample Template
                 </button>
@@ -409,7 +391,7 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
                   <button
                     type="button"
                     onClick={() => setStep('upload')}
-                    className="text-xs text-slate-600 hover:text-rose-600 flex items-center gap-1 font-medium"
+                    className="text-xs text-slate-600 hover:text-primary flex items-center gap-1 font-medium"
                   >
                     <ArrowLeft size={12} /> Change Document
                   </button>
@@ -431,15 +413,8 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
                   <tbody className="divide-y divide-slate-100">
                     {rawRows.map((row, i) => {
                       const isMatched = row.product_id && row.godown_id && row.qty;
-                      const status = getRowSufficiencyStatus(row, i);
-                      
-                      let rowClass = isMatched ? 'hover:bg-slate-50' : 'bg-amber-50/40 hover:bg-amber-50/70';
-                      if (isMatched && !status.ok) {
-                        rowClass = 'bg-rose-50/70 hover:bg-rose-100/70';
-                      }
-                      
                       return (
-                        <tr key={i} className={rowClass}>
+                        <tr key={i} className={isMatched ? 'hover:bg-slate-50' : 'bg-amber-50/40 hover:bg-amber-50/70'}>
                           <td className="px-3 py-1.5 text-slate-400 font-mono">{i + 1}</td>
                           <td className="px-3 py-1.5">
                             <DatePicker
@@ -471,7 +446,7 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
                                         key={p.product_id}
                                         type="button"
                                         onClick={() => handleUpdateRow(i, 'product_id', p.product_id)}
-                                        className="text-[10px] px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 font-medium transition-colors"
+                                        className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 font-medium transition-colors"
                                       >
                                         {p.name}
                                       </button>
@@ -481,7 +456,7 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
                                 <button
                                   type="button"
                                   onClick={() => { setQuickAddProductRow(i); setProductQuickAddOpen(true); }}
-                                  className="mt-1 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 font-semibold transition-colors"
+                                  className="mt-1 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-primary/5 text-primary border border-primary/30 hover:bg-primary/10 font-semibold transition-colors"
                                 >
                                   <PlusCircle size={11} /> Add New Product
                                 </button>
@@ -506,16 +481,8 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
                               value={row.qty}
                               onChange={(e) => handleUpdateRow(i, 'qty', sanitizeQtyInput(e.target.value))}
                               placeholder="0"
-                              className={`w-full h-7 px-2 rounded-md border text-xs text-right outline-none focus:border-rose-500 bg-white ${
-                                !status.ok ? 'border-rose-300 text-rose-700 placeholder-rose-300' : 'border-slate-200'
-                              }`}
+                              className="w-full h-7 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary bg-white"
                             />
-                            {!status.ok && (
-                              <div className="text-[10px] text-rose-600 font-semibold mt-0.5 leading-tight flex items-center justify-end gap-1">
-                                <AlertCircle size={10} />
-                                {status.msg}
-                              </div>
-                            )}
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             <button
@@ -536,13 +503,8 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
             </ModalBody>
             <ModalFooter>
               <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button 
-                type="button" 
-                className="bg-rose-600 hover:bg-rose-700" 
-                onClick={handleConfirmImport} 
-                disabled={validRowsCount === 0 || submitting || rawRows.some((r, i) => !getRowSufficiencyStatus(r, i).ok)}
-              >
-                {submitting ? 'Dispatching...' : `Import & Dispatch ${rawRows.length} Entry(s)`}
+              <Button type="button" onClick={handleConfirmImport} disabled={validRowsCount === 0 || submitting}>
+                {submitting ? 'Adding...' : `Import & Save ${rawRows.length} Entry(s)`}
               </Button>
             </ModalFooter>
           </>
@@ -561,4 +523,4 @@ const BulkDispatchModal = ({ isOpen, onClose, user, products = [], godowns = [],
   );
 };
 
-export default BulkDispatchModal;
+export default BulkStockInModal;

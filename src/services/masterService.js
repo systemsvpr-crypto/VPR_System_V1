@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { supabase, fetchAllRows } from '../supabase';
 import { hasValidQtyPrecision } from '../lib/qty';
 
 export const getAllGodowns = async () => {
@@ -28,21 +28,21 @@ export const toggleGodownStatus = async (godownId, isActive) => {
   if (error) throw error;
 };
 
+// godown_stock holds one row per (product, godown) pair, so its row count is
+// products × godowns — with a few hundred products across a handful of
+// godowns this crosses Supabase's 1000-row-per-request cap easily, so it
+// must page past it rather than fetch a single unbounded request.
 export const getAllProductStock = async () => {
-  const { data, error } = await supabase
+  return fetchAllRows(() => supabase
     .from('godown_stock')
-    .select('*');
-  if (error) throw error;
-  return data || [];
+    .select('*'));
 };
 
 export const getAllProducts = async () => {
-  const { data, error } = await supabase
+  return fetchAllRows(() => supabase
     .from('products')
     .select('*')
-    .order('name', { ascending: true });
-  if (error) throw error;
-  return data || [];
+    .order('name', { ascending: true }));
 };
 
 // The 4 fields that define a unique product: same Brand Name + Category + Product Type + Mux
@@ -51,11 +51,9 @@ const productMatchKey = (brandName, category, productType, mux) =>
   [brandName, category, productType, mux].map(v => (v || '').trim().toLowerCase()).join('|');
 
 const getAllProductKeys = async () => {
-  const { data, error } = await supabase
+  return fetchAllRows(() => supabase
     .from('products')
-    .select('product_id, name, brand_name, category, product_type, mux');
-  if (error) throw error;
-  return data || [];
+    .select('product_id, name, brand_name, category, product_type, mux'));
 };
 
 const duplicateProductError = (name) => {
@@ -152,11 +150,11 @@ export const getProductStockByDate = async (date) => {
     .select('*')
     .order('name', { ascending: true });
 
-  const { data: transactions } = await supabase
+  const transactions = await fetchAllRows(() => supabase
     .from('transactions')
     .select('product_id, godown_id, qty, txn_type')
     .eq('is_void', false)
-    .lte('txn_date', date);
+    .lte('txn_date', date));
 
   const balanceMap = {};
   for (const txn of transactions || []) {
@@ -198,10 +196,9 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
     godownMap[g.name.toLowerCase().trim()] = g.godown_id;
   }
 
-  const { data: allProducts, error: prodErr } = await supabase
+  const allProducts = await fetchAllRows(() => supabase
     .from('products')
-    .select('product_id, name, brand_name, category, product_type, unit, mux');
-  if (prodErr) throw prodErr;
+    .select('product_id, name, brand_name, category, product_type, unit, mux'));
 
   const productMap = {};
   for (const p of allProducts || []) {

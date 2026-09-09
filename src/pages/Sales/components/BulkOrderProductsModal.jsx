@@ -94,6 +94,33 @@ const getTodayLocal = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+// Sales Order Bulk Upload only ever reads/imports the first 50 product rows
+// of an uploaded file — a deliberate cap for this modal specifically (not a
+// parsing limitation: the sheet itself is still read in full via
+// fixSheetRange, so this never silently loses rows to a stale file range,
+// it just intentionally keeps only the first 50 of however many exist).
+const MAX_IMPORT_ROWS = 50;
+
+// sheet_to_json only reads as far as the worksheet's declared `!ref` (used
+// range) — some tools/templates leave that stamped smaller than the actual
+// data (e.g. capped at row 50 from however the sheet was first saved), so
+// real rows past it get silently dropped even though the cells are right
+// there. Recomputing `!ref` from every cell address actually present in the
+// sheet before reading it means the import always sees the true extent of
+// the file, regardless of what range it was exported/saved with.
+const fixSheetRange = (sheet) => {
+  let maxRow = 0;
+  let maxCol = 0;
+  for (const key in sheet) {
+    if (key[0] === '!') continue;
+    const cell = XLSX.utils.decode_cell(key);
+    if (cell.r > maxRow) maxRow = cell.r;
+    if (cell.c > maxCol) maxCol = cell.c;
+  }
+  sheet['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxRow, c: maxCol } });
+  return sheet;
+};
+
 const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns = [], customers = [], onImportProducts, onImportCustomers, onSuccess }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
@@ -211,7 +238,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
       try {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const sheet = fixSheetRange(workbook.Sheets[workbook.SheetNames[0]]);
         const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
 
         if (!json || json.length === 0) {
@@ -280,7 +307,13 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
           return;
         }
 
-        setRawRows(parsedRows);
+        const truncatedCount = parsedRows.length - MAX_IMPORT_ROWS;
+        const limitedRows = parsedRows.slice(0, MAX_IMPORT_ROWS);
+        if (truncatedCount > 0) {
+          toast.error(`Only the first ${MAX_IMPORT_ROWS} rows are imported at a time — ${truncatedCount} extra row${truncatedCount !== 1 ? 's' : ''} in this file ${truncatedCount !== 1 ? 'were' : 'was'} ignored.`);
+        }
+
+        setRawRows(limitedRows);
         setStep('preview');
       } catch (err) {
         toast.error('Failed to parse document: ' + err.message);
@@ -648,8 +681,8 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                     </div>
 
                     {/* Products Table for this group */}
-                    <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-                      <table className="w-full text-xs text-left">
+                    <div className="border border-slate-200 rounded-lg overflow-x-auto bg-white">
+                      <table className="w-full min-w-[1000px] text-xs text-left">
                         <thead className="bg-slate-100 border-b border-slate-200 font-semibold text-slate-700">
                           <tr>
                             <th className="px-3 py-1.5 whitespace-nowrap">#</th>

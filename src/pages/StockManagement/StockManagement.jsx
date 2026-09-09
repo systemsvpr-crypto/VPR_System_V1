@@ -28,7 +28,7 @@ import DeleteConfirmModal from './components/DeleteConfirmModal';
 import { TransactionFilters, TransactionTable } from './components/TransactionTable';
 
 const ACTIONS = [
-  { id: 'factory-in', label: 'Factory Stock In', icon: Factory, color: 'bg-blue-50 text-blue-600 border-blue-200' },
+  { id: 'factory-in', label: 'Godown in', icon: Factory, color: 'bg-blue-50 text-blue-600 border-blue-200' },
   { id: 'production', label: 'Production', icon: PackagePlus, color: 'bg-indigo-50 text-indigo-600 border-indigo-200' },
   { id: 'transfer', label: 'Transfer Stock', icon: ArrowLeftRight, color: 'bg-amber-50 text-amber-600 border-amber-200' },
   { id: 'dispatch', label: 'Dispatch Out', icon: Truck, color: 'bg-rose-50 text-rose-600 border-rose-200' },
@@ -84,6 +84,34 @@ const StockManagement = () => {
     setTxnLoading(false);
   };
 
+  // productStockMap (the "Current stock" / "Available at source" figures
+  // shown inline in every modal's Product/Grouping picker) was only ever
+  // fetched once, on mount — after Godown In/Production/Transfer/Dispatch/
+  // Delete actually changed stock, the transaction list refreshed but this
+  // never did, so those pickers kept showing stale, page-load-time qty per
+  // godown instead of the live figure. Re-fetches godown_stock and rebuilds
+  // the map against the (already-loaded) godowns list.
+  const refreshProductStock = async () => {
+    try {
+      const stockRows = await getAllProductStock();
+      const godownNameMap = Object.fromEntries(godowns.map(gd => [gd.godown_id, gd.name]));
+      const godownColorMap = Object.fromEntries(godowns.map((gd, i) => [gd.godown_id, GODOWN_COLORS[i % GODOWN_COLORS.length]]));
+      const map = {};
+      for (const row of stockRows) {
+        if (!map[row.product_id]) map[row.product_id] = [];
+        map[row.product_id].push({
+          godownName: godownNameMap[row.godown_id] || 'Unknown',
+          godownId: row.godown_id,
+          qty: row.current_stock,
+          badge: godownColorMap[row.godown_id]?.badge || 'bg-slate-100 text-slate-700 border-slate-200',
+        });
+      }
+      setProductStockMap(map);
+    } catch (err) {
+      toast.error('Failed to refresh stock levels');
+    }
+  };
+
   const handleFilterChange = (key, value) => {
     const newFilters = { ...filters, [key]: value };
     setFilters(newFilters);
@@ -122,6 +150,7 @@ const StockManagement = () => {
       toast.success('Transaction deleted successfully');
       setDeletingTransaction(null);
       fetchTransactions();
+      refreshProductStock();
     } catch (err) { toast.error(err.message); }
     setDeleteLoading(false);
   };
@@ -131,7 +160,7 @@ const StockManagement = () => {
     setEditingTransaction(null);
   };
 
-  const handleSuccess = () => { setActiveModal(null); setEditingTransaction(null); fetchTransactions(); };
+  const handleSuccess = () => { setActiveModal(null); setEditingTransaction(null); fetchTransactions(); refreshProductStock(); };
 
   // Exports every transaction matching the current filters (not just the
   // current page) — same columns and Type/Lift-Dispatch/Qty-sign conventions
@@ -143,11 +172,14 @@ const StockManagement = () => {
       return;
     }
     const rows = transactions.map(t => ({
-      'Date': t.txn_date,
+      // OUT_GODOWN rows read as their planned Dispatch Date (from the linked
+      // dispatch_plans row), not the capped txn_date — same as the on-screen
+      // table (see displayDate in TransactionTable.jsx).
+      'Date': t.dispatch_plans?.dispatch_date || t.txn_date,
       'Product Name': t.products?.name || '-',
       'Unit': t.products?.unit ? t.products.unit.toUpperCase() : '-',
       'Godown': t.godowns?.name || '-',
-      'Type': t.txn_type.replace(/_/g, ' '),
+      'Type': t.txn_type === 'IN_FACTORY' ? 'GODOWN IN' : t.txn_type.replace(/_/g, ' '),
       'Lift/Dispatch #': t.txn_type === 'PURCHASE_IN' ? (t.lifting_number || '—') : (t.dispatch_number || t.lr_number || '—'),
       'Qty': `${IN_TYPES.includes(t.txn_type) ? '+' : '-'}${formatQty(t.qty)}`,
     }));
@@ -226,7 +258,8 @@ const StockManagement = () => {
         products={products} godowns={godowns} productStockMap={productStockMap} user={user} onSuccess={handleSuccess}
         editingTransaction={['OUT_GODOWN', 'ADJUSTMENT_OUT'].includes(editingTransaction?.txn_type) ? editingTransaction : null} />
       <BulkDispatchModal isOpen={activeModal === 'bulk-dispatch'} onClose={handleCloseModal}
-        user={user} onSuccess={handleSuccess} />
+        user={user} onSuccess={handleSuccess} products={products} godowns={godowns} 
+        productStockMap={productStockMap} onImportProducts={(product) => setProducts(prev => [...prev, product])} />
 
       <DeleteConfirmModal isOpen={!!deletingTransaction} onClose={() => setDeletingTransaction(null)}
         transaction={deletingTransaction} onConfirm={handleDeleteConfirm} loading={deleteLoading}

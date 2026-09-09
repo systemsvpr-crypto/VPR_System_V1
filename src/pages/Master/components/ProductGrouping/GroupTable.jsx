@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { FolderTree, Edit2, Trash2, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DataTable from '@/components/DataTable';
@@ -14,6 +14,18 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, currentPage
       return next;
     });
   };
+
+  // DataTable is memoized and only re-renders when the `data` array's item
+  // references change (it deliberately ignores renderRow/renderCard, since
+  // those are recreated every render regardless — see DataTable.jsx). The
+  // expand/collapse state above lives outside `groups`, so without baking it
+  // into the row objects here, toggling a row wouldn't change any object
+  // reference in `data`, the memo would see "nothing changed", and the row
+  // would never actually expand on screen.
+  const rows = useMemo(() =>
+    groups.map(g => ({ ...g, _expanded: expandedGroups.has(g.group_id) })),
+    [groups, expandedGroups],
+  );
 
   if (loading) {
     return (
@@ -42,7 +54,7 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, currentPage
         { label: '', className: 'w-10' },
         'Group Name', 'Products', 'Actions'
       ]}
-      data={groups}
+      data={rows}
       currentPage={currentPage}
       totalPages={totalPages}
       itemsPerPage={itemsPerPage}
@@ -50,7 +62,7 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, currentPage
       onItemsPerPageChange={onItemsPerPageChange}
       totalResults={totalItems}
       renderRow={(g, index) => {
-        const isExpanded = expandedGroups.has(g.group_id);
+        const isExpanded = g._expanded;
         return (
           <React.Fragment key={g.group_id}>
             <tr className="hover:bg-slate-50 transition-colors cursor-pointer group text-xs" onClick={() => toggleExpand(g.group_id)}>
@@ -102,7 +114,7 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, currentPage
         );
       }}
       renderCard={(g, index) => {
-        const isExpanded = expandedGroups.has(g.group_id);
+        const isExpanded = g._expanded;
         return (
           <div key={g.group_id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-3">
             <div className="flex justify-between items-start cursor-pointer" onClick={() => toggleExpand(g.group_id)}>

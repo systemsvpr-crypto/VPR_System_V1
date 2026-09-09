@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { supabase, fetchAllRows } from '../supabase';
 import { hasValidQtyPrecision, formatQty } from '../lib/qty';
 
 const getTodayLocal = () => {
@@ -96,8 +96,40 @@ const addStockInTxn = async (txn_type, { product_id, godown_id, qty, txn_date, c
   return data;
 };
 
+const bulkAddStockInTxn = async (txn_type, rows) => {
+  if (!rows || rows.length === 0) return [];
+  
+  const today = getTodayLocal();
+  const insertPayloads = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const { product_id, godown_id, qty, txn_date, created_by } = rows[i];
+    
+    if (!qty || Number(qty) <= 0) throw new Error(`Row ${i + 1}: Quantity must be greater than zero.`);
+    if (!hasValidQtyPrecision(Number(qty))) throw new Error(`Row ${i + 1}: Quantity can have at most two decimal places.`);
+    if (txn_date > today) throw new Error(`Row ${i + 1}: Transaction date cannot be in the future.`);
+
+    const back_dated = txn_date < today;
+    insertPayloads.push({
+      product_id, godown_id, txn_date, txn_type,
+      qty: Number(qty), is_void: false, created_by, back_dated,
+    });
+  }
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .insert(insertPayloads)
+    .select();
+    
+  if (error) throw error;
+  return data;
+};
+
 export const addFactoryStock = (payload) => addStockInTxn('IN_FACTORY', payload);
+export const bulkAddFactoryStock = (rows) => bulkAddStockInTxn('IN_FACTORY', rows);
+
 export const addProductionStock = (payload) => addStockInTxn('PRODUCTION_IN', payload);
+export const bulkAddProductionStock = (rows) => bulkAddStockInTxn('PRODUCTION_IN', rows);
 
 export const transferStock = async ({ product_id, from_godown_id, to_godown_id, qty, txn_date, created_by }) => {
   if (!qty || Number(qty) <= 0) throw new Error('Quantity must be greater than zero.');
@@ -137,6 +169,93 @@ export const transferStock = async ({ product_id, from_godown_id, to_godown_id, 
   return data;
 };
 
+// Bulk version of transferStock above — Transfer Stock's Grouping-picker
+// checklist (multiple products, one shared From/To godown pair). Each row
+// is validated the same way a single transferStock() call would be
+// (positive qty, valid precision, not future-dated, source != destination,
+// destination active, enough stock at the source), tracking a running
+// per-(product, from_godown) deduction so two rows moving the same product
+// out of the same source can't both "see" the same starting balance and
+// jointly overdraw it.
+export const bulkTransferStock = async (rows, created_by) => {
+  const errors = [];
+  const validEntries = [];
+  if (!rows || rows.length === 0) return { successCount: 0, errorCount: 0, errors };
+
+  const today = getTodayLocal();
+  const productIds = [...new Set(rows.map(r => r.product_id).filter(Boolean))];
+  const godownIds = [...new Set(rows.flatMap(r => [r.from_godown_id, r.to_godown_id]).filter(Boolean))];
+
+  const { data: stockRows, error: stockErr } = await supabase
+    .from('godown_stock')
+    .select('product_id, godown_id, current_stock')
+    .in('product_id', productIds.length > 0 ? productIds : [null])
+    .in('godown_id', godownIds.length > 0 ? godownIds : [null]);
+  if (stockErr) throw stockErr;
+  const stockMap = {};
+  (stockRows || []).forEach(s => {
+    stockMap[`${s.product_id}_${s.godown_id}`] = Number(s.current_stock) || 0;
+  });
+
+  const { data: godownRows, error: godownErr } = await supabase
+    .from('godowns')
+    .select('godown_id, is_active')
+    .in('godown_id', godownIds.length > 0 ? godownIds : [null]);
+  if (godownErr) throw godownErr;
+  const activeMap = {};
+  (godownRows || []).forEach(g => { activeMap[g.godown_id] = g.is_active; });
+
+  const deductedMap = {};
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const label = `Row ${i + 1}${row.productName ? `: ${row.productName}` : ''}`;
+    const qty = Number(row.qty);
+    const txnDate = row.txn_date || today;
+
+    if (!row.product_id) { errors.push({ row: label, message: 'Product is required' }); continue; }
+    if (!row.from_godown_id) { errors.push({ row: label, message: 'Source godown is required' }); continue; }
+    if (!row.to_godown_id) { errors.push({ row: label, message: 'Destination godown is required' }); continue; }
+    if (row.from_godown_id === row.to_godown_id) { errors.push({ row: label, message: 'Source and destination godowns must be different' }); continue; }
+    if (isNaN(qty) || qty <= 0 || !hasValidQtyPrecision(qty)) {
+      errors.push({ row: label, message: 'Quantity must be a valid positive number with at most two decimal places' });
+      continue;
+    }
+    if (txnDate > today) { errors.push({ row: label, message: 'Date cannot be in the future' }); continue; }
+    if (!activeMap[row.to_godown_id]) { errors.push({ row: label, message: 'Destination godown is inactive' }); continue; }
+
+    const stockKey = `${row.product_id}_${row.from_godown_id}`;
+    const available = stockMap[stockKey] || 0;
+    const alreadyDeducted = deductedMap[stockKey] || 0;
+    const remaining = available - alreadyDeducted;
+    if (remaining < qty) {
+      errors.push({ row: label, message: `Insufficient stock. Available: ${remaining}, Requested: ${qty}` });
+      continue;
+    }
+    deductedMap[stockKey] = alreadyDeducted + qty;
+
+    const pair_id = crypto.randomUUID();
+    const back_dated = txnDate < today;
+    validEntries.push(
+      { product_id: row.product_id, godown_id: row.from_godown_id, txn_date: txnDate, txn_type: 'TRANSFER_OUT', qty, is_void: false, pair_id, created_by, back_dated },
+      { product_id: row.product_id, godown_id: row.to_godown_id, txn_date: txnDate, txn_type: 'TRANSFER_IN', qty, is_void: false, pair_id, created_by, back_dated },
+    );
+  }
+
+  let successCount = 0;
+  if (validEntries.length > 0) {
+    const CHUNK_SIZE = 1000;
+    for (let i = 0; i < validEntries.length; i += CHUNK_SIZE) {
+      const chunk = validEntries.slice(i, i + CHUNK_SIZE);
+      const { error: txnError } = await supabase.from('transactions').insert(chunk);
+      if (txnError) throw txnError;
+    }
+    successCount = validEntries.length / 2; // each transfer is a TRANSFER_OUT + TRANSFER_IN pair
+  }
+
+  return { successCount, errorCount: errors.length, errors };
+};
+
 export const dispatchStock = async ({ product_id, godown_id, qty, txn_date, created_by, dispatch_plan_id, dispatch_number }) => {
   if (!qty || Number(qty) <= 0) throw new Error('Quantity must be greater than zero.');
   if (!hasValidQtyPrecision(Number(qty))) throw new Error('Quantity can have at most two decimal places.');
@@ -163,6 +282,70 @@ export const dispatchStock = async ({ product_id, godown_id, qty, txn_date, crea
     .insert([insertPayload])
     .select()
     .single();
+  if (error) throw error;
+  return data;
+};
+
+export const bulkAddManualDispatchStock = async (entries) => {
+  if (!entries || entries.length === 0) throw new Error('No entries provided.');
+
+  // Pre-fetch products to check for allow_negative_stock
+  const productIds = [...new Set(entries.map(e => e.product_id))];
+  const { data: productsData } = await supabase
+    .from('products')
+    .select('product_id, allow_negative_stock')
+    .in('product_id', productIds);
+  const productsMap = {};
+  for (const p of productsData || []) productsMap[p.product_id] = p;
+
+  // Pre-fetch all godown_stock to check balances
+  const { data: stockData } = await supabase
+    .from('godown_stock')
+    .select('product_id, godown_id, current_stock')
+    .in('product_id', productIds);
+  
+  const stockMap = {};
+  for (const s of stockData || []) {
+    stockMap[`${s.product_id}_${s.godown_id}`] = Number(s.current_stock) || 0;
+  }
+
+  const validEntries = [];
+  const tempDispatchedMap = {};
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const qty = Number(entry.qty);
+    if (!qty || qty <= 0 || !hasValidQtyPrecision(qty)) throw new Error(`Row ${i + 1}: Invalid quantity.`);
+    if (entry.txn_date > getTodayLocal()) throw new Error(`Row ${i + 1}: Date cannot be in the future.`);
+
+    const stockKey = `${entry.product_id}_${entry.godown_id}`;
+    const available = stockMap[stockKey] || 0;
+    const previouslyDispatched = tempDispatchedMap[stockKey] || 0;
+    const remaining = available - previouslyDispatched;
+
+    const product = productsMap[entry.product_id];
+    if (remaining < qty && !product?.allow_negative_stock) {
+      throw new Error(`Row ${i + 1}: Insufficient stock. Available: ${remaining}, Requested: ${qty}`);
+    }
+
+    tempDispatchedMap[stockKey] = previouslyDispatched + qty;
+
+    validEntries.push({
+      product_id: entry.product_id,
+      godown_id: entry.godown_id,
+      txn_date: entry.txn_date,
+      txn_type: 'OUT_GODOWN',
+      qty,
+      is_void: false,
+      created_by: entry.created_by,
+      back_dated: entry.txn_date < getTodayLocal(),
+    });
+  }
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .insert(validEntries)
+    .select();
   if (error) throw error;
   return data;
 };
@@ -308,8 +491,16 @@ export const editTransaction = async (txnId, updates, created_by) => {
   if (!qty || qty <= 0) throw new Error('Quantity must be greater than zero.');
   if (!hasValidQtyPrecision(qty)) throw new Error('Quantity can have at most two decimal places.');
 
-  const txnDate = updates.txn_date || original.txn_date;
-  if (txnDate > getTodayLocal()) throw new Error('Transaction date cannot be in the future.');
+  // A dispatch-plan-linked OUT_GODOWN txn's "Date" here really means its
+  // Dispatch Date, which — like in Dispatch Planning — is allowed to be in
+  // the future. That belongs on dispatch_plans.dispatch_date, not on this
+  // row's txn_date (DB-constrained to <= today): the ledger entry keeps
+  // posting on (at latest) today, same rule saveDispatchPlan uses.
+  const requestedDate = updates.txn_date || original.txn_date;
+  const today = getTodayLocal();
+  const isLinkedDispatch = !!original.dispatch_plan_id;
+  const txnDate = isLinkedDispatch && requestedDate > today ? today : requestedDate;
+  if (!isLinkedDispatch && txnDate > today) throw new Error('Transaction date cannot be in the future.');
   if (updates.product_id && updates.product_id !== original.product_id) throw new Error('Product cannot be changed. Void this transaction and create a new one.');
 
   const godownId = updates.godown_id || original.godown_id;
@@ -341,7 +532,7 @@ export const editTransaction = async (txnId, updates, created_by) => {
   }
 
   const voidReason = updates.void_reason || 'Edited via correction';
-  const back_dated = txnDate < getTodayLocal();
+  const back_dated = txnDate < today;
 
   const { error: voidErr } = await supabase
     .from('transactions')
@@ -375,15 +566,21 @@ export const editTransaction = async (txnId, updates, created_by) => {
     .single();
   if (insertErr) throw insertErr;
 
-  if (original.dispatch_plan_id && (godownId !== original.godown_id || qty !== Number(original.qty))) {
+  if (isLinkedDispatch) {
     const planUpdate = {};
     if (godownId !== original.godown_id) planUpdate.godown_id = godownId;
     if (qty !== Number(original.qty)) planUpdate.quantity = qty;
-    planUpdate.updated_at = new Date().toISOString();
-    await supabase
-      .from('dispatch_plans')
-      .update(planUpdate)
-      .eq('plan_id', original.dispatch_plan_id);
+    // Always mirror the requested date onto the plan's dispatch_date — it's
+    // the one place that actually holds the real (possibly future) date;
+    // this row's own txn_date may have been capped at today above.
+    if (updates.txn_date) planUpdate.dispatch_date = updates.txn_date;
+    if (Object.keys(planUpdate).length > 0) {
+      planUpdate.updated_at = new Date().toISOString();
+      await supabase
+        .from('dispatch_plans')
+        .update(planUpdate)
+        .eq('plan_id', original.dispatch_plan_id);
+    }
   }
 
   return newTxn;
@@ -623,26 +820,28 @@ export const deleteTransactionRow = async (txnId) => {
 };
 
 export const getAllTransactions = async ({ product_id, godown_id, txn_type, from_date, to_date } = {}) => {
-  let query = supabase
-    .from('transactions')
-    .select(`
-      *,
-      products ( name, unit ),
-      godowns ( name )
-    `)
-    .eq('is_void', false)
-    .order('txn_date', { ascending: false })
-    .order('created_at', { ascending: false });
+  const buildQuery = () => {
+    let query = supabase
+      .from('transactions')
+      .select(`
+        *,
+        products ( name, unit ),
+        godowns ( name ),
+        dispatch_plans ( dispatch_date )
+      `)
+      .eq('is_void', false)
+      .order('txn_date', { ascending: false })
+      .order('created_at', { ascending: false });
 
-  if (product_id && product_id !== 'all') query = query.eq('product_id', product_id);
-  if (godown_id && godown_id !== 'all') query = query.eq('godown_id', godown_id);
-  if (txn_type && txn_type !== 'all') query = query.eq('txn_type', txn_type);
-  if (from_date) query = query.gte('txn_date', from_date);
-  if (to_date) query = query.lte('txn_date', to_date);
+    if (product_id && product_id !== 'all') query = query.eq('product_id', product_id);
+    if (godown_id && godown_id !== 'all') query = query.eq('godown_id', godown_id);
+    if (txn_type && txn_type !== 'all') query = query.eq('txn_type', txn_type);
+    if (from_date) query = query.gte('txn_date', from_date);
+    if (to_date) query = query.lte('txn_date', to_date);
+    return query;
+  };
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
+  return fetchAllRows(buildQuery);
 };
 
 export const bulkDispatchStock = async ({ rows, created_by }) => {
@@ -658,10 +857,9 @@ export const bulkDispatchStock = async ({ rows, created_by }) => {
     }
   }
 
-  const { data: allProducts, error: prodErr } = await supabase
+  const allProducts = await fetchAllRows(() => supabase
     .from('products')
-    .select('product_id, name, allow_negative_stock');
-  if (prodErr) throw prodErr;
+    .select('product_id, name, allow_negative_stock'));
 
   const productMap = {};
   const productInfoMap = {};
@@ -670,10 +868,11 @@ export const bulkDispatchStock = async ({ rows, created_by }) => {
     productInfoMap[p.product_id] = p;
   }
 
-  const { data: allStock, error: stockErr } = await supabase
+  // godown_stock is one row per (product, godown) pair — products × godowns
+  // crosses the 1000-row cap well before either list alone would.
+  const allStock = await fetchAllRows(() => supabase
     .from('godown_stock')
-    .select('product_id, godown_id, current_stock');
-  if (stockErr) throw stockErr;
+    .select('product_id, godown_id, current_stock'));
 
   const stockMap = {};
   for (const s of allStock || []) {

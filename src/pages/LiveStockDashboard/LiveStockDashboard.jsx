@@ -55,7 +55,7 @@ const LiveStockDashboard = () => {
         }
       })
       .catch((err) => {
-        if (err.name === 'AbortError') return;
+        if (err.name === 'AbortError' || err.message?.toLowerCase().includes('abort')) return;
         toast.error('Failed to load dashboard');
         if (!controller.signal.aborted) setLoading(false);
       });
@@ -264,6 +264,13 @@ const LiveStockDashboard = () => {
                     <Package size={18} className="text-primary" />
                   </div>
                   <h3 className="font-semibold text-slate-800 text-lg">Product-wise Breakdown</h3>
+                  <div
+                    className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg shrink-0"
+                    title="Sum across every product and godown — not just the rows on this page. Matches the Godown Summary total above."
+                  >
+                    <span className="text-xs text-blue-600 font-medium">Total Closing (All Products):</span>
+                    <span className="text-sm font-bold text-blue-700">{summaryData.totals.closing.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <button

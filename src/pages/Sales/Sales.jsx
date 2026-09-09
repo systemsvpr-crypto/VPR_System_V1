@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, ClipboardList, Bell, CheckCircle, Mail, Truck, Download, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, ShoppingCart, Plus, ClipboardList, Bell, CheckCircle, Mail, Truck, Download, Upload, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
-import { getAllOrders, deleteOrder } from '../../services/salesService';
+import { getAllOrders, deleteOrder, deleteOrdersBulk } from '../../services/salesService';
 import { getAllProducts, getAllGodowns } from '../../services/masterService';
 import { getAllCustomers } from '../../services/customerService';
+import { isOrderFullyDispatched } from '@/lib/orderDispatchStatus';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { TabSwitcher } from '@/components/StandardButtons';
@@ -50,6 +51,15 @@ const Sales = () => {
   const [skipFilter, setSkipFilter] = useState('pending');
   const [godownFilter, setGodownFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [selectedOrderIds, setSelectedOrderIds] = useState(new Set());
+  const [deletingSelectedOrders, setDeletingSelectedOrders] = useState(false);
+
+  // Same dev/Super Admin gate OrderTable uses for its own row delete button —
+  // duplicated here (rather than lifted up) since it's a one-line check and
+  // this is the only other place in this file that needs it.
+  const roleUpper = String(user?.role || '').trim().toUpperCase();
+  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
+  const canDeleteOrders = import.meta.env.DEV || isSuperAdmin;
 
   const visibleTabs = useMemo(() => {
     const allowedTabs = user?.tab_access?.sales;
@@ -74,7 +84,12 @@ const Sales = () => {
       const matchGodown = !godownFilter ||
         (o.sales_order_items || []).some(item => String(item.godown_id) === godownFilter);
       const matchType = !typeFilter || o.process_type === typeFilter;
-      return matchSearch && matchGodown && matchType;
+      // Only show orders that still have at least one item showing up in
+      // Dispatch Planning's Pending list — once every item is fully
+      // planned/dispatched (or cancelled), the order number no longer shows
+      // there, so it shouldn't keep cluttering Orders either.
+      const stillPending = !isOrderFullyDispatched(o);
+      return matchSearch && matchGodown && matchType && stillPending;
     });
   }, [orders, searchTerm, godownFilter, typeFilter]);
 
@@ -87,6 +102,10 @@ const Sales = () => {
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, completeFilter, afterFilter, skipFilter, godownFilter, typeFilter, pageSize]);
+  // A stale selection referencing orders that just scrolled off-page/out of
+  // view (new search, filter, or page) is confusing more than useful — clear
+  // it any time what's actually visible changes.
+  useEffect(() => { setSelectedOrderIds(new Set()); }, [searchTerm, activeTab, godownFilter, typeFilter, currentPage]);
 
   useEffect(() => {
     if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === activeTab)) {
@@ -160,6 +179,42 @@ const Sales = () => {
     } catch (err) { toast.error(err.message || 'Failed to delete order.'); }
   };
 
+  const handleToggleSelectOrder = (orderId) => {
+    setSelectedOrderIds(prev => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  };
+
+  // Selects/deselects every order on the CURRENT page (matching how the
+  // header checkbox itself is checked — see OrderTable) rather than every
+  // filtered order, same "select all on this page" convention Dispatch
+  // Planning already uses.
+  const handleToggleSelectAllOrders = () => {
+    setSelectedOrderIds(prev => {
+      const allSelected = currentOrders.length > 0 && currentOrders.every(o => prev.has(o.order_id));
+      if (allSelected) return new Set();
+      return new Set(currentOrders.map(o => o.order_id));
+    });
+  };
+
+  const handleDeleteSelectedOrders = async () => {
+    if (selectedOrderIds.size === 0) { toast.error('No orders selected.'); return; }
+    if (!window.confirm(`Permanently delete ${selectedOrderIds.size} selected order${selectedOrderIds.size !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    setDeletingSelectedOrders(true);
+    try {
+      const { deletedOrderCount } = await deleteOrdersBulk([...selectedOrderIds]);
+      toast.success(`Deleted ${deletedOrderCount} order${deletedOrderCount !== 1 ? 's' : ''}.`);
+      setSelectedOrderIds(new Set());
+      loadData();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete selected orders.');
+    }
+    setDeletingSelectedOrders(false);
+  };
+
   return (
     <div className="flex flex-col gap-6 h-full min-h-0">
 
@@ -225,6 +280,12 @@ const Sales = () => {
                   <Button variant="outline" onClick={() => setBulkModalOpen(true)} className="gap-2 px-4 font-medium text-slate-700 border-slate-200 hover:bg-slate-50">
                     <Upload size={18} /><span>Bulk Upload</span>
                   </Button>
+                  {canDeleteOrders && (
+                    <Button variant="destructive" onClick={handleDeleteSelectedOrders} disabled={deletingSelectedOrders || selectedOrderIds.size === 0}
+                      className="gap-2 px-4 font-medium">
+                      <Trash2 size={18} /><span>Delete{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</span>
+                    </Button>
+                  )}
                   <Button onClick={() => { setEditingOrder(null); setModalOpen(true); }} className="gap-2 px-4 font-medium">
                     <Plus size={20} /><span>Add Order</span>
                   </Button>
@@ -235,7 +296,8 @@ const Sales = () => {
 
           <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
             <OrderTable orders={currentOrders} totalItems={filteredOrders.length} loading={loading}
-              onEdit={handleEditOrder} onDelete={handleDeleteOrder} searchTerm={searchTerm} />
+              onEdit={handleEditOrder} onDelete={handleDeleteOrder} searchTerm={searchTerm}
+              selectedIds={selectedOrderIds} onToggleSelect={handleToggleSelectOrder} onToggleSelectAll={handleToggleSelectAllOrders} />
             {!loading && filteredOrders.length > 0 && (
               <div className="shrink-0 px-4 py-2.5 border-t border-royal-600/25 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-4 rounded-b-xl">
                 <div className="flex items-center gap-2">
@@ -311,7 +373,7 @@ const Sales = () => {
 
       {activeTab === 'dispatch-completed' && (
         <div className="flex flex-col gap-4 flex-1 min-h-0">
-          <DispatchCompletedTable searchTerm={searchTerm} onSearchChange={setSearchTerm} completeFilter={completeFilter} onFilterChange={setCompleteFilter} onSave={loadData} products={products} godowns={godowns} />
+          <DispatchCompletedTable searchTerm={searchTerm} onSearchChange={setSearchTerm} completeFilter={completeFilter} onFilterChange={setCompleteFilter} onSave={loadData} products={products} godowns={godowns} user={user} />
         </div>
       )}
 

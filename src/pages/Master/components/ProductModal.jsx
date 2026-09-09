@@ -153,7 +153,7 @@ const ProductModal = ({ isOpen, onClose, godowns = [], user, onSuccess, editingP
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Product Type</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Size</label>
               <Input value={form.product_type} onChange={(e) => setForm({ ...form, product_type: e.target.value })} placeholder="Ex: 10*12" />
             </div>
             <div className="grid grid-cols-2 gap-3">

@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { supabase, fetchAllRows } from '../supabase';
 import { voidTransaction as stockVoidTransaction } from './stockService';
 import { sendOrderConfirmationWhatsapp, sendDispatchConfirmationWhatsapp } from './whatsappService';
 import { getPackagingSize } from './purchaseService';
@@ -83,12 +83,14 @@ export const generateNextOrderNumber = async () => {
 export const getProductCurrentStockAndTransit = async (productIds) => {
   if (!productIds || productIds.length === 0) return { stockMap: {}, transitMap: {} };
   
-  // Current Stock (from transactions)
-  const { data: txns } = await supabase
+  // Current Stock (from transactions) — the ledger can hold far more than
+  // 1000 rows across these product ids, so this must page past Supabase's
+  // per-request cap rather than fetch a single unbounded request.
+  const txns = await fetchAllRows(() => supabase
     .from('transactions')
     .select('product_id, qty, txn_type')
     .eq('is_void', false)
-    .in('product_id', productIds);
+    .in('product_id', productIds));
 
   const stockMap = {};
   for (const txn of txns || []) {
@@ -103,12 +105,11 @@ export const getProductCurrentStockAndTransit = async (productIds) => {
   // In Transit — lifts not yet Arrived/Received. purchase_deliveries has no
   // product_id/dispatch_qty/arrived_qty columns of its own; product comes
   // through purchase_indent_items, and the lift's qty is received_quantity.
-  const { data: transit, error: transitErr } = await supabase
+  const transit = await fetchAllRows(() => supabase
     .from('purchase_deliveries')
     .select('received_quantity, status, purchase_indent_items!inner(product_id)')
     .in('status', ['In Transit', 'In Transport Godown', 'AT TPT GDN'])
-    .in('purchase_indent_items.product_id', productIds);
-  if (transitErr) throw transitErr;
+    .in('purchase_indent_items.product_id', productIds));
 
   const transitMap = {};
   for (const t of transit || []) {
@@ -129,13 +130,12 @@ export const getAllOrders = async () => {
   // full network RTT on top of query time, so collapsing 3 into 1 is a large
   // win regardless of data volume — this was the main cause of the Orders
   // tab's slow load.
-  const { data: orders, error: ordersErr } = await supabase
+  const orders = await fetchAllRows(() => supabase
     .from('sales_orders')
     .select(`*, process_type, customers:customer_id(name),
       sales_order_items(*, products:product_id(name, unit), godowns:godown_id(name),
         dispatch_plans(*, transactions(qty, is_void)))`)
-    .order('created_at', { ascending: false });
-  if (ordersErr) throw ordersErr;
+    .order('created_at', { ascending: false }));
   if (!orders || orders.length === 0) return [];
 
   return orders.map(o => ({
@@ -314,7 +314,7 @@ const fetchInChunks = async (ids, chunkFn) => {
 };
 
 export const getAllOrderItemsForDispatch = async () => {
-  const { data: items, error: itemsErr } = await supabase
+  const items = await fetchAllRows(() => supabase
     .from('sales_order_items')
     .select(`
       *,
@@ -325,8 +325,7 @@ export const getAllOrderItemsForDispatch = async () => {
       products:product_id(name, unit, mux),
       godowns:godown_id(name)
     `)
-    .order('created_at', { ascending: false });
-  if (itemsErr) throw itemsErr;
+    .order('created_at', { ascending: false }));
   if (!items || items.length === 0) return [];
 
   const ids = items.map(i => i.item_id);
@@ -359,7 +358,7 @@ export const getAllOrderItemsForDispatch = async () => {
 };
 
 export const getSkipDeliveredItems = async () => {
-  const { data: items, error: itemsErr } = await supabase
+  const items = await fetchAllRows(() => supabase
     .from('sales_order_items')
     .select(`
       *,
@@ -370,8 +369,7 @@ export const getSkipDeliveredItems = async () => {
       products:product_id(name, unit)
     `)
     .eq('sales_orders.process_type', 'skip_delivered')
-    .order('created_at', { ascending: false });
-  if (itemsErr) throw itemsErr;
+    .order('created_at', { ascending: false }));
   if (!items || items.length === 0) return [];
 
   const ids = items.map(i => i.item_id);
@@ -420,7 +418,7 @@ export const getSkipDeliveredItems = async () => {
 };
 
 export const getAllDispatchPlans = async () => {
-  const { data, error } = await supabase
+  const data = await fetchAllRows(() => supabase
     .from('dispatch_plans')
     .select(`
       *,
@@ -439,17 +437,23 @@ export const getAllDispatchPlans = async () => {
       godowns:godown_id(name),
       users:created_by(full_name)
     `)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false }));
 
-  if (error) throw error;
   const plansData = data || [];
   const planIds = plansData.map(p => p.plan_id).filter(Boolean);
   if (planIds.length > 0) {
-    const { data: txns } = await supabase
-      .from('transactions')
-      .select('dispatch_plan_id, qty')
-      .in('dispatch_plan_id', planIds)
-      .eq('is_void', false);
+    // dispatch_plan_id .in() list is chunked to stay under the URL-length
+    // limit (see fetchInChunks above), and each chunk's own result is paged
+    // past the 1000-row cap via fetchAllRows — a plan can accumulate many
+    // transactions once edits/corrections pile up.
+    const txns = await fetchInChunks(planIds, (chunk) =>
+      fetchAllRows(() => supabase
+        .from('transactions')
+        .select('dispatch_plan_id, qty')
+        .in('dispatch_plan_id', chunk)
+        .eq('is_void', false)
+      ).then(rows => ({ data: rows, error: null }))
+    );
     const dispatchedMap = {};
     (txns || []).forEach(t => {
       dispatchedMap[t.dispatch_plan_id] = (dispatchedMap[t.dispatch_plan_id] || 0) + Number(t.qty);
@@ -479,6 +483,20 @@ export const generateNextDispatchNumber = async () => {
 
   const next = parseInt(match[1], 10) + 1;
   return `DN-${String(next).padStart(4, '0')}`;
+};
+
+// Reserves `count` dispatch numbers with a single query instead of calling
+// generateNextDispatchNumber() once per row in a loop — the difference
+// between one round trip and N of them when a bulk action (e.g. cancelling
+// several rows at once) needs a batch of numbers. No existence check per
+// number: a collision is rare (only if something else inserts into the same
+// range in the gap before these are used) and is handled by the caller's
+// own unique-violation retry on insert, same as the single-number path.
+export const generateNextDispatchNumbers = async (count) => {
+  if (!count || count <= 0) return [];
+  const first = await generateNextDispatchNumber();
+  const start = parseInt(first.match(/DN-(\d+)/)[1], 10);
+  return Array.from({ length: count }, (_, i) => `DN-${String(start + i).padStart(4, '0')}`);
 };
 
 const PG_UNIQUE_VIOLATION = '23505';
@@ -522,6 +540,16 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit,
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
   const back_dated = new Date(dispatch_date) < new Date(getTodayLocal());
+  // Stock is deducted the moment a dispatch is PLANNED, not on the day it
+  // actually leaves — so the stock-ledger transaction always has to post on
+  // (at latest) today. A future dispatch_date is kept as-is on the plan
+  // itself (drives the "Dispatch Date" column/planning), but the linked
+  // transaction's txn_date is capped at today so the deduction shows up
+  // immediately in Stock Management / Live Stock Dashboard instead of
+  // sitting invisible on a future date nobody's looking at yet. A
+  // back-dated dispatch_date (in the past) still posts on that same past
+  // date, unchanged from before.
+  const txnDate = dispatch_date > getTodayLocal() ? getTodayLocal() : dispatch_date;
 
   if (plan_id) {
     const { data: existing } = await supabase.from('dispatch_plans').select('dispatch_number, quantity, godown_id').eq('plan_id', plan_id).single();
@@ -554,14 +582,14 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit,
       await supabase.from('transactions').update({
         qty: stockQty,
         godown_id: payload.godown_id,
-        txn_date: dispatch_date,
+        txn_date: txnDate,
         back_dated
       }).eq('txn_id', existingTxn.txn_id);
     } else {
        await supabase.from('transactions').insert([{
          product_id,
          godown_id,
-         txn_date: dispatch_date,
+         txn_date: txnDate,
          txn_type: 'OUT_GODOWN',
          qty: stockQty,
          is_void: false,
@@ -610,7 +638,7 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit,
   await supabase.from('transactions').insert([{
     product_id,
     godown_id,
-    txn_date: dispatch_date,
+    txn_date: txnDate,
     txn_type: 'OUT_GODOWN',
     qty: stockQty,
     is_void: false,
@@ -619,6 +647,74 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit,
     dispatch_plan_id: planData.plan_id,
     dispatch_number: payload.dispatch_number,
   }]);
+
+  return planData;
+};
+
+// Cancels part (or all) of an order item's still-pending, never-planned
+// quantity straight from Dispatch Planning's Pending tab. Unlike
+// cancelOrderItems (which unwinds an already-created dispatch plan's stock
+// transaction), there's no stock or transaction to unwind here — the qty was
+// never dispatched — so this only bumps sales_order_items.cancelled_quantity
+// and records a dispatch_plans row for the History tab, flagged
+// is_planned: false so it's recognizable as this lightweight cancellation
+// (vs. a real plan that got voided) and stays out of Dispatch Complete
+// (whose Pending/Dispatch Done tabs only match those two statuses). No
+// transactions row is inserted, so no sales value ever posts to the ledger.
+//
+// `dispatch_number` and `current_cancelled_quantity` are optional — a caller
+// cancelling several rows at once (e.g. Dispatch Planning's bulk Cancel
+// Order) can reserve numbers in one batch via generateNextDispatchNumbers()
+// and pass each item's already-loaded cancelled_quantity, so every row's
+// cancellation runs as exactly 2 round trips (insert + update) instead of 4,
+// and the whole batch can run in parallel. Omit either and this falls back
+// to fetching them itself, for standalone/single-row use.
+export const cancelPendingQty = async ({ order_item_id, cancel_qty, godown_id, unit_price, created_by, dispatch_number, current_cancelled_quantity }) => {
+  const qty = roundQty(cancel_qty);
+  if (!qty || qty <= 0) throw new Error('Enter a valid cancel quantity.');
+
+  let baseCancelled = current_cancelled_quantity;
+  if (baseCancelled === undefined) {
+    const { data: itemRow } = await supabase
+      .from('sales_order_items')
+      .select('cancelled_quantity')
+      .eq('item_id', order_item_id)
+      .single();
+    if (!itemRow) throw new Error('Order item not found.');
+    baseCancelled = itemRow.cancelled_quantity;
+  }
+
+  const payload = {
+    order_item_id,
+    quantity: qty,
+    godown_id: godown_id || null,
+    unit_price: Number(unit_price) || 0,
+    is_planned: false,
+    dispatch_date: new Date().toISOString().split('T')[0],
+    dispatch_status: 'Cancelled',
+    created_by,
+    cancelled_at: new Date().toISOString(),
+    cancelled_by: created_by,
+    cancelled_reason: 'Cancelled from Dispatch Planning (pending quantity)',
+    converted_value: qty,
+  };
+
+  payload.dispatch_number = dispatch_number || await generateNextDispatchNumber();
+  let planData = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { data, error } = await supabase.from('dispatch_plans').insert([payload]).select().single();
+    if (!error) { planData = data; break; }
+    if (error.code === PG_UNIQUE_VIOLATION) { payload.dispatch_number = await generateNextDispatchNumber(); continue; }
+    throw error;
+  }
+  if (!planData) throw new Error('Failed to record cancellation after multiple attempts.');
+
+  const newCancelled = Number(baseCancelled || 0) + qty;
+  const { error: updErr } = await supabase
+    .from('sales_order_items')
+    .update({ cancelled_quantity: newCancelled })
+    .eq('item_id', order_item_id);
+  if (updErr) throw updErr;
 
   return planData;
 };
@@ -750,6 +846,41 @@ export const deleteOrder = async (order_id) => {
   if (orderDelErr) throw orderDelErr;
 };
 
+// Bulk version of deleteOrder above — the Orders tab's multi-select "Delete
+// Selected". Same full cascade (transactions -> dispatch_plans ->
+// sales_order_items -> sales_orders), just batched via fetchInChunks so
+// selecting many whole orders at once doesn't send one round trip per order.
+// Unlike deleteOrderItemsBulk (which only removes an order once every one of
+// its items is gone), this always deletes every selected order outright,
+// including whichever of its items it still has.
+export const deleteOrdersBulk = async (orderIds) => {
+  const ids = [...new Set(orderIds)].filter(Boolean);
+  if (ids.length === 0) return { deletedOrderCount: 0 };
+
+  const items = await fetchInChunks(ids, (chunk) =>
+    supabase.from('sales_order_items').select('item_id').in('order_id', chunk)
+  );
+  const itemIds = items.map(i => i.item_id).filter(Boolean);
+
+  if (itemIds.length > 0) {
+    const plans = await fetchInChunks(itemIds, (chunk) =>
+      supabase.from('dispatch_plans').select('plan_id').in('order_item_id', chunk)
+    );
+    const planIds = plans.map(p => p.plan_id).filter(Boolean);
+
+    if (planIds.length > 0) {
+      await fetchInChunks(planIds, (chunk) => supabase.from('transactions').delete().in('dispatch_plan_id', chunk));
+      await fetchInChunks(planIds, (chunk) => supabase.from('dispatch_plans').delete().in('plan_id', chunk));
+    }
+
+    await fetchInChunks(itemIds, (chunk) => supabase.from('sales_order_items').delete().in('item_id', chunk));
+  }
+
+  await fetchInChunks(ids, (chunk) => supabase.from('sales_orders').delete().in('order_id', chunk));
+
+  return { deletedOrderCount: ids.length };
+};
+
 // Deletes specific order-item rows (Dispatch Planning's "Delete Selected") —
 // and everything derived from just those items (their dispatch plans, stock
 // transactions) — rather than a whole order, so removing a few selected rows
@@ -794,16 +925,38 @@ export const deleteOrderItemsBulk = async (itemIds) => {
   return { deletedItemCount: ids.length, deletedOrderCount };
 };
 
+// Permanently removes selected dispatch_plans rows and their stock
+// transactions — Dispatch Completed's "Delete Selected", for undoing a
+// wrongly created/planned dispatch. Unlike deleteOrderItemsBulk this never
+// touches sales_order_items/sales_orders, so the order item itself is
+// untouched and simply becomes pending/re-plannable again once its plan
+// (and the stock that plan took out) is gone.
+export const deleteDispatchPlansBulk = async (planIds) => {
+  const ids = [...new Set(planIds)].filter(Boolean);
+  if (ids.length === 0) return { deletedCount: 0 };
+
+  await fetchInChunks(ids, (chunk) => supabase.from('transactions').delete().in('dispatch_plan_id', chunk));
+  await fetchInChunks(ids, (chunk) => supabase.from('dispatch_plans').delete().in('plan_id', chunk));
+
+  return { deletedCount: ids.length };
+};
+
 export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown_id, quantity, dispatch_date, dispatch_number, created_by }) => {
   const getTodayLocal = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
+  // Dispatch Planning already allows a future dispatch_date (stock is
+  // reduced immediately at planning time, whatever date is picked) — this
+  // used to reject completing that same plan with its own future date;
+  // now it accepts it, same as planning did.
   const todayLocal = getTodayLocal();
-  if (dispatch_date > todayLocal) {
-    throw new Error('Dispatch date cannot be in the future.');
-  }
+  // Same rule as saveDispatchPlan: the linked transaction's txn_date is
+  // capped at today, even if this plan's dispatch_date is still in the
+  // future, so it always shows up in Stock Management / Live Stock
+  // Dashboard right away instead of sitting on an unreached future date.
+  const txnDate = dispatch_date > todayLocal ? todayLocal : dispatch_date;
 
   // Stock deduction is now handled in saveDispatchPlan during planning.
   // Here we only need to adjust the existing transaction if the actual dispatched quantity is different.
@@ -817,14 +970,14 @@ export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown
   if (existingTxn && existingTxn.qty !== Number(quantity)) {
      await supabase.from('transactions').update({
         qty: Number(quantity),
-        txn_date: dispatch_date
+        txn_date: txnDate
      }).eq('txn_id', existingTxn.txn_id);
   } else if (!existingTxn) {
      // Fallback if somehow there is no transaction (e.g. legacy plan)
      await supabase.from('transactions').insert([{
        product_id,
        godown_id,
-       txn_date: dispatch_date,
+       txn_date: txnDate,
        txn_type: 'OUT_GODOWN',
        qty: Number(quantity),
        is_void: false,
@@ -921,7 +1074,7 @@ export const isOrderLocked = async (order_id) => {
 //                    fallback needed there)
 //   - pendingQty   = max(0, netQty - dispatchedQty)
 export const getCustomerDashboardData = async (signal) => {
-  const { data, error } = await supabase
+  const data = await fetchAllRows(() => supabase
     .from('sales_orders')
     .select(`
       order_id,
@@ -948,9 +1101,7 @@ export const getCustomerDashboardData = async (signal) => {
     `)
     .eq('is_void', false)
     .order('created_at', { ascending: false })
-    .abortSignal(signal);
-
-  if (error) throw error;
+    .abortSignal(signal));
 
   const rows = [];
   for (const order of data || []) {

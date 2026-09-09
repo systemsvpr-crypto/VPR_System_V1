@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  ClipboardList, Package, Truck, Search, Trash2,
+  ClipboardList, Package, Truck, Search, Trash2, Ban,
   AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Sparkles, PackageCheck, PackageX, PackageSearch,
 } from 'lucide-react';
@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import {
   getAllOrderItemsForDispatch, getAllDispatchPlans, saveDispatchPlan,
   convertQtyToMasterUnit, convertQtyFromMasterUnit, deleteOrderItemsBulk,
+  cancelPendingQty, generateNextDispatchNumbers,
 } from '../../../services/salesService';
 import { getAllProductStock } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
@@ -122,10 +123,22 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   const [dispatchingAll, setDispatchingAll] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
 
+  // inline "type a Cancel Qty -> Cancel Order" workflow (pending view only).
+  // No checkbox and no shared state with selectedForDispatch on purpose:
+  // an earlier version shared the Dispatch checkbox (and later a dedicated
+  // Cancel checkbox that auto-filled once ticked) — either way, a value
+  // sitting in the box without the user having just typed it is a live
+  // landmine for a bulk Cancel Order click. The box starts empty for every
+  // row and is always editable; only rows with a qty actually typed in are
+  // included when Cancel Order runs.
+  const [cancelDraft, setCancelDraft] = useState({}); // { [item_id]: cancelQtyString }
+  const [cancellingAll, setCancellingAll] = useState(false);
+
   // smart dispatch planning controls (pending view only)
-  const [sortBy]                            = useState('priority');
+  const [sortBy, setSortBy] = useState('priority');
   const [productFilter, setProductFilter]   = useState('');
   const [stockStatusFilter, setStockStatusFilter] = useState('');
+  const [pendingCustomerFilter, setPendingCustomerFilter] = useState('');
   const [lowQtyThreshold] = useState(DEFAULT_LOW_QTY_THRESHOLD);
   const [expandedProducts, setExpandedProducts] = useState(new Set());
 
@@ -141,8 +154,12 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     const products = new Set();
     
     (historyPlans || []).forEach(p => {
-      if (p.dispatch_status === 'Cancelled' || p.sales_order_items?.sales_orders?.process_type === 'skip_delivered') return;
-      
+      // A "Cancelled" plan is normally a voided real plan, hidden from
+      // history — except our is_planned: false rows, which record a
+      // never-planned pending qty being cancelled and belong in history.
+      const isPendingCancellation = p.dispatch_status === 'Cancelled' && p.is_planned === false;
+      if ((p.dispatch_status === 'Cancelled' && !isPendingCancellation) || p.sales_order_items?.sales_orders?.process_type === 'skip_delivered') return;
+
       const orderNo = p.sales_order_items?.sales_orders?.order_number;
       const godown = p.godowns?.name;
       const customer = p.sales_order_items?.sales_orders?.customers?.name;
@@ -301,7 +318,9 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   const historyRows = useMemo(() => {
     const term = searchTerm?.toLowerCase() || '';
     return (historyPlans || [])
-      .filter(p => p.dispatch_status !== 'Cancelled')
+      // See historyFilterOptions above — only our is_planned: false
+      // "cancelled pending qty" rows are allowed through as Cancelled.
+      .filter(p => p.dispatch_status !== 'Cancelled' || p.is_planned === false)
       .filter(p => p.sales_order_items?.sales_orders?.process_type !== 'skip_delivered')
       .filter(p => {
         if (historyOrderFilter && p.sales_order_items?.sales_orders?.order_number !== historyOrderFilter) return false;
@@ -356,12 +375,19 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [filteredItems]);
 
+  const pendingCustomerOptions = useMemo(() => {
+    const set = new Set();
+    filteredItems.forEach(item => { if (item.partyName) set.add(item.partyName); });
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [filteredItems]);
+
   /* ── dashboard items: extra filters + sort (pending view only) ── */
   const dashboardItems = useMemo(() => {
     if (!isPendingView) return filteredItems;
-    let list = filteredItems
-      .filter(item => !productFilter || String(item.product_id) === productFilter)
-      .filter(item => !stockStatusFilter || item.stockStatus === stockStatusFilter);
+      let list = filteredItems
+        .filter(item => !productFilter || String(item.product_id) === productFilter)
+        .filter(item => !stockStatusFilter || item.stockStatus === stockStatusFilter)
+        .filter(item => !pendingCustomerFilter || item.partyName === pendingCustomerFilter);
 
     list = [...list].sort((a, b) => {
       switch (sortBy) {
@@ -375,8 +401,8 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
         default:             return comparePriority(a, b, lowQtyThreshold);
       }
     });
-    return list;
-  }, [filteredItems, isPendingView, productFilter, stockStatusFilter, sortBy, lowQtyThreshold]);
+      return list;
+    }, [filteredItems, isPendingView, productFilter, stockStatusFilter, pendingCustomerFilter, sortBy, lowQtyThreshold]);
 
   /* ── summary counts (pending view only) ───────────────── */
   const summary = useMemo(() => {
@@ -454,7 +480,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     }).sort((a, b) => a.productName.localeCompare(b.productName));
   }, [dashboardItems, isPendingView, lowQtyThreshold, stockByProductAndGodown]);
 
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, dispatchFilter, productFilter, stockStatusFilter, sortBy, pageSize, historyPageSize, historyOrderFilter, historyGodownFilter, historyCustomerFilter, historyProductFilter]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, dispatchFilter, productFilter, stockStatusFilter, pendingCustomerFilter, sortBy, pageSize, historyPageSize, historyOrderFilter, historyGodownFilter, historyCustomerFilter, historyProductFilter]);
 
   const currentDataset = isPendingView ? dashboardItems : historyRows;
   const activePageSize = isPendingView ? pageSize : historyPageSize;
@@ -471,12 +497,13 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   const currentItems = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return dashboardItems.slice(start, start + pageSize)
-      .map(item => ({ 
-        ...item, 
+      .map(item => ({
+        ...item,
         _selected: selectedForDispatch.has(item.item_id),
-        _draftVersion: dispatchDraft[item.item_id] || null 
+        _draftVersion: dispatchDraft[item.item_id] || null,
+        _cancelDraftVersion: cancelDraft[item.item_id] || null,
       }));
-  }, [dashboardItems, currentPage, pageSize, selectedForDispatch, dispatchDraft]);
+  }, [dashboardItems, currentPage, pageSize, selectedForDispatch, dispatchDraft, cancelDraft]);
   const currentHistoryRows = useMemo(() => {
     const start = (currentPage - 1) * historyPageSize;
     return historyRows.slice(start, start + historyPageSize);
@@ -659,8 +686,13 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   // for any order that ends up with no items left, sales_orders too — along
   // with their dispatch plans/stock transactions. Unlike Dispatch Selected
   // this can't be undone, so it's gated behind canDelete and confirmed first.
+  // Looks across the full filtered list (not just the current page, like
+  // handleCancelOrder above) — a selection made partly on an earlier page
+  // must still count, or an order whose items were checked across two pages
+  // only gets some of them deleted, never actually goes empty, and silently
+  // never gets cleaned up from sales_orders despite looking fully removed.
   const handleDeleteSelected = async () => {
-    const toDelete = currentItems.filter(i => selectedForDispatch.has(i.item_id));
+    const toDelete = dashboardItems.filter(i => selectedForDispatch.has(i.item_id));
     if (toDelete.length === 0) { toast.error('No rows selected.'); return; }
 
     const confirmMsg = toDelete.length === 1
@@ -684,8 +716,84 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     setDeletingSelected(false);
   };
 
+  const setCancelQty = (itemId, value) => {
+    setCancelDraft(prev => ({ ...prev, [itemId]: value }));
+  };
+
+  // Once a row is checked (the same checkbox Dispatch uses), its Cancel Qty
+  // auto-fills with that row's pending qty — so Cancel is a one-click "cancel
+  // what's checked" action by default. An explicit edit in cancelDraft always
+  // wins over the prefill, and unchecking a row (with nothing typed) clears
+  // it back to blank — a row you never checked never shows a cancel qty.
+  const getCancelQty = (item) => {
+    if (item.item_id in cancelDraft) return cancelDraft[item.item_id];
+    return selectedForDispatch.has(item.item_id) ? String(item.remaining) : '';
+  };
+
+  // Cancels the resolved Cancel Qty for every CHECKED row only (never an
+  // unchecked one, however its box resolves) — looks across the full
+  // filtered list (not just the current page), so a checked row typed
+  // before paging away still gets picked up. Each row is capped at its own
+  // pending qty; nothing is dispatched or deducted from stock.
+  const handleCancelOrder = async () => {
+    const toCancel = dashboardItems
+      .filter(item => selectedForDispatch.has(item.item_id))
+      .map(item => ({ item, qty: Number(getCancelQty(item)) || 0 }))
+      .filter(({ qty }) => qty > 0);
+
+    if (toCancel.length === 0) { toast.error('Enter a cancel quantity for at least one row.'); return; }
+
+    for (const { item, qty } of toCancel) {
+      if (qty > item.remaining) {
+        toast.error(`${item.sales_orders?.order_number || item.item_id}: Cancel qty (${qty}) exceeds pending qty (${item.remaining}).`);
+        return;
+      }
+    }
+
+    // Lists every affected order (not just a count) so a batch cancel is
+    // never a one-word confirm away from wiping out rows nobody meant to
+    // touch — the whole reason this needed fixing in the first place.
+    const confirmMsg = toCancel.length === 1
+      ? `Cancel ${toCancel[0].qty} unit(s) of order ${toCancel[0].item.sales_orders?.order_number || ''}? This cannot be undone.`
+      : `Cancel the entered quantity for these ${toCancel.length} orders? This cannot be undone.\n\n` +
+        toCancel.map(({ item, qty }) => `• ${item.sales_orders?.order_number || item.item_id} — ${qty} ${item.products?.name || ''}`).join('\n');
+    if (!window.confirm(confirmMsg)) return;
+
+    setCancellingAll(true);
+    // One query reserves every dispatch_number the batch needs, and the
+    // rows already loaded in dashboardItems carry each item's current
+    // cancelled_quantity — passing both into cancelPendingQty skips its
+    // per-row fallback lookups, so all N cancellations can fire together
+    // instead of running one after another.
+    const dispatchNumbers = await generateNextDispatchNumbers(toCancel.length).catch(() => []);
+    const results = await Promise.allSettled(toCancel.map(({ item, qty }, i) =>
+      cancelPendingQty({
+        order_item_id: item.item_id,
+        cancel_qty: qty,
+        godown_id: item.godown_id,
+        unit_price: item.unit_price,
+        created_by: user?.user_id,
+        dispatch_number: dispatchNumbers[i],
+        current_cancelled_quantity: item.cancelled_quantity,
+      }).then(() => ({ item }))
+    ));
+    let success = 0;
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') success++;
+      else toast.error(`Failed for ${toCancel[i].item.sales_orders?.order_number || toCancel[i].item.item_id}: ${r.reason?.message || 'Unknown error'}`);
+    });
+    setCancellingAll(false);
+    setCancelDraft({});
+    if (success > 0) {
+      toast.success(`Cancelled ${success} item${success !== 1 ? 's' : ''}.`);
+      await loadItems();
+      onSave?.();
+    }
+  };
+
   const isEmpty = isPendingView ? dashboardItems.length === 0 : historyRows.length === 0;
   const selectedCount = selectedForDispatch.size;
+  const hasCancelInput = dashboardItems.some(item => selectedForDispatch.has(item.item_id) && Number(getCancelQty(item)) > 0);
 
   return (
     <div className="flex flex-col flex-1">
@@ -715,25 +823,37 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
 
         {isPendingView && (
           <>
-            <select
+            <Dropdown
               value={productFilter}
-              onChange={e => setProductFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
-            >
-              <option value="">All Products</option>
-              {productOptions.map(([id, name]) => <option key={id} value={String(id)}>{name}</option>)}
-            </select>
+              onValueChange={setProductFilter}
+              options={[{ value: '', label: 'All Products' }, ...productOptions.map(([id, name]) => ({ value: String(id), label: name }))]}
+              placeholder="All Products"
+              searchPlaceholder="Search products..."
+              className="h-9 w-full sm:w-[150px] shrink-0 text-xs"
+            />
 
-            <select
+            <Dropdown
+              value={pendingCustomerFilter}
+              onValueChange={setPendingCustomerFilter}
+              options={[{ value: '', label: 'All Customers' }, ...pendingCustomerOptions.map(name => ({ value: name, label: name }))]}
+              placeholder="All Customers"
+              searchPlaceholder="Search customers..."
+              className="h-9 w-full sm:w-[150px] shrink-0 text-xs"
+            />
+
+            <Dropdown
               value={stockStatusFilter}
-              onChange={e => setStockStatusFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
-            >
-              <option value="">All Stock Status</option>
-              <option value="ready">Ready to Dispatch</option>
-              <option value="partial">Partial Stock</option>
-              <option value="waiting">Stock Shortage</option>
-            </select>
+              onValueChange={setStockStatusFilter}
+              options={[
+                { value: '', label: 'All Stock Status' },
+                { value: 'ready', label: 'Ready to Dispatch' },
+                { value: 'partial', label: 'Partial Stock' },
+                { value: 'waiting', label: 'Stock Shortage' }
+              ]}
+              placeholder="All Stock Status"
+              searchPlaceholder="Search status..."
+              className="h-9 w-full sm:w-[150px] shrink-0 text-xs"
+            />
 
             <Button size="sm" onClick={handleBulkDispatch} disabled={dispatchingAll || selectedCount === 0} className="gap-1.5 text-xs h-9 w-full sm:w-auto sm:ml-auto shrink-0">
               {dispatchingAll ? (
@@ -741,7 +861,17 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
               ) : (
                 <Truck size={14} />
               )}
-              Dispatch Selected
+              Dispatch
+            </Button>
+
+            <Button size="sm" variant="outline" onClick={handleCancelOrder} disabled={cancellingAll || !hasCancelInput}
+              className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700">
+              {cancellingAll ? (
+                <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-current" />
+              ) : (
+                <Ban size={14} />
+              )}
+              Cancel
             </Button>
 
             {canDelete && (
@@ -751,7 +881,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                 ) : (
                   <Trash2 size={14} />
                 )}
-                Delete Selected
+                Delete
               </Button>
             )}
           </>
@@ -759,41 +889,41 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
 
         {!isPendingView && (
           <>
-            <select
+            <Dropdown
               value={historyOrderFilter}
-              onChange={e => setHistoryOrderFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[120px] shrink-0"
-            >
-              <option value="">All Orders</option>
-              {historyFilterOptions.orders.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
+              onValueChange={setHistoryOrderFilter}
+              options={[{ value: '', label: 'All Orders' }, ...historyFilterOptions.orders.map(o => ({ value: o, label: o }))]}
+              placeholder="All Orders"
+              searchPlaceholder="Search orders..."
+              className="h-9 w-full sm:w-[130px] shrink-0 text-xs"
+            />
 
-            <select
+            <Dropdown
               value={historyGodownFilter}
-              onChange={e => setHistoryGodownFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[120px] shrink-0"
-            >
-              <option value="">All Godowns</option>
-              {historyFilterOptions.godowns.map(g => <option key={g} value={g}>{g}</option>)}
-            </select>
+              onValueChange={setHistoryGodownFilter}
+              options={[{ value: '', label: 'All Godowns' }, ...historyFilterOptions.godowns.map(g => ({ value: g, label: g }))]}
+              placeholder="All Godowns"
+              searchPlaceholder="Search godowns..."
+              className="h-9 w-full sm:w-[130px] shrink-0 text-xs"
+            />
             
-            <select
+            <Dropdown
               value={historyCustomerFilter}
-              onChange={e => setHistoryCustomerFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[120px] shrink-0"
-            >
-              <option value="">All Customers</option>
-              {historyFilterOptions.customers.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+              onValueChange={setHistoryCustomerFilter}
+              options={[{ value: '', label: 'All Customers' }, ...historyFilterOptions.customers.map(c => ({ value: c, label: c }))]}
+              placeholder="All Customers"
+              searchPlaceholder="Search customers..."
+              className="h-9 w-full sm:w-[130px] shrink-0 text-xs"
+            />
 
-            <select
+            <Dropdown
               value={historyProductFilter}
-              onChange={e => setHistoryProductFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[120px] shrink-0"
-            >
-              <option value="">All Products</option>
-              {historyFilterOptions.products.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
+              onValueChange={setHistoryProductFilter}
+              options={[{ value: '', label: 'All Products' }, ...historyFilterOptions.products.map(p => ({ value: p, label: p }))]}
+              placeholder="All Products"
+              searchPlaceholder="Search products..."
+              className="h-9 w-full sm:w-[130px] shrink-0 text-xs"
+            />
           </>
         )}
       </div>
@@ -842,7 +972,8 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                 </p>
               </div>
             }
-            minWidth="1950px"
+            minWidth="2050px"
+            viewMode="card"
             headers={[
               {
                 label: (
@@ -860,6 +991,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
               { label: 'Order Godown', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Total Qty', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: <span className="text-amber-600">Pending Qty</span>, className: '!text-xs !font-semibold !py-3 !px-4' },
+              { label: <span className="text-red-600">Cancel Qty</span>, className: 'min-w-[100px] !text-xs !font-semibold !py-3 !px-4' },
               { label: <span className="text-primary">Unit</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
               { label: <span className="text-primary">Qty</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
               { label: 'Dispatch Qty', className: 'min-w-[100px] !text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
@@ -910,6 +1042,15 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                       <StockDot status={item.stockStatus} />
                       {item.remaining}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="w-20 mx-auto">
+                      <Input type="text" inputMode="decimal" placeholder="0"
+                        disabled={!selected}
+                        value={getCancelQty(item)}
+                        onChange={e => setCancelQty(item.item_id, sanitizeQtyInput(e.target.value))}
+                        className="h-8 text-xs text-center border-red-200 focus-visible:ring-red-300" />
+                    </div>
                   </td>
                   <td className="px-4 py-3 min-w-[110px]">
                     <Dropdown value={getDraft(item, 'unit')}
@@ -982,36 +1123,47 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                     <div><span className="text-slate-400">Unit Price:</span> <span className="text-slate-700">{item.unit_price ? `₹${Number(item.unit_price).toLocaleString('en-IN')}` : '—'}</span></div>
                     <div><span className="text-slate-400">Total:</span> <span className="font-medium text-slate-800">{item.unit_price ? `₹${(Number(item.unit_price) * Number(item.effectiveQty || 0)).toLocaleString('en-IN')}` : '—'}</span></div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
-                    <div>
+                  <div className="grid grid-cols-12 gap-2 pt-2 border-t border-slate-100">
+                    <div className="col-span-4">
                       <label className="block text-[10px] text-slate-400 mb-1">Unit</label>
                       <Dropdown value={getDraft(item, 'unit')} onValueChange={v => setUnitForItem(item, v)}
-                        options={UNIT_OPTIONS} placeholder="Unit..." align="start" disabled={!selected} />
+                        options={UNIT_OPTIONS} placeholder="Unit..." align="start" disabled={!selected}
+                        className="h-9 w-full text-xs" />
                     </div>
-                    <div>
+                    <div className="col-span-4">
                       <label className="block text-[10px] text-slate-400 mb-1">Qty</label>
                       <Input type="text" inputMode="decimal" placeholder="Qty"
                         disabled={!selected} value={getDraft(item, 'quantity')}
                         onChange={e => setDraftValue(item.item_id, 'quantity', sanitizeQtyInput(e.target.value))}
-                        className="h-8 text-xs text-center" />
+                        className="h-9 w-full text-xs text-center" />
+                    </div>
+                    <div className="col-span-4">
+                      <label className="block text-[10px] text-red-500 mb-1 truncate">Cancel Qty</label>
+                      <Input type="text" inputMode="decimal" placeholder="0"
+                        disabled={!selected}
+                        value={getCancelQty(item)}
+                        onChange={e => setCancelQty(item.item_id, sanitizeQtyInput(e.target.value))}
+                        className="h-9 w-full text-xs text-center border-red-200 focus-visible:ring-red-300" />
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
-                    <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">Dispatch Qty</label>
-                      <div className="h-9 flex items-center justify-center text-xs text-slate-600 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="grid grid-cols-12 gap-2 pt-2 border-t border-slate-100">
+                    <div className="col-span-3">
+                      <label className="block text-[10px] text-slate-400 mb-1 truncate">Dis Qty</label>
+                      <div className="h-9 w-full flex items-center justify-center text-xs text-slate-600 bg-slate-50 rounded-lg border border-slate-200">
                         {converted ? `${converted.value} ${unitLabel(converted.unit)}` : '—'}
                       </div>
                     </div>
-                    <div>
+                    <div className="col-span-5">
                       <label className="block text-[10px] text-slate-400 mb-1">Dispatch Date</label>
                       <DatePicker value={getDraft(item, 'dispatch_date')} disabled={!selected}
-                        onChange={e => setDispatchDateForSelected(item, e.target.value)} placeholder="Select date..." />
+                        onChange={e => setDispatchDateForSelected(item, e.target.value)} placeholder="Select date..."
+                        className="h-9 w-full text-xs" />
                     </div>
-                    <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">Godown Name</label>
+                    <div className="col-span-4">
+                      <label className="block text-[10px] text-slate-400 mb-1 truncate">Godown</label>
                       <Dropdown value={getDraft(item, 'godown_id')} onValueChange={v => setDraftValue(item.item_id, 'godown_id', v)}
-                        options={activeGodownOptions} placeholder="Godown..." searchPlaceholder="Search godowns..." align="start" disabled={!selected} />
+                        options={activeGodownOptions} placeholder="Godown..." searchPlaceholder="Search godowns..." align="start" disabled={!selected}
+                        className="h-9 w-full text-xs" />
                     </div>
                   </div>
                 </div>
@@ -1022,115 +1174,76 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
 
         {/* ══════════════════════ HISTORY TABLE ══════════════════════ */}
         {!isPendingView && (
-          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
-            <table className="w-full text-xs relative">
-              <thead className="sticky top-0 z-10 shadow-sm">
-                <tr className="bg-blue-50 border-b border-slate-200">
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch No</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Order Date</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Order No</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Ordered Qty</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Unit</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-violet-600 uppercase tracking-wider whitespace-nowrap">Dispatch Qty</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Converted Qty</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch Date</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch Godown</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Customer Name</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Order Type</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product No</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[160px]">Product Name</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Godown Name</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Unit Price</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {currentHistoryRows.length === 0 && (
-                  <tr>
-                    <td colSpan="16" className="p-12 text-center">
-                      <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
-                        <ClipboardList size={32} className="text-slate-300" />
-                      </div>
-                      <h3 className="text-base font-semibold text-slate-600 mb-1">No Dispatch Items</h3>
-                      <p className="text-sm text-slate-400">
-                        {searchTerm ? 'No items match your search.' : 'No planned dispatches yet.'}
-                      </p>
-                    </td>
-                  </tr>
-                )}
-                {currentHistoryRows.map(row => (
-                  <tr key={row.key} className={`hover:bg-slate-50/80 transition-colors ${row.status === 'Dispatch Done' ? 'bg-emerald-50/30' : ''}`}>
-                    <td className="px-4 py-3 text-center font-semibold text-slate-700 whitespace-nowrap">{row.dispatchNo}</td>
-                    <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{row.orderDate ? format(new Date(row.orderDate), 'dd/MM/yyyy') : '—'}</td>
-                    <td className="px-4 py-3 text-center font-semibold text-primary whitespace-nowrap">{row.orderNumber}</td>
-                    <td className="px-4 py-3 text-center font-semibold text-slate-900 tabular-nums whitespace-nowrap">{row.orderedQty}</td>
-                    <td className="px-4 py-3 text-center whitespace-nowrap">
-                      <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{row.unit}</span>
-                    </td>
-                    <td className="px-4 py-3 text-center font-semibold text-violet-600 tabular-nums whitespace-nowrap">{row.dispatchQty}</td>
-                    <td className="px-4 py-3 text-center text-slate-600 tabular-nums whitespace-nowrap">{row.convertedQty} {unitLabel(row.unit)}</td>
-                    <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{row.dispatchDate ? format(new Date(row.dispatchDate), 'dd/MM/yyyy') : '—'}</td>
-                    <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{row.dispatchGodownName}</td>
-                    <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{row.customerName}</td>
-                    <td className="px-4 py-3 text-center whitespace-nowrap"><OrderTypeBadge processType={row.processType} /></td>
-                    <td className="px-4 py-3 text-center text-slate-500 whitespace-nowrap">{row.productNo}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className="font-semibold text-slate-800">{row.productName}</span>
-                    </td>
-                    <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{row.godownName}</td>
-                    <td className="px-4 py-3 text-center text-slate-600 tabular-nums whitespace-nowrap">
-                      {row.unitPrice ? `₹${row.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-center font-semibold text-slate-800 tabular-nums whitespace-nowrap">
-                      {row.totalAmount ? `₹${row.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* ── pagination footer (History only — Pending's is built into DataTable above) ── */}
-        {!isPendingView && (
-          <div className="px-4 py-2.5 border-t border-royal-600/25 bg-blue-50 flex items-center justify-between gap-4 rounded-b-xl shrink-0">
-            {/* Left Side: Row Dropdown */}
-            <div className="flex items-center gap-2">
-              <select
-                value={historyPageSize}
-                onChange={(e) => setHistoryPageSize(Number(e.target.value))}
-                className="ring-1 ring-royal-600/25 rounded-xl px-2 py-1 focus:outline-none focus:ring-2 focus:ring-royal-500/30 bg-white font-medium text-xs md:text-sm"
-              >
-                {HISTORY_PAGE_SIZE_OPTIONS.map((val) => (
-                  <option key={val} value={val}>{val}</option>
-                ))}
-              </select>
-              <span className="text-[10px] md:text-sm text-slate-500 whitespace-nowrap font-medium hidden sm:inline">
-                {currentDataset.length > 0 ? (currentPage - 1) * historyPageSize + 1 : 0}-{Math.min(currentPage * historyPageSize, currentDataset.length)} of {currentDataset.length}
-              </span>
-            </div>
-
-            {/* Right Side: Pagination Controls */}
-            <div className="flex items-center gap-2 md:gap-4 text-gray-700">
-              <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="p-1.5 md:px-2 md:py-1 ring-1 ring-royal-600/25 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-royal-50 transition flex items-center justify-center text-royal-600"
-              >
-                <ChevronLeft size={16} strokeWidth={2.5} />
-              </button>
-              <div className="flex items-center text-xs md:text-sm font-semibold text-gray-600">
-                {currentPage} / {totalPages || 1}
+          <DataTable
+            viewMode="table"
+            emptyState={
+              <div className="p-12 text-center w-full">
+                <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                  <ClipboardList size={32} className="text-slate-300" />
+                </div>
+                <h3 className="text-base font-semibold text-slate-600 mb-1">No Dispatch Items</h3>
+                <p className="text-sm text-slate-400">
+                  {searchTerm ? 'No items match your search.' : 'No planned dispatches yet.'}
+                </p>
               </div>
-              <button
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages || totalPages === 0}
-                className="p-1.5 md:px-2 md:py-1 ring-1 ring-royal-600/25 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-royal-50 transition flex items-center justify-center text-royal-600"
-              >
-                <ChevronRight size={16} strokeWidth={2.5} />
-              </button>
-            </div>
-          </div>
+            }
+            minWidth="2050px"
+            headers={[
+              { label: 'Dispatch No' }, { label: 'Order Date' }, { label: 'Order No' }, 
+              { label: 'Ordered Qty' }, { label: 'Unit' }, { label: 'Dispatch Qty' }, 
+              { label: 'Cancel Qty' }, { label: 'Converted Qty' }, { label: 'Dispatch Date' }, 
+              { label: 'Dispatch Godown' }, { label: 'Customer Name' }, { label: 'Order Type' }, 
+              { label: 'Product No' }, { label: 'Product Name' }, { label: 'Godown Name' }, 
+              { label: 'Unit Price' }, { label: 'Total Amount' }, { label: 'Status' }
+            ]}
+            data={currentHistoryRows}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            itemsPerPage={historyPageSize}
+            onPageChange={setCurrentPage}
+            onItemsPerPageChange={setHistoryPageSize}
+            totalResults={currentDataset.length}
+            itemsPerPageOptions={HISTORY_PAGE_SIZE_OPTIONS}
+            renderRow={(row) => (
+              <tr key={row.key} className={`text-xs hover:bg-slate-50/80 transition-colors ${row.status === 'Dispatch Done' ? 'bg-emerald-50/30' : row.status === 'Cancelled' ? 'bg-red-50/30' : ''}`}>
+                <td className="px-4 py-2 text-center font-semibold text-slate-700 whitespace-nowrap">{row.dispatchNo}</td>
+                <td className="px-4 py-2 text-center text-slate-600 whitespace-nowrap">{row.orderDate ? format(new Date(row.orderDate), 'dd/MM/yyyy') : '—'}</td>
+                <td className="px-4 py-2 text-center font-semibold text-primary whitespace-nowrap">{row.orderNumber}</td>
+                <td className="px-4 py-2 text-center font-semibold text-slate-900 tabular-nums whitespace-nowrap">{row.orderedQty}</td>
+                <td className="px-4 py-2 text-center whitespace-nowrap">
+                  <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{row.unit}</span>
+                </td>
+                <td className="px-4 py-2 text-center font-semibold text-violet-600 tabular-nums whitespace-nowrap">{row.status === 'Cancelled' ? '—' : row.dispatchQty}</td>
+                <td className="px-4 py-2 text-center font-semibold text-red-600 tabular-nums whitespace-nowrap">{row.status === 'Cancelled' ? row.dispatchQty : '—'}</td>
+                <td className="px-4 py-2 text-center text-slate-600 tabular-nums whitespace-nowrap">{row.convertedQty} {unitLabel(row.unit)}</td>
+                <td className="px-4 py-2 text-center text-slate-600 whitespace-nowrap">{row.dispatchDate ? format(new Date(row.dispatchDate), 'dd/MM/yyyy') : '—'}</td>
+                <td className="px-4 py-2 text-center text-slate-600 whitespace-nowrap">{row.dispatchGodownName}</td>
+                <td className="px-4 py-2 text-center text-slate-600 whitespace-nowrap">{row.customerName}</td>
+                <td className="px-4 py-2 text-center whitespace-nowrap"><OrderTypeBadge processType={row.processType} /></td>
+                <td className="px-4 py-2 text-center text-slate-500 whitespace-nowrap">{row.productNo}</td>
+                <td className="px-4 py-2 text-center">
+                  <span className="font-semibold text-slate-800">{row.productName}</span>
+                </td>
+                <td className="px-4 py-2 text-center text-slate-600 whitespace-nowrap">{row.godownName}</td>
+                <td className="px-4 py-2 text-center text-slate-600 tabular-nums whitespace-nowrap">
+                  {row.unitPrice ? `₹${row.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
+                </td>
+                <td className="px-4 py-2 text-center font-semibold text-slate-800 tabular-nums whitespace-nowrap">
+                  {row.totalAmount ? `₹${row.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
+                </td>
+                <td className="px-4 py-2 text-center whitespace-nowrap">
+                  {row.status === 'Cancelled' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase font-medium bg-red-50 text-red-600 border border-red-100">Cancelled</span>
+                  ) : row.status === 'Dispatch Done' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">Dispatch Done</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase font-medium bg-slate-100 text-slate-500 border border-slate-200">{row.status || 'Pending'}</span>
+                  )}
+                </td>
+              </tr>
+            )}
+            renderCard={() => null}
+          />
         )}
       </div>
       )}

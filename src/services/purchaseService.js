@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { supabase, fetchAllRows } from '../supabase';
 import { sendPurchaseDeliveredWhatsapp } from './whatsappService';
 
 const getTodayLocal = () => {
@@ -115,16 +115,16 @@ export const generateNextIndentNumber = async () => {
 const isIndentNumberConflict = (error) =>
   error?.code === '23505' && String(error?.message || '').includes('purchase_indents_indent_number_key');
 
+// purchase_indents can easily exceed the 1000-row cap once a few hundred
+// indents pile up — page past it rather than fetch a single unbounded request.
 export const getAllIndents = async () => {
-  const { data: indents, error: indentsErr } = await supabase
+  const indents = await fetchAllRows(() => supabase
     .from('purchase_indents')
     .select(`
       *,
       purchase_indent_items(*, products:product_id(name, unit))
     `)
-    .order('created_at', { ascending: false });
-
-  if (indentsErr) throw indentsErr;
+    .order('created_at', { ascending: false }));
 
   const allItems = (indents || []).flatMap(o => o.purchase_indent_items || []);
   const itemIds = allItems.map(i => i.item_id).filter(Boolean);
@@ -459,8 +459,10 @@ export const deleteIndentItem = async (item_id) => {
   }
 };
 
+// purchase_indent_items can easily exceed the 1000-row cap — page past it
+// rather than fetch a single unbounded request.
 export const getAllIndentItemsForVendorSelection = async () => {
-  const { data: items, error: itemsErr } = await supabase
+  return fetchAllRows(() => supabase
     .from('purchase_indent_items')
     .select(`
       *,
@@ -470,10 +472,7 @@ export const getAllIndentItemsForVendorSelection = async () => {
       )
     `)
     .eq('purchase_indents.process_type', 'process')
-    .order('created_at', { ascending: false });
-
-  if (itemsErr) throw itemsErr;
-  return items || [];
+    .order('created_at', { ascending: false }));
 };
 
 // Same shape as getAllIndentItemsForVendorSelection but WITHOUT the
@@ -482,7 +481,7 @@ export const getAllIndentItemsForVendorSelection = async () => {
 // creation, so they just land straight in History; Process-type items still
 // flow Pending -> History the same way they already do via Vendor Approval).
 export const getAllIndentItems = async () => {
-  const { data: items, error: itemsErr } = await supabase
+  return fetchAllRows(() => supabase
     .from('purchase_indent_items')
     .select(`
       *,
@@ -491,10 +490,7 @@ export const getAllIndentItems = async () => {
         indent_id, indent_date, indent_number, process_type
       )
     `)
-    .order('created_at', { ascending: false });
-
-  if (itemsErr) throw itemsErr;
-  return items || [];
+    .order('created_at', { ascending: false }));
 };
 
 export const updateVendorSelection = async (item_id, { vendor_id, approved_godown_id, rate, quantity, planning_date, vendor_remarks, planning_status, approval_status, approved_by, approved_remarks, approve_unit, approve_unit_qty, approve_qty }) => {
@@ -607,7 +603,7 @@ export const approveIndentItem = async (item_id, { vendor_id, rate, quantity, go
 };
 
 export const getApprovedItemsForDelivery = async () => {
-  const { data: items, error: itemsErr } = await supabase
+  const items = await fetchAllRows(() => supabase
     .from('purchase_indent_items')
     .select(`
       *,
@@ -619,9 +615,7 @@ export const getApprovedItemsForDelivery = async () => {
     `)
     .eq('approval_status', 'Approved')
     .in('purchase_indents.process_type', ['process', 'direct'])
-    .order('created_at', { ascending: false });
-
-  if (itemsErr) throw itemsErr;
+    .order('created_at', { ascending: false }));
 
   const itemIds = (items || []).map(i => i.item_id);
   const vendorIds = [...new Set((items || []).map(i => i.approved_vendor_id).filter(Boolean))];
@@ -711,7 +705,7 @@ export const getApprovedItemsForDelivery = async () => {
 };
 
 export const getDirectItemsForAawak = async () => {
-  const { data: items, error: itemsErr } = await supabase
+  const items = await fetchAllRows(() => supabase
     .from('purchase_indent_items')
     .select(`
       *,
@@ -722,9 +716,7 @@ export const getDirectItemsForAawak = async () => {
       )
     `)
     .eq('purchase_indents.is_void', false)
-    .order('created_at', { ascending: false });
-
-  if (itemsErr) throw itemsErr;
+    .order('created_at', { ascending: false }));
 
   const itemIds = (items || []).map(i => i.item_id);
   let deliverySums = [];
@@ -1133,7 +1125,7 @@ export const getDeliveriesForItem = async (itemId) => {
 };
 
 export const getPurchaseCompleteItems = async () => {
-  const { data: items, error: itemsErr } = await supabase
+  const items = await fetchAllRows(() => supabase
     .from('purchase_indent_items')
     .select(`
       *,
@@ -1144,9 +1136,7 @@ export const getPurchaseCompleteItems = async () => {
       )
     `)
     .eq('purchase_indents.is_void', false)
-    .order('created_at', { ascending: false });
-
-  if (itemsErr) throw itemsErr;
+    .order('created_at', { ascending: false }));
 
   const itemIds = (items || []).map(i => i.item_id);
   let deliverySums = [];
@@ -1218,49 +1208,50 @@ export const getPackagingSize = (product) => {
 };
 
 export const getAawakDeliveries = async (statusFilter = null) => {
-  let query = supabase
-    .from('purchase_deliveries')
-    .select(`
-      *,
-      transporters:transporter_id(transporter_id, name, vehicle_number, driver_phone_number),
-      purchase_indent_items(
-        item_id,
-        quantity,
-        rate,
-        approved_godown_id,
-        approved_vendor_id,
-        products:product_id(name, unit, mux),
-        item_vendor:vendor_id(name),
-        purchase_indents(
-          indent_id, indent_number, indent_date, process_type
+  const buildQuery = () => {
+    let query = supabase
+      .from('purchase_deliveries')
+      .select(`
+        *,
+        transporters:transporter_id(transporter_id, name, vehicle_number, driver_phone_number),
+        purchase_indent_items(
+          item_id,
+          quantity,
+          rate,
+          approved_godown_id,
+          approved_vendor_id,
+          products:product_id(name, unit, mux),
+          item_vendor:vendor_id(name),
+          purchase_indents(
+            indent_id, indent_number, indent_date, process_type
+          )
+        ),
+        purchase_delivery_godowns(
+          godown_id,
+          qty,
+          godowns:godown_id(name)
         )
-      ),
-      purchase_delivery_godowns(
-        godown_id,
-        qty,
-        godowns:godown_id(name)
-      )
-    `)
-    .order('created_at', { ascending: false });
+      `)
+      .order('created_at', { ascending: false });
 
-  if (statusFilter) {
-    if (Array.isArray(statusFilter)) {
-      query = query.in('status', statusFilter);
-    } else {
-      query = query.eq('status', statusFilter);
+    if (statusFilter) {
+      if (Array.isArray(statusFilter)) {
+        query = query.in('status', statusFilter);
+      } else {
+        query = query.eq('status', statusFilter);
+      }
     }
-  }
+    return query;
+  };
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
+  return fetchAllRows(buildQuery);
 };
 
 // Item-centric view for the Purchase Dashboard: every non-void indent line item,
 // with its approval info and its lifts rolled up into "still moving" (In Transit /
 // AT TPT GDN) vs "received" (Arrived / Received) quantities and godowns.
 export const getPurchaseDashboardItems = async () => {
-  const { data: items, error } = await supabase
+  const items = await fetchAllRows(() => supabase
     .from('purchase_indent_items')
     .select(`
       *,
@@ -1277,9 +1268,7 @@ export const getPurchaseDashboardItems = async () => {
       )
     `)
     .eq('purchase_indents.is_void', false)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
+    .order('created_at', { ascending: false }));
 
   // Resolved separately (rather than embedded via `approved_by(full_name)`) so
   // this keeps working even before the approved_by foreign key is registered
@@ -1524,7 +1513,7 @@ export const cancelIndentItem = async (item_id) => {
 };
 
 export const getVendorDashboardData = async (signal) => {
-  const { data, error } = await supabase
+  const data = await fetchAllRows(() => supabase
     .from('purchase_indents')
     .select(`
       indent_id,
@@ -1554,9 +1543,7 @@ export const getVendorDashboardData = async (signal) => {
     `)
     .eq('is_void', false)
     .order('created_at', { ascending: false })
-    .abortSignal(signal);
-
-  if (error) throw error;
+    .abortSignal(signal));
 
   // approved_vendor_id has no FK to vendors, so it can't be embedded the way
   // item_vendor:vendor_id(name) above is — resolved with one lookup query
@@ -1629,7 +1616,7 @@ export const getVendorDashboardData = async (signal) => {
 // itself, alongside live stock, so the grouping key stays in one place instead
 // of being baked into two different service functions.
 export const getReorderStatusItems = async () => {
-  const { data, error } = await supabase
+  return fetchAllRows(() => supabase
     .from('purchase_indent_items')
     .select(`
       item_id,
@@ -1641,8 +1628,5 @@ export const getReorderStatusItems = async () => {
       purchase_indents!inner(is_void, process_type),
       purchase_deliveries(status, received_quantity, purchase_delivery_godowns(godown_id, qty))
     `)
-    .eq('purchase_indents.is_void', false);
-
-  if (error) throw error;
-  return data || [];
+    .eq('purchase_indents.is_void', false));
 };
