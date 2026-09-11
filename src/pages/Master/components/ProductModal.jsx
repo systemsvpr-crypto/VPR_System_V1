@@ -13,7 +13,7 @@ import { sanitizeQtyInput } from '@/lib/qty';
 
 const ProductModal = ({ isOpen, onClose, godowns = [], user, onSuccess, editingProduct, onDelete, quickAdd = false }) => {
   const [form, setForm] = useState({
-    brand_name: '', category: '', unit: 'bag', product_type: '', mux: '', allow_negative_stock: true,
+    brand_name: '', category: '', unit: 'bag', product_type: '', mux: '', allow_negative_stock: false,
     as_of_date: new Date().toISOString().split('T')[0], entries: [],
   });
   const [submitting, setSubmitting] = useState(false);
@@ -37,7 +37,7 @@ const ProductModal = ({ isOpen, onClose, godowns = [], user, onSuccess, editingP
 
   useEffect(() => {
     if (!isOpen) {
-      setForm({ brand_name: '', category: '', unit: 'bag', product_type: '', mux: '', allow_negative_stock: true, as_of_date: new Date().toISOString().split('T')[0], entries: [] });
+      setForm({ brand_name: '', category: '', unit: 'bag', product_type: '', mux: '', allow_negative_stock: false, as_of_date: new Date().toISOString().split('T')[0], entries: [] });
       setDuplicateNotice('');
     } else if (editingProduct) {
       setForm({

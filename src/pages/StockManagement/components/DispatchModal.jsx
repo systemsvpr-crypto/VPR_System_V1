@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Truck, FileSpreadsheet } from 'lucide-react';
+import { Truck, FileSpreadsheet, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { bulkAddManualDispatchStock, editTransaction, getStockBalance, getStockBalanceBeforeTxn, getAffectedTransactionsImpact } from '../../../services/stockService';
 import { Input } from '@/components/ui/input';
@@ -176,19 +176,36 @@ const DispatchModal = ({ isOpen, onClose, onBulkClick, products, godowns, produc
     setGroupingRows({});
   };
 
+  // A row can't be checked/dispatched at all once its selected godown has
+  // zero stock for that product — not just once the typed Qty exceeds it —
+  // unless the product is explicitly flagged to allow negative stock.
+  const getGroupingRowAvailable = (product) => {
+    const godownId = getGroupingRowGodown(product.product_id);
+    const stockEntries = productStockMap[product.product_id];
+    return stockEntries?.find(s => s.godownId === godownId)?.qty || 0;
+  };
+  const isGroupingRowOutOfStock = (product) => !product.allow_negative_stock && getGroupingRowAvailable(product) <= 0;
+
   const toggleGroupingProduct = (productId) => {
+    const product = groupingProducts.find(p => p.product_id === productId);
+    const isChecking = !groupingRows[productId]?.checked;
+    if (isChecking && product && isGroupingRowOutOfStock(product)) {
+      toast.error(`Stock not available for ${product.name}. Dispatch not completed.`);
+      return;
+    }
     setGroupingRows(prev => ({
       ...prev,
       [productId]: { ...prev[productId], checked: !prev[productId]?.checked },
     }));
   };
 
-  const allGroupingProductsChecked = groupingProducts.length > 0 && groupingProducts.every(p => groupingRows[p.product_id]?.checked);
+  const selectableGroupingProducts = groupingProducts.filter(p => !isGroupingRowOutOfStock(p));
+  const allGroupingProductsChecked = selectableGroupingProducts.length > 0 && selectableGroupingProducts.every(p => groupingRows[p.product_id]?.checked);
 
   const toggleSelectAllGroupingProducts = (selectAll) => {
     setGroupingRows(prev => {
       const next = { ...prev };
-      groupingProducts.forEach(p => {
+      selectableGroupingProducts.forEach(p => {
         next[p.product_id] = { ...next[p.product_id], checked: selectAll };
       });
       return next;
@@ -202,11 +219,35 @@ const DispatchModal = ({ isOpen, onClose, onBulkClick, products, godowns, produc
     }));
   };
 
+  // Switching a row to a godown with no stock for this product also
+  // unchecks it — a stale "checked" from a previous godown shouldn't
+  // silently survive into one that's out of stock.
   const setGroupingGodown = (productId, godownId) => {
-    setGroupingRows(prev => ({
-      ...prev,
-      [productId]: { ...prev[productId], godown_id: godownId },
-    }));
+    setGroupingRows(prev => {
+      const product = groupingProducts.find(p => p.product_id === productId);
+      const stockEntries = productStockMap[productId];
+      const available = stockEntries?.find(s => s.godownId === godownId)?.qty || 0;
+      const outOfStock = !product?.allow_negative_stock && available <= 0;
+      return {
+        ...prev,
+        [productId]: { ...prev[productId], godown_id: godownId, checked: outOfStock ? false : prev[productId]?.checked },
+      };
+    });
+  };
+
+  // Blocks dispatching more than what's actually in stock — a checked row
+  // whose Qty exceeds the selected godown's current balance can't be saved,
+  // unless the product is explicitly flagged to allow negative stock.
+  const getGroupingRowStatus = (product) => {
+    if (isGroupingRowOutOfStock(product)) return { ok: false, msg: 'Out of stock' };
+    const row = groupingRows[product.product_id] || {};
+    const qty = Number(row.qty);
+    if (!row.qty || qty <= 0) return { ok: true };
+    const available = getGroupingRowAvailable(product);
+    if (qty > available && !product.allow_negative_stock) {
+      return { ok: false, msg: `Only ${formatQty(available)} available` };
+    }
+    return { ok: true };
   };
 
   const handleSubmit = async (e) => {
@@ -243,6 +284,12 @@ const DispatchModal = ({ isOpen, onClose, onBulkClick, products, godowns, produc
     const invalidRow = checkedRows.find(({ qty }) => qty === '' || Number(qty) <= 0);
     if (invalidRow) { toast.error(`Enter a valid quantity for ${invalidRow.product.name}.`); return; }
 
+    const insufficientRow = checkedRows.find(({ product }) => !getGroupingRowStatus(product).ok);
+    if (insufficientRow) {
+      toast.error(`Stock not available for ${insufficientRow.product.name}. Dispatch not completed.`);
+      return;
+    }
+
     setSubmitting(true);
     try {
       const payload = checkedRows.map(({ product, qty, godown_id }) => ({
@@ -256,7 +303,10 @@ const DispatchModal = ({ isOpen, onClose, onBulkClick, products, godowns, produc
       toast.success(`Successfully dispatched ${payload.length} ${payload.length === 1 ? 'entry' : 'entries'}`);
       onClose();
       onSuccess();
-    } catch (err) { toast.error(err.message); }
+    } catch (err) {
+      const insufficient = /insufficient stock/i.test(err.message || '');
+      toast.error(insufficient ? `${err.message} Dispatch not completed.` : err.message);
+    }
     setSubmitting(false);
   };
 
@@ -354,24 +404,35 @@ const DispatchModal = ({ isOpen, onClose, onBulkClick, products, godowns, produc
                               ) : groupingProducts.map(p => {
                                 const row = groupingRows[p.product_id] || {};
                                 const stockEntries = productStockMap[p.product_id];
+                                const status = getGroupingRowStatus(p);
+                                const outOfStock = isGroupingRowOutOfStock(p);
                                 return (
-                                  <tr key={p.product_id} className={row.checked ? 'bg-primary/5' : ''}>
+                                  <tr key={p.product_id} className={!status.ok ? 'bg-rose-50/70' : row.checked ? 'bg-primary/5' : ''}>
                                     <td className="px-3 py-2 text-center">
                                       <input type="checkbox" checked={!!row.checked}
                                         onChange={() => toggleGroupingProduct(p.product_id)}
-                                        className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+                                        className={`w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer ${outOfStock ? 'opacity-40' : ''}`} />
                                     </td>
                                     <td className="px-3 py-2">
                                       <div className="font-medium text-slate-800">{p.name}</div>
-                                      {stockEntries?.length > 0 && (
-                                        <div className="flex flex-wrap gap-1 mt-0.5">
-                                          {stockEntries.map((s, i) => (
-                                            <span key={i} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border ${s.badge}`}>
-                                              {s.godownName}: {s.qty}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      )}
+                                      {(() => {
+                                        const selectedGodownId = getGroupingRowGodown(p.product_id);
+                                        const hasSelectedEntry = stockEntries?.some(s => s.godownId === selectedGodownId);
+                                        return (
+                                          <div className="flex flex-wrap gap-1 mt-0.5">
+                                            {stockEntries?.map((s, i) => (
+                                              <span key={i} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border ${s.badge}`}>
+                                                {s.godownName}: {s.qty}
+                                              </span>
+                                            ))}
+                                            {!hasSelectedEntry && (
+                                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border bg-rose-50 text-rose-600 border-rose-200">
+                                                {activeGodowns.find(g => g.godown_id === selectedGodownId)?.name || 'Stock'}: 0
+                                              </span>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
                                     </td>
                                     <td className="px-3 py-2">
                                       <Dropdown
@@ -384,10 +445,16 @@ const DispatchModal = ({ isOpen, onClose, onBulkClick, products, godowns, produc
                                       />
                                     </td>
                                     <td className="px-3 py-2">
-                                      <Input type="text" inputMode="decimal" placeholder="Qty"
-                                        value={row.qty || ''}
+                                      <Input type="text" inputMode="decimal" placeholder={outOfStock ? 'Out of stock' : 'Qty'}
+                                        value={row.qty || ''} disabled={outOfStock}
                                         onChange={(e) => setGroupingQty(p.product_id, e.target.value)}
-                                        className="h-8 text-xs text-center w-20" />
+                                        className={`h-8 text-xs text-center w-20 ${!status.ok ? 'border-rose-300 text-rose-700 focus-visible:ring-rose-300 placeholder-rose-400' : ''} ${outOfStock ? 'disabled:opacity-100 disabled:bg-rose-50' : ''}`} />
+                                      {!status.ok && (
+                                        <div className="text-[10px] text-rose-600 font-semibold mt-0.5 leading-tight flex items-center justify-center gap-1 whitespace-nowrap">
+                                          <AlertCircle size={10} />
+                                          {status.msg}
+                                        </div>
+                                      )}
                                     </td>
                                   </tr>
                                 );
@@ -458,7 +525,9 @@ const DispatchModal = ({ isOpen, onClose, onBulkClick, products, godowns, produc
               <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : 'Update Dispatch'}</Button>
             ) : (
               <Button type="button" onClick={handleSaveAll}
-                disabled={submitting || !groupingProducts.some(p => groupingRows[p.product_id]?.checked)}>
+                disabled={submitting
+                  || !groupingProducts.some(p => groupingRows[p.product_id]?.checked)
+                  || groupingProducts.some(p => groupingRows[p.product_id]?.checked && !getGroupingRowStatus(p).ok)}>
                 {submitting ? 'Saving...' : 'Save All'}
               </Button>
             )}

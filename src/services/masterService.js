@@ -72,7 +72,7 @@ export const createProduct = async ({ name, unit, allow_negative_stock, product_
 
   const { data: product, error: productError } = await supabase
     .from('products')
-    .insert([{ name, unit, allow_negative_stock: true, product_type: product_type || '', brand_name: brand_name || '', category: category || '', mux: mux || '' }])
+    .insert([{ name, unit, allow_negative_stock: !!allow_negative_stock, product_type: product_type || '', brand_name: brand_name || '', category: category || '', mux: mux || '' }])
     .select()
     .single();
   if (productError) throw productError;
@@ -225,7 +225,7 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
         .insert([{
           name,
           unit: row.unit?.trim() || 'pcs',
-          allow_negative_stock: true,
+          allow_negative_stock: false,
           product_type: row.productType?.trim() || '',
           brand_name: row.brandName?.trim() || '',
           category: row.category?.trim() || '',
