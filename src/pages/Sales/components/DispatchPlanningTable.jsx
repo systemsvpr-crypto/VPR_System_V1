@@ -947,6 +947,16 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />Partial stock</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />Stock shortage</span>
 
+          {isPendingView && (
+            <label className="ml-auto flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
+              <input type="checkbox"
+                checked={currentItems.length > 0 && currentItems.every(i => selectedForDispatch.has(i.item_id))}
+                onChange={toggleSelectAllPending}
+                className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+              Select All
+            </label>
+          )}
+
           {!isPendingView && (
             <div className="ml-auto flex items-center gap-4">
               <span className="font-medium text-slate-500">
