@@ -144,7 +144,7 @@ const Sales = () => {
         new Date(o.order_date).toLocaleDateString('en-IN'),
         o.order_number || '',
         o.customers?.name || '',
-        o.process_type === 'skip_delivered' ? 'Skip' : 'Process',
+        o.process_type === 'skip_delivered' ? 'Skip' : o.process_type === 'direct' ? 'Direct' : 'Process',
         items.length,
         Number(o.total_amount).toFixed(2),
         new Date(o.created_at).toLocaleDateString('en-IN'),
@@ -266,6 +266,7 @@ const Sales = () => {
               >
                 <option value="">All Types</option>
                 <option value="order_process">Process</option>
+                <option value="direct">Direct</option>
                 <option value="skip_delivered">Skip</option>
               </select>
             </div>
@@ -366,7 +367,9 @@ const Sales = () => {
           <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col">
             <DispatchPlanningTable godowns={godowns} searchTerm={searchTerm} dispatchFilter={dispatchFilter}
               onSearchChange={setSearchTerm} onFilterChange={setDispatchFilter}
-              onSave={loadData} user={user} />
+              onSave={loadData} user={user} products={products} customers={customers}
+              onImportProducts={(product) => setProducts(prev => [...prev, product])}
+              onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])} />
           </div>
         </div>
       )}

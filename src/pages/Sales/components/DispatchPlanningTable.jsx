@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Package, Truck, Search, Trash2, Ban,
   AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
-  Sparkles, PackageCheck, PackageX, PackageSearch,
+  Sparkles, PackageCheck, PackageX, PackageSearch, Zap,
 } from 'lucide-react';
 import { format, differenceInCalendarDays } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -18,6 +18,7 @@ import { Dropdown } from '@/components/ui/dropdown';
 import { DatePicker } from '@/components/ui/date-picker';
 import DataTable from '@/components/DataTable';
 import { sanitizeQtyInput } from '@/lib/qty';
+import DirectOrderModal from './DirectOrderModal';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 const HISTORY_PAGE_SIZE_OPTIONS = [50, 100, 200];
@@ -31,6 +32,8 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 const OrderTypeBadge = ({ processType }) => (
   processType === 'skip_delivered' ? (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase font-medium bg-amber-50 text-amber-700 border border-amber-100">Skip</span>
+  ) : processType === 'direct' ? (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase font-medium bg-violet-50 text-violet-700 border border-violet-100">Direct</span>
   ) : (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase font-medium bg-blue-50 text-blue-700 border border-blue-100">Process</span>
   )
@@ -102,7 +105,7 @@ const buildProductNoMap = (rawItems) => {
 /* ──────────────────────────────────────────────────────────
    Main component
 ────────────────────────────────────────────────────────── */
-const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchChange, onFilterChange, onSave, user }) => {
+const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchChange, onFilterChange, onSave, user, products, customers, onImportProducts, onImportCustomers }) => {
   // Same gate as the "Delete order" button in the main Sales orders list —
   // this wipes rows out of sales_order_items/sales_orders permanently.
   const roleUpper = String(user?.role || '').trim().toUpperCase();
@@ -122,16 +125,13 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   const [dispatchDraft, setDispatchDraft]   = useState({}); // { [item_id]: { quantity, dispatch_date, godown_id } }
   const [dispatchingAll, setDispatchingAll] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
+  const [directModalOpen, setDirectModalOpen] = useState(false);
 
-  // inline "type a Cancel Qty -> Cancel Order" workflow (pending view only).
-  // No checkbox and no shared state with selectedForDispatch on purpose:
-  // an earlier version shared the Dispatch checkbox (and later a dedicated
-  // Cancel checkbox that auto-filled once ticked) — either way, a value
-  // sitting in the box without the user having just typed it is a live
-  // landmine for a bulk Cancel Order click. The box starts empty for every
-  // row and is always editable; only rows with a qty actually typed in are
-  // included when Cancel Order runs.
-  const [cancelDraft, setCancelDraft] = useState({}); // { [item_id]: cancelQtyString }
+  // Cancel Order (pending view only) shares the same Qty/Unit draft as
+  // Dispatch (dispatchDraft) — no separate Cancel Qty input. Checking a row
+  // fills its Qty with the full pending amount either way; which flow that
+  // number actually follows is decided purely by which button gets clicked
+  // (Dispatch vs. Cancel), not by which box it was typed into.
   const [cancellingAll, setCancellingAll] = useState(false);
 
   // smart dispatch planning controls (pending view only)
@@ -501,9 +501,8 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
         ...item,
         _selected: selectedForDispatch.has(item.item_id),
         _draftVersion: dispatchDraft[item.item_id] || null,
-        _cancelDraftVersion: cancelDraft[item.item_id] || null,
       }));
-  }, [dashboardItems, currentPage, pageSize, selectedForDispatch, dispatchDraft, cancelDraft]);
+  }, [dashboardItems, currentPage, pageSize, selectedForDispatch, dispatchDraft]);
   const currentHistoryRows = useMemo(() => {
     const start = (currentPage - 1) * historyPageSize;
     return historyRows.slice(start, start + historyPageSize);
@@ -568,6 +567,19 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
       const targets = new Set(selectedForDispatch);
       targets.add(item.item_id);
       targets.forEach(id => { next[id] = { ...next[id], dispatch_date: value }; });
+      return next;
+    });
+  };
+
+  // Same idea for Godown — picking it on one row fills it into every other
+  // currently checkbox-selected row too, so setting it once on a multi-row
+  // selection applies it to all of them.
+  const setGodownForSelected = (item, value) => {
+    setDispatchDraft(prev => {
+      const next = { ...prev };
+      const targets = new Set(selectedForDispatch);
+      targets.add(item.item_id);
+      targets.forEach(id => { next[id] = { ...next[id], godown_id: value }; });
       return next;
     });
   };
@@ -716,32 +728,20 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     setDeletingSelected(false);
   };
 
-  const setCancelQty = (itemId, value) => {
-    setCancelDraft(prev => ({ ...prev, [itemId]: value }));
-  };
-
-  // Once a row is checked (the same checkbox Dispatch uses), its Cancel Qty
-  // auto-fills with that row's pending qty — so Cancel is a one-click "cancel
-  // what's checked" action by default. An explicit edit in cancelDraft always
-  // wins over the prefill, and unchecking a row (with nothing typed) clears
-  // it back to blank — a row you never checked never shows a cancel qty.
-  const getCancelQty = (item) => {
-    if (item.item_id in cancelDraft) return cancelDraft[item.item_id];
-    return selectedForDispatch.has(item.item_id) ? String(item.remaining) : '';
-  };
-
-  // Cancels the resolved Cancel Qty for every CHECKED row only (never an
-  // unchecked one, however its box resolves) — looks across the full
-  // filtered list (not just the current page), so a checked row typed
-  // before paging away still gets picked up. Each row is capped at its own
-  // pending qty; nothing is dispatched or deducted from stock.
+  // Cancels the same Qty/Unit that's showing in the row's Dispatch draft
+  // (buildDispatchPayload — converted into the product's master unit), for
+  // every CHECKED row only — looks across the full filtered list (not just
+  // the current page), so a checked row set before paging away still gets
+  // picked up. Each row is capped at its own pending qty; nothing is
+  // dispatched or deducted from stock. Whether that number ends up
+  // dispatched or cancelled is decided purely by which button gets clicked.
   const handleCancelOrder = async () => {
     const toCancel = dashboardItems
       .filter(item => selectedForDispatch.has(item.item_id))
-      .map(item => ({ item, qty: Number(getCancelQty(item)) || 0 }))
+      .map(item => ({ item, qty: buildDispatchPayload(item).convertedQty }))
       .filter(({ qty }) => qty > 0);
 
-    if (toCancel.length === 0) { toast.error('Enter a cancel quantity for at least one row.'); return; }
+    if (toCancel.length === 0) { toast.error('Enter a valid quantity for at least one selected row.'); return; }
 
     for (const { item, qty } of toCancel) {
       if (qty > item.remaining) {
@@ -783,7 +783,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
       else toast.error(`Failed for ${toCancel[i].item.sales_orders?.order_number || toCancel[i].item.item_id}: ${r.reason?.message || 'Unknown error'}`);
     });
     setCancellingAll(false);
-    setCancelDraft({});
+    setSelectedForDispatch(new Set());
     if (success > 0) {
       toast.success(`Cancelled ${success} item${success !== 1 ? 's' : ''}.`);
       await loadItems();
@@ -793,12 +793,11 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
 
   const isEmpty = isPendingView ? dashboardItems.length === 0 : historyRows.length === 0;
   const selectedCount = selectedForDispatch.size;
-  const hasCancelInput = dashboardItems.some(item => selectedForDispatch.has(item.item_id) && Number(getCancelQty(item)) > 0);
 
   return (
     <div className="flex flex-col flex-1">
       {/* ── Pending/History toggle, search, and (pending view only) filter controls — all in one row ── */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      <div className="flex flex-nowrap items-center gap-2 mb-4 overflow-x-auto scrollbar-hide pb-2">
         <div className="flex items-center gap-1 shrink-0">
           {[
             { id: 'pending', label: 'Pending' },
@@ -815,7 +814,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
           ))}
         </div>
 
-        <div className="relative w-full sm:w-64 shrink-0">
+        <div className="relative w-full sm:w-48 shrink-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
           <Input type="text" placeholder="Search items..." className="pl-9 h-9"
             value={searchTerm} onChange={(e) => onSearchChange?.(e.target.value)} />
@@ -854,36 +853,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
               searchPlaceholder="Search status..."
               className="h-9 w-full sm:w-[150px] shrink-0 text-xs"
             />
-
-            <Button size="sm" onClick={handleBulkDispatch} disabled={dispatchingAll || selectedCount === 0} className="gap-1.5 text-xs h-9 w-full sm:w-auto sm:ml-auto shrink-0">
-              {dispatchingAll ? (
-                <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white" />
-              ) : (
-                <Truck size={14} />
-              )}
-              Dispatch
-            </Button>
-
-            <Button size="sm" variant="outline" onClick={handleCancelOrder} disabled={cancellingAll || !hasCancelInput}
-              className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700">
-              {cancellingAll ? (
-                <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-current" />
-              ) : (
-                <Ban size={14} />
-              )}
-              Cancel
-            </Button>
-
-            {canDelete && (
-              <Button size="sm" variant="destructive" onClick={handleDeleteSelected} disabled={deletingSelected || selectedCount === 0} className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0">
-                {deletingSelected ? (
-                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-current" />
-                ) : (
-                  <Trash2 size={14} />
-                )}
-                Delete
-              </Button>
-            )}
           </>
         )}
 
@@ -924,6 +893,44 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
               searchPlaceholder="Search products..."
               className="h-9 w-full sm:w-[130px] shrink-0 text-xs"
             />
+          </>
+        )}
+
+        <Button size="sm" onClick={() => setDirectModalOpen(true)} className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0">
+          <Zap size={14} /> Direct
+        </Button>
+
+        {isPendingView && (
+          <>
+            <Button size="sm" onClick={handleBulkDispatch} disabled={dispatchingAll || selectedCount === 0} className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0">
+              {dispatchingAll ? (
+                <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white" />
+              ) : (
+                <Truck size={14} />
+              )}
+              Dispatch
+            </Button>
+
+            <Button size="sm" variant="outline" onClick={handleCancelOrder} disabled={cancellingAll || selectedCount === 0}
+              className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700">
+              {cancellingAll ? (
+                <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-current" />
+              ) : (
+                <Ban size={14} />
+              )}
+              Cancel
+            </Button>
+
+            {canDelete && (
+              <Button size="sm" variant="destructive" onClick={handleDeleteSelected} disabled={deletingSelected || selectedCount === 0} className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0">
+                {deletingSelected ? (
+                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-current" />
+                ) : (
+                  <Trash2 size={14} />
+                )}
+                Delete
+              </Button>
+            )}
           </>
         )}
       </div>
@@ -1001,7 +1008,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
               { label: 'Order Godown', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Total Qty', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: <span className="text-amber-600">Pending Qty</span>, className: '!text-xs !font-semibold !py-3 !px-4' },
-              { label: <span className="text-red-600">Cancel Qty</span>, className: 'min-w-[100px] !text-xs !font-semibold !py-3 !px-4' },
               { label: <span className="text-primary">Unit</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
               { label: <span className="text-primary">Qty</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
               { label: 'Dispatch Qty', className: 'min-w-[100px] !text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
@@ -1039,7 +1045,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                   </td>
                   <td className="px-4 py-3 min-w-[150px]">
                     <Dropdown value={getDraft(item, 'godown_id')}
-                      onValueChange={v => setDraftValue(item.item_id, 'godown_id', v)}
+                      onValueChange={v => setGodownForSelected(item, v)}
                       options={activeGodownOptions} placeholder="Godown..."
                       searchPlaceholder="Search godowns..." align="start"
                       disabled={!selected}
@@ -1052,15 +1058,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                       <StockDot status={item.stockStatus} />
                       {item.remaining}
                     </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="w-20 mx-auto">
-                      <Input type="text" inputMode="decimal" placeholder="0"
-                        disabled={!selected}
-                        value={getCancelQty(item)}
-                        onChange={e => setCancelQty(item.item_id, sanitizeQtyInput(e.target.value))}
-                        className="h-8 text-xs text-center border-red-200 focus-visible:ring-red-300" />
-                    </div>
                   </td>
                   <td className="px-4 py-3 min-w-[110px]">
                     <Dropdown value={getDraft(item, 'unit')}
@@ -1134,26 +1131,18 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                     <div><span className="text-slate-400">Total:</span> <span className="font-medium text-slate-800">{item.unit_price ? `₹${(Number(item.unit_price) * Number(item.effectiveQty || 0)).toLocaleString('en-IN')}` : '—'}</span></div>
                   </div>
                   <div className="grid grid-cols-12 gap-2 pt-2 border-t border-slate-100">
-                    <div className="col-span-4">
+                    <div className="col-span-6">
                       <label className="block text-[10px] text-slate-400 mb-1">Unit</label>
                       <Dropdown value={getDraft(item, 'unit')} onValueChange={v => setUnitForItem(item, v)}
                         options={UNIT_OPTIONS} placeholder="Unit..." align="start" disabled={!selected}
                         className="h-9 w-full text-xs" />
                     </div>
-                    <div className="col-span-4">
+                    <div className="col-span-6">
                       <label className="block text-[10px] text-slate-400 mb-1">Qty</label>
                       <Input type="text" inputMode="decimal" placeholder="Qty"
                         disabled={!selected} value={getDraft(item, 'quantity')}
                         onChange={e => setDraftValue(item.item_id, 'quantity', sanitizeQtyInput(e.target.value))}
                         className="h-9 w-full text-xs text-center" />
-                    </div>
-                    <div className="col-span-4">
-                      <label className="block text-[10px] text-red-500 mb-1 truncate">Cancel Qty</label>
-                      <Input type="text" inputMode="decimal" placeholder="0"
-                        disabled={!selected}
-                        value={getCancelQty(item)}
-                        onChange={e => setCancelQty(item.item_id, sanitizeQtyInput(e.target.value))}
-                        className="h-9 w-full text-xs text-center border-red-200 focus-visible:ring-red-300" />
                     </div>
                   </div>
                   <div className="grid grid-cols-12 gap-2 pt-2 border-t border-slate-100">
@@ -1171,7 +1160,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                     </div>
                     <div className="col-span-4">
                       <label className="block text-[10px] text-slate-400 mb-1 truncate">Godown</label>
-                      <Dropdown value={getDraft(item, 'godown_id')} onValueChange={v => setDraftValue(item.item_id, 'godown_id', v)}
+                      <Dropdown value={getDraft(item, 'godown_id')} onValueChange={v => setGodownForSelected(item, v)}
                         options={activeGodownOptions} placeholder="Godown..." searchPlaceholder="Search godowns..." align="start" disabled={!selected}
                         className="h-9 w-full text-xs" />
                     </div>
@@ -1383,6 +1372,18 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
           </div>
         </div>
       )}
+
+      <DirectOrderModal
+        isOpen={directModalOpen}
+        onClose={() => setDirectModalOpen(false)}
+        user={user}
+        products={products || []}
+        godowns={godowns || []}
+        customers={customers || []}
+        onImportProducts={onImportProducts}
+        onImportCustomers={onImportCustomers}
+        onSuccess={async () => { await loadItems(); onSave?.(); }}
+      />
     </div>
   );
 };

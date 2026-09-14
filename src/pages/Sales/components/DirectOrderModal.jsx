@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, X, Plus, Truck, ArrowRightCircle, Lock, Upload } from 'lucide-react';
+import { Zap, X, Plus, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { createOrder, updateOrder, generateNextOrderNumber, convertQtyToMasterUnit, convertQtyFromMasterUnit } from '../../../services/salesService';
+import { createDirectOrder, generateNextOrderNumber, convertQtyToMasterUnit, convertQtyFromMasterUnit } from '../../../services/salesService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -12,17 +12,22 @@ import ProductModal from '../../Master/components/ProductModal';
 import CustomerModal from '../../Master/components/CustomerModal';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 
-const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, godowns, customers, onImportProducts, onImportCustomers }) => {
+// Dispatch Planning's "Direct" button — a Create Order-style popup that also
+// auto-plans every item's dispatch on save (see createDirectOrder), so a
+// direct order goes straight from entry to a planned dispatch (dispatch_plans
+// + the stock-ledger transaction) in one step instead of two separate trips
+// (Orders' Create Order, then Dispatch Planning's Dispatch). Create-only —
+// unlike OrderModal there's no editingOrder/locked-items support, since a
+// direct order's items are typically already planned the moment they exist.
+const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns, customers, onImportProducts, onImportCustomers }) => {
   const [form, setForm] = useState({
     order_date: new Date().toISOString().split('T')[0],
     order_number: '',
     customer_id: '',
-    process_type: 'order_process',
     items: [],
   });
   const [submitting, setSubmitting] = useState(false);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
-  const [notifyCustomer, setNotifyCustomer] = useState(true);
 
   // Products/customers created on the fly (via the "+ Add New Product/Customer"
   // row pinned inside their dropdowns) — kept alongside the lists loaded from
@@ -49,67 +54,27 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     return Array.from(map.values());
   }, [customers, extraCustomers]);
 
-  const isEditing = !!editingOrder;
-
-  const lockedItemIds = useMemo(() => {
-    if (!editingOrder) return new Set();
-    return new Set(
-      (editingOrder.sales_order_items || [])
-        .filter(item => (item.dispatch_plans || []).some(plan => plan.dispatch_status === 'Dispatch Done'))
-        .map(item => item.item_id)
-    );
-  }, [editingOrder]);
-
-  const anyItemLocked = lockedItemIds.size > 0;
-
-  const isItemLocked = (itemId) => itemId && lockedItemIds.has(itemId);
-
   useEffect(() => {
     if (!isOpen) {
       setForm({
         order_date: new Date().toISOString().split('T')[0],
         order_number: '',
         customer_id: '',
-        process_type: 'order_process',
         items: [],
       });
-      setNotifyCustomer(true);
       setExtraProducts([]);
       setExtraCustomers([]);
       setQuickAddProductRow(null);
-    } else if (editingOrder) {
-      setForm({
-        order_date: editingOrder.order_date?.split('T')[0] || new Date().toISOString().split('T')[0],
-        order_number: editingOrder.order_number || '',
-        customer_id: editingOrder.customer_id || '',
-        process_type: editingOrder.process_type || 'order_process',
-        items: (editingOrder.sales_order_items || []).map(item => ({
-          item_id: item.item_id,
-          product_id: item.product_id,
-          godown_id: item.godown_id,
-          unit_price: String(item.unit_price),
-          quantity: String(item.quantity),
-          // Unit defaults to the product's master unit; Qty (raw, as typed
-          // in that unit) defaults to whatever was saved before, falling
-          // back to the item's current quantity for rows that predate this
-          // feature (e.g. Bulk Upload rows, which only ever set quantity
-          // directly in the master unit).
-          Selected_Unit: item.Selected_Unit || (item.products?.unit || '').toLowerCase(),
-          sales_qty: item.sales_qty != null ? String(item.sales_qty) : String(item.quantity),
-        })),
-      });
-      setNotifyCustomer(true);
     } else {
       setForm(prev => ({
         ...prev,
         items: [{ product_id: '', godown_id: '', unit_price: '', Selected_Unit: '', sales_qty: '' }],
       }));
-      setNotifyCustomer(true);
       generateNextOrderNumber().then(num => {
         setForm(prev => ({ ...prev, order_number: num }));
       }).catch(() => {});
     }
-  }, [isOpen, editingOrder]);
+  }, [isOpen]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -138,27 +103,20 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     });
     setSubmitting(true);
     try {
-      if (isEditing) {
-        await updateOrder(editingOrder.order_id, {
-          order_date: form.order_date,
-          order_number: form.order_number.trim(),
-          customer_id: form.customer_id,
-          items: payloadItems,
-          process_type: form.process_type,
-          notify_customer: notifyCustomer,
-        });
-        toast.success('Order updated successfully');
+      const { planErrors } = await createDirectOrder({
+        order_date: form.order_date,
+        order_number: form.order_number.trim(),
+        customer_id: form.customer_id,
+        items: payloadItems,
+        created_by: user?.user_id,
+        // Direct orders never send an automatic WhatsApp confirmation — this
+        // popup has no Notify Customer option on purpose.
+        notify_customer: false,
+      });
+      if (planErrors.length > 0) {
+        toast.error(`Order created, but ${planErrors.length} item(s) could not be auto-dispatched (${planErrors[0].message}). They remain pending in Dispatch Planning.`);
       } else {
-        await createOrder({
-          order_date: form.order_date,
-          order_number: form.order_number.trim(),
-          customer_id: form.customer_id,
-          items: payloadItems,
-          created_by: user?.user_id,
-          process_type: form.process_type,
-          notify_customer: notifyCustomer,
-        });
-        toast.success('Order created successfully');
+        toast.success('Direct order created and dispatched.');
       }
       onClose();
       onSuccess();
@@ -180,27 +138,17 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     setForm({ ...form, items: form.items.filter((_, i) => i !== index) });
   };
 
-  // Unit defaults to the product's master unit; Qty (raw, as typed in that
-  // unit) defaults to whatever was saved before, falling back to the item's
-  // plain quantity for rows that predate this feature (e.g. Bulk Upload
-  // rows, which only ever set quantity directly in the master unit). Always
-  // a real value, never '' (which would leave the <select> showing the
-  // browser's own first-option default out of sync with state, so
-  // switching Unit before a product is picked would silently no-op).
+  // Unit defaults to the product's master unit — always a real value, never
+  // '' (which would leave the <select> showing the browser's own first-option
+  // default out of sync with state, so switching Unit before a product is
+  // picked would silently no-op).
   const getItemUnit = (item, product) => item.Selected_Unit || (product?.unit || '').toLowerCase() || 'bag';
-  // Falls back to the item's saved `quantity` only when sales_qty has never
-  // been set at all (undefined/null) — an explicit '' means the user just
-  // cleared the field and must stay '' so the input can actually go empty
-  // while they type a new value, instead of snapping back to the old qty.
-  const getItemRawQty = (item) =>
-    item.sales_qty !== undefined && item.sales_qty !== null
-      ? String(item.sales_qty)
-      : String(item.quantity ?? '');
+  const getItemRawQty = (item) => (item.sales_qty !== undefined && item.sales_qty !== null ? String(item.sales_qty) : '');
 
   // Order Qty is auto-calculated from the Unit + Qty inputs, converted into
   // the product's master unit via that product's Pkg/Bag (Mux) figure —
   // this is what actually gets saved as quantity (the value that drives the
-  // rest of the sales/dispatch pipeline).
+  // rest of the sales/dispatch pipeline, and what gets deducted from stock).
   const getComputedQty = (item, product) => {
     const raw = getItemRawQty(item);
     if (raw === '') return 0;
@@ -256,49 +204,13 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     onImportCustomers?.(customer);
   };
 
-  const handleImportProducts = (data, mode) => {
-    let header = null;
-    let newItems = [];
-
-    if (Array.isArray(data)) {
-      newItems = data;
-    } else if (data && typeof data === 'object') {
-      header = data.header || null;
-      newItems = data.items || [];
-    }
-
-    setForm(prev => {
-      const updated = { ...prev };
-      if (header) {
-        if (header.order_date) updated.order_date = header.order_date;
-        if (header.order_number) updated.order_number = header.order_number;
-        if (header.customer_id) updated.customer_id = header.customer_id;
-        if (header.process_type) updated.process_type = header.process_type;
-      }
-      if (mode === 'replace') {
-        updated.items = newItems;
-      } else {
-        const existingFiltered = prev.items.filter(item => item.product_id || item.godown_id || item.quantity);
-        updated.items = [...existingFiltered, ...newItems];
-      }
-      return updated;
-    });
-  };
-
-  const totalAmount = useMemo(() => {
-    return form.items.reduce((sum, item) => {
-      const product = allProducts.find(p => p.product_id === item.product_id);
-      return sum + (Number(item.unit_price) || 0) * getComputedQty(item, product);
-    }, 0);
-  }, [form.items, allProducts]);
-
   const productOptions = useMemo(() => {
     return allProducts.map(p => ({ value: p.product_id, label: p.name }));
   }, [allProducts]);
 
-  // Own godowns first (an order normally fulfills from one of these), then
-  // Transporter stock-tracking godowns below — each group alphabetical. Same
-  // convention as Dispatch Planning's own Godown dropdown.
+  // Own godowns first (a direct dispatch normally leaves from one of these),
+  // then Transporter stock-tracking godowns below — each group alphabetical.
+  // Same convention as Dispatch Planning's own Godown dropdown.
   const activeGodowns = useMemo(() => {
     const active = godowns.filter(g => g.is_active);
     const isOwn = (g) => (g.godown_type || 'Own') === 'Own';
@@ -316,35 +228,13 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
             <div className="flex items-center justify-between w-full pr-12">
               <div className="flex items-center gap-3">
                 <div className="bg-primary/10 p-2 rounded-lg">
-                  <ShoppingCart size={20} className="text-primary" />
+                  <Zap size={20} className="text-primary" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-800">
-                  {isEditing ? 'Edit Order' : 'Create Order'}
-                  {anyItemLocked && (
-                    <span className="ml-2 inline-flex items-center gap-1 text-sm font-normal text-amber-600">
-                      <Lock size={14} /> Some items locked
-                    </span>
-                  )}
-                </h2>
+                <h2 className="text-xl font-bold text-slate-800">Direct Order</h2>
               </div>
-              <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
-                {[
-                  { id: 'order_process', label: 'Order Process' },
-                  { id: 'skip_delivered', label: 'Skip Delivered' },
-                ].map(t => (
-                  <button key={t.id} type="button" onClick={() => !anyItemLocked && setForm({ ...form, process_type: t.id })}
-                    style={t.id === 'skip_delivered' ? { display: 'none' } : {}}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                      anyItemLocked ? 'cursor-not-allowed opacity-60' :
-                      form.process_type === t.id
-                        ? 'bg-white text-slate-800 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700'
-                    }`}>
-                    {t.id === 'order_process' ? <ArrowRightCircle size={14} /> : <Truck size={14} />}
-                    {t.label}
-                  </button>
-                ))}
-              </div>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-violet-50 text-violet-700 border border-violet-100">
+                <Zap size={13} /> Auto-dispatched on save
+              </span>
             </div>
           </ModalHeader>
           <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -352,19 +242,19 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Order Date <span className="text-red-500">*</span></label>
-                  <DatePicker value={form.order_date} onChange={(e) => setForm({ ...form, order_date: e.target.value })} disabled={anyItemLocked} />
+                  <DatePicker value={form.order_date} onChange={(e) => setForm({ ...form, order_date: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Order Number <span className="text-red-500">*</span></label>
-                  <Input value={form.order_number} onChange={(e) => setForm({ ...form, order_number: e.target.value })} placeholder="e.g. VPR/OR-001" disabled={anyItemLocked} />
+                  <Input value={form.order_number} onChange={(e) => setForm({ ...form, order_number: e.target.value })} placeholder="e.g. VPR/OR-001" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Customer <span className="text-red-500">*</span></label>
                   <Dropdown value={form.customer_id} onValueChange={(v) => setForm({ ...form, customer_id: v })}
                     options={allCustomers.map(c => ({ value: c.customer_id, label: c.name }))}
                     placeholder="Select customer..." searchPlaceholder="Search customers..."
-                    align="start" disabled={anyItemLocked}
-                    onAddNew={anyItemLocked ? undefined : () => setCustomerQuickAddOpen(true)}
+                    align="start"
+                    onAddNew={() => setCustomerQuickAddOpen(true)}
                     addNewLabel="+ Add New Customer" />
                 </div>
               </div>
@@ -376,7 +266,6 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                 )}
                 <div className="space-y-3 max-h-72 overflow-y-auto pr-1 border border-slate-200/80 rounded-xl p-3 bg-slate-50/50">
                   {form.items.map((item, i) => {
-                    const itemLocked = isItemLocked(item.item_id);
                     const selectedProduct = allProducts.find(p => p.product_id === item.product_id);
                     const computedQty = getComputedQty(item, selectedProduct);
                     return (
@@ -385,8 +274,8 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                         <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
                         <Dropdown value={item.product_id} onValueChange={(v) => handleProductChange(i, v)}
                           options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
-                          align="start" disabled={itemLocked}
-                          onAddNew={itemLocked ? undefined : () => { setQuickAddProductRow(i); setProductQuickAddOpen(true); }}
+                          align="start"
+                          onAddNew={() => { setQuickAddProductRow(i); setProductQuickAddOpen(true); }}
                           addNewLabel="+ Add New Product" />
                       </div>
                       <div className="col-span-2">
@@ -394,8 +283,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                         <select
                           value={getItemUnit(item, selectedProduct)}
                           onChange={(e) => handleUnitChange(i, e.target.value)}
-                          disabled={itemLocked}
-                          className="w-full h-9 text-sm px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          className="w-full h-9 text-sm px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
                         >
                           <option value="bag">BAG</option>
                           <option value="kg">KG</option>
@@ -406,17 +294,17 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                         <Dropdown value={item.godown_id} onValueChange={(v) => updateItem(i, 'godown_id', v)}
                           options={activeGodowns.map(g => ({ value: g.godown_id, label: g.name }))}
                           placeholder="Select godown..." searchPlaceholder="Search godowns..."
-                          align="start" disabled={itemLocked} />
+                          align="start" />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Unit Price</label>
                         <Input type="number" step="0.01" min="0" placeholder="0.00"
-                          value={item.unit_price} onChange={(e) => updateItem(i, 'unit_price', e.target.value)} disabled={itemLocked} />
+                          value={item.unit_price} onChange={(e) => updateItem(i, 'unit_price', e.target.value)} />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
                         <Input type="text" inputMode="decimal" placeholder="Qty"
-                          value={getItemRawQty(item)} onChange={(e) => handleQtyChange(i, e.target.value)} disabled={itemLocked} />
+                          value={getItemRawQty(item)} onChange={(e) => handleQtyChange(i, e.target.value)} />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Order Qty</label>
@@ -425,8 +313,8 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                         </div>
                       </div>
                       <div className="col-span-1 flex items-end pb-0.5">
-                        <button type="button" onClick={() => !itemLocked && removeItem(i)}
-                          className={`p-1.5 rounded transition-all ${itemLocked ? 'text-slate-200 cursor-not-allowed' : 'text-red-400 hover:text-red-600 hover:bg-red-50'}`}>
+                        <button type="button" onClick={() => removeItem(i)}
+                          className="p-1.5 rounded transition-all text-red-400 hover:text-red-600 hover:bg-red-50">
                           <X size={18} />
                         </button>
                       </div>
@@ -435,7 +323,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                   })}
                 </div>
                 <div className="flex items-center gap-2 mt-3">
-                  <Button type="button" variant="outline" size="sm" onClick={addItem} disabled={anyItemLocked}
+                  <Button type="button" variant="outline" size="sm" onClick={addItem}
                     className="gap-1.5 text-xs font-medium">
                     <Plus size={14} /> Add Product
                   </Button>
@@ -444,7 +332,6 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                     variant="outline"
                     size="sm"
                     onClick={() => setBulkModalOpen(true)}
-                    disabled={anyItemLocked}
                     className="gap-1.5 text-xs font-medium text-slate-600 hover:text-primary border-slate-200 hover:bg-slate-50"
                   >
                     <Upload size={14} /> Bulk Upload Products
@@ -454,20 +341,9 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
 
             </ModalBody>
             <ModalFooter>
-              <div className="flex items-center gap-2 mr-auto">
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={notifyCustomer}
-                    onChange={(e) => setNotifyCustomer(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer accent-primary"
-                  />
-                  <span>Notify Customer via WhatsApp</span>
-                </label>
-              </div>
               <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
               <Button type="submit" disabled={submitting}>
-                {submitting ? 'Saving...' : (isEditing ? 'Update Order' : 'Create Order')}
+                {submitting ? 'Saving...' : 'Save Direct Order'}
               </Button>
             </ModalFooter>
           </form>
@@ -481,6 +357,8 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
         products={allProducts}
         godowns={godowns}
         customers={allCustomers}
+        processType="direct"
+        autoPlanDispatch
         onImportProducts={(product) => { setExtraProducts(prev => [...prev, product]); onImportProducts?.(product); }}
         onImportCustomers={(customer) => { setExtraCustomers(prev => [...prev, customer]); onImportCustomers?.(customer); }}
         onSuccess={() => {
@@ -506,5 +384,4 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
   );
 };
 
-export default OrderModal;
-
+export default DirectOrderModal;

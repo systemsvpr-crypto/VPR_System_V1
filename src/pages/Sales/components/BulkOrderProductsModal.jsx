@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
-import { createOrder, generateMultipleOrderNumbers, convertQtyToMasterUnit, convertQtyFromMasterUnit } from '../../../services/salesService';
+import { createOrder, createDirectOrder, generateMultipleOrderNumbers, convertQtyToMasterUnit, convertQtyFromMasterUnit } from '../../../services/salesService';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 import { parseFileDate } from '@/lib/parseFileDate';
 import ProductModal from '../../Master/components/ProductModal';
@@ -121,7 +121,12 @@ const fixSheetRange = (sheet) => {
   return sheet;
 };
 
-const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns = [], customers = [], onImportProducts, onImportCustomers, onSuccess }) => {
+// processType/autoPlanDispatch let Dispatch Planning's Direct button reuse
+// this same importer: rows get process_type 'direct' instead of
+// 'order_process', and each created order's items also get their dispatch
+// auto-planned (see createDirectOrder) instead of just landing as plain
+// pending order items.
+const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns = [], customers = [], onImportProducts, onImportCustomers, onSuccess, processType = 'order_process', autoPlanDispatch = false }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [fileName, setFileName] = useState('');
@@ -154,7 +159,17 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
     return Array.from(map.values());
   }, [customers, extraCustomers]);
 
-  const activeGodowns = useMemo(() => godowns.filter(g => g.is_active), [godowns]);
+  // Own godowns first (an order normally fulfills from one of these), then
+  // Transporter stock-tracking godowns below — each group alphabetical. Same
+  // convention as Dispatch Planning's own Godown dropdown.
+  const activeGodowns = useMemo(() => {
+    const active = godowns.filter(g => g.is_active);
+    const isOwn = (g) => (g.godown_type || 'Own') === 'Own';
+    const byName = (a, b) => a.name.localeCompare(b.name);
+    const own = active.filter(isOwn).sort(byName);
+    const transporter = active.filter(g => !isOwn(g)).sort(byName);
+    return [...own, ...transporter];
+  }, [godowns]);
 
   const productOptions = useMemo(() => {
     return allProducts.map(p => ({ value: p.product_id, label: p.name }));
@@ -298,7 +313,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
             unit_price: rawPrice,
             quantity: rawQty > 0 ? String(rawQty) : '1',
             Selected_Unit: fileUnit || (matchedProd?.unit || '').toLowerCase(),
-            process_type: 'order_process',
+            process_type: processType,
           };
         }).filter(r => r.rawProductName || r.product_id);
 
@@ -401,7 +416,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
           order_date: row.order_date,
           customer_id: row.customer_id,
           customer_name: custObj ? custObj.name : (row.rawCustomerName || 'Unknown Customer'),
-          process_type: 'order_process',
+          process_type: processType,
           notify_customer: !!row.notify_customer,
           items: [],
         };
@@ -436,15 +451,20 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
       // Automatically create sales orders for each (Date, Customer) group with system-generated order numbers
       const generatedNumbers = await generateMultipleOrderNumbers(groupedOrders.length);
 
+      // autoPlanDispatch (Direct) also auto-plans each created order's items'
+      // dispatch — see createDirectOrder — so a per-item planning failure
+      // (e.g. insufficient stock) is collected here rather than thrown, since
+      // the order/items themselves were still created fine.
+      const planFailures = [];
+
       for (let i = 0; i < groupedOrders.length; i++) {
         const grp = groupedOrders[i];
         const autoOrderNumber = generatedNumbers[i];
 
-        await createOrder({
+        const orderPayload = {
           order_date: grp.order_date,
           order_number: autoOrderNumber,
           customer_id: grp.customer_id,
-          process_type: 'order_process',
           created_by: user?.user_id,
           // quantity sent here is always the product's real master-unit
           // figure (see getRowComputedQty) — Selected_Unit/sales_qty are
@@ -461,11 +481,22 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
               sales_qty: rawQty === '' ? null : Number(rawQty),
             };
           }),
-          notify_customer: grp.notify_customer,
-        });
+          // Direct orders never send an automatic WhatsApp confirmation.
+          notify_customer: autoPlanDispatch ? false : grp.notify_customer,
+        };
+
+        if (autoPlanDispatch) {
+          const { planErrors } = await createDirectOrder(orderPayload);
+          planFailures.push(...planErrors);
+        } else {
+          await createOrder({ ...orderPayload, process_type: processType });
+        }
       }
 
       toast.success(`Successfully generated and created ${groupedOrders.length} sales order(s) with ${rawRows.length} item(s)!`);
+      if (planFailures.length > 0) {
+        toast.error(`${planFailures.length} item(s) could not be auto-dispatched (e.g. insufficient stock) and remain pending in Dispatch Planning.`);
+      }
       if (onSuccess) onSuccess();
       handleClose();
     } catch (err) {
@@ -533,8 +564,11 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
               <FileSpreadsheet size={20} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-800">Bulk Upload Sales Orders</h2>
-              <p className="text-xs text-slate-500">Import orders via Excel or CSV. Order numbers will be auto-generated for each unique date & customer.</p>
+              <h2 className="text-xl font-bold text-slate-800">{autoPlanDispatch ? 'Bulk Upload Direct Orders' : 'Bulk Upload Sales Orders'}</h2>
+              <p className="text-xs text-slate-500">
+                Import orders via Excel or CSV. Order numbers will be auto-generated for each unique date & customer.
+                {autoPlanDispatch && ' Each order’s items are auto-dispatched on import, same as the Direct button.'}
+              </p>
             </div>
           </div>
         </ModalHeader>
@@ -553,7 +587,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                 </div>
                 <div className="mt-2 text-xs text-slate-600 space-y-1 pl-8">
                   <p>• <strong>Order Numbers are auto-generated:</strong> Do not include Order Number in your file.</p>
-                  <p>• <strong>Process Type is auto-set to Order Process:</strong> Do not include Process Type in your file.</p>
+                  <p>• <strong>Process Type is auto-set to {autoPlanDispatch ? 'Direct' : 'Order Process'}:</strong> Do not include Process Type in your file.</p>
                   <p>• <strong>Unit is optional (Bag/Kg):</strong> When given, Quantity is read in that unit and converted to Order Qty in the product's own master unit; otherwise Quantity is read as already being in the product's master unit.</p>
                   <p>• <strong>Grouping Logic:</strong> Rows with the <em>same Order Date and Customer Name</em> will be assigned the <strong>same auto-generated order number</strong>.</p>
                 </div>
@@ -631,8 +665,8 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                         <span className="text-xs font-semibold text-slate-600">
                           System Order No: <span className="text-primary font-mono italic">VPR/OR-AUTO-{String(gIdx + 1).padStart(2, '0')}</span>
                         </span>
-                        <span className="bg-slate-200/70 text-slate-700 text-[11px] font-semibold px-2 py-0.5 rounded">
-                          Order Process
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${autoPlanDispatch ? 'bg-violet-100 text-violet-700' : 'bg-slate-200/70 text-slate-700'}`}>
+                          {autoPlanDispatch ? 'Direct' : 'Order Process'}
                         </span>
                       </div>
                       <span className="text-xs text-slate-500 font-medium">
@@ -648,7 +682,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                           onChange={(e) => handleGroupHeaderChange(group.key, 'order_date', e.target.value)}
                         />
                       </div>
-                      <div className="md:col-span-5">
+                      <div className={autoPlanDispatch ? 'md:col-span-8' : 'md:col-span-5'}>
                         <label className="block text-slate-500 font-medium mb-1">Customer <span className="text-red-500">*</span></label>
                         <Dropdown
                           value={group.customer_id}
@@ -666,18 +700,21 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                           </span>
                         )}
                       </div>
-                      <div className="md:col-span-3 flex items-center gap-2 md:pt-6">
-                        <input
-                          type="checkbox"
-                          id={`notify-${group.key}`}
-                          checked={group.notify_customer}
-                          onChange={(e) => handleGroupHeaderChange(group.key, 'notify_customer', e.target.checked)}
-                          className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
-                        />
-                        <label htmlFor={`notify-${group.key}`} className="text-slate-600 font-medium cursor-pointer">
-                          Send WhatsApp Message
-                        </label>
-                      </div>
+                      {/* Direct orders never send an automatic WhatsApp confirmation — no notify option in that mode. */}
+                      {!autoPlanDispatch && (
+                        <div className="md:col-span-3 flex items-center gap-2 md:pt-6">
+                          <input
+                            type="checkbox"
+                            id={`notify-${group.key}`}
+                            checked={group.notify_customer}
+                            onChange={(e) => handleGroupHeaderChange(group.key, 'notify_customer', e.target.checked)}
+                            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                          />
+                          <label htmlFor={`notify-${group.key}`} className="text-slate-600 font-medium cursor-pointer">
+                            Send WhatsApp Message
+                          </label>
+                        </div>
+                      )}
                     </div>
 
                     {/* Products Table for this group */}

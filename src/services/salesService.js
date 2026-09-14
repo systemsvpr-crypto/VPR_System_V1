@@ -192,6 +192,85 @@ export const createOrder = async ({ order_date, order_number, customer_id, items
   return order;
 };
 
+// "Direct" order — the Dispatch Planning page's Direct button. Same shape as
+// createOrder (sales_orders + sales_order_items), except process_type is
+// always 'direct' and every item's dispatch is auto-planned right away via
+// saveDispatchPlan, instead of leaving the order sitting in Dispatch
+// Planning's Pending list for someone to plan later — that's the whole point
+// of "Direct": one popup takes it from order straight to a planned dispatch
+// (dispatch_plans row + the stock-ledger transaction that comes with it),
+// same as checking a row and clicking "Dispatch" there, just skipping the
+// separate trip.
+// A per-item planning failure (e.g. insufficient stock) never rolls back the
+// order/item itself — that item is simply left pending, exactly like any
+// other order item, and can still be planned normally from Dispatch
+// Planning later. Failures are returned (not thrown) so the caller can
+// surface them without losing the order that was otherwise created fine.
+export const createDirectOrder = async ({ order_date, order_number, customer_id, items, created_by, notify_customer = true }) => {
+  const total = items.reduce((sum, item) => sum + (Number(item.unit_price) || 0) * (Number(item.quantity) || 0), 0);
+
+  const { data: order, error: orderErr } = await supabase
+    .from('sales_orders')
+    .insert([{ order_date, order_number, customer_id, total_amount: total, created_by, process_type: 'direct' }])
+    .select()
+    .single();
+  if (orderErr) throw orderErr;
+
+  let createdItems = [];
+  if (items.length > 0) {
+    const itemRows = items.map(item => ({
+      order_id: order.order_id,
+      product_id: item.product_id,
+      godown_id: item.godown_id,
+      unit_price: Number(item.unit_price),
+      quantity: Number(item.quantity),
+      Selected_Unit: item.Selected_Unit || null,
+      sales_qty: item.sales_qty != null ? Number(item.sales_qty) : null,
+    }));
+    // .select() here (unlike createOrder) so each row comes back with its
+    // real item_id — saveDispatchPlan needs it right below.
+    const { data: insertedItems, error: itemErr } = await supabase
+      .from('sales_order_items')
+      .insert(itemRows)
+      .select();
+    if (itemErr) throw itemErr;
+    createdItems = insertedItems || [];
+  }
+
+  const planErrors = [];
+  for (const item of createdItems) {
+    try {
+      await saveDispatchPlan({
+        order_item_id: item.item_id,
+        quantity: item.quantity,
+        unit: item.Selected_Unit,
+        converted_qty: item.sales_qty,
+        godown_id: item.godown_id,
+        unit_price: item.unit_price,
+        dispatch_date: order_date,
+        created_by,
+      });
+    } catch (err) {
+      planErrors.push({ item_id: item.item_id, product_id: item.product_id, message: err.message });
+    }
+  }
+
+  // Only confirm the items that actually got dispatched — an item that
+  // failed to plan (e.g. insufficient stock) never left the godown, so
+  // telling the customer it did would be false. If every item failed, no
+  // WhatsApp message goes out at all.
+  const failedItemIds = new Set(planErrors.map(e => e.item_id));
+  const dispatchedItems = createdItems.filter(item => !failedItemIds.has(item.item_id));
+
+  if (notify_customer && dispatchedItems.length > 0) {
+    notifyOrderConfirmation(customer_id, dispatchedItems).catch(err => {
+      console.error('WhatsApp order confirmation failed:', err.message);
+    });
+  }
+
+  return { order, items: createdItems, planErrors };
+};
+
 const notifyOrderConfirmation = async (customer_id, items) => {
   const { data: customer } = await supabase
     .from('customers')
