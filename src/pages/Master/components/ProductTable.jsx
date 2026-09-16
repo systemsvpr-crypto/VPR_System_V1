@@ -3,9 +3,8 @@ import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import DataTable from '@/components/DataTable';
 import { formatQty } from '@/lib/qty';
-import { getProductGrouping } from '@/lib/productGrouping';
 
-const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stockMap, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
+const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stockMap, groupNameMap, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
   return (
     <DataTable
       headers={[
@@ -26,7 +25,7 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
           <td className="px-4 py-3 text-center text-slate-600">{p.brand_name || <span className="text-slate-300">—</span>}</td>
           <td className="px-4 py-3 text-center text-slate-600">{p.category || <span className="text-slate-300">—</span>}</td>
           <td className="px-4 py-3 text-center text-slate-600">{p.mux || <span className="text-slate-300">—</span>}</td>
-          <td className="px-4 py-3 text-center text-slate-600">{getProductGrouping(p) || <span className="text-slate-300">—</span>}</td>
+          <td className="px-4 py-3 text-center text-slate-600">{groupNameMap?.[p.group_id] || <span className="text-slate-300">—</span>}</td>
           <td className="px-4 py-3 text-center">
             <div className="flex flex-wrap items-center justify-center gap-1.5">
               {stockMap?.[p.product_id]?.length > 0
@@ -75,7 +74,7 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
             </div>
             <div className="bg-slate-50 p-2 rounded-lg">
               <span className="text-slate-500 block mb-1">Grouping</span>
-              <span className="text-slate-700">{getProductGrouping(p) || '—'}</span>
+              <span className="text-slate-700">{groupNameMap?.[p.group_id] || '—'}</span>
             </div>
             <div className="bg-slate-50 p-2 rounded-lg">
               <span className="text-slate-500 block mb-1">Created</span>

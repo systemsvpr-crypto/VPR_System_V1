@@ -63,7 +63,6 @@ const ProductModal = ({ isOpen, onClose, godowns = [], user, onSuccess, editingP
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.brand_name.trim()) { toast.error('Brand name is required.'); return; }
-    if (!form.category.trim()) { toast.error('Category is required.'); return; }
     setDuplicateNotice('');
     setSubmitting(true);
     try {
@@ -148,7 +147,7 @@ const ProductModal = ({ isOpen, onClose, godowns = [], user, onSuccess, editingP
                 <Input value={form.brand_name} onChange={(e) => setForm({ ...form, brand_name: e.target.value })} placeholder="Ex: Ambuja" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Category <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
                 <Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Ex: Cement" />
               </div>
             </div>

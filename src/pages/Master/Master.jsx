@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet } from 'lucide-react';
+import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet, Award } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllGodowns, getAllProducts, getAllProductStock, toggleGodownStatus, deleteGodown } from '../../services/masterService';
@@ -8,10 +8,10 @@ import { getAllCustomers, bulkImportCustomers } from '../../services/customerSer
 import { getAllVendors, bulkImportVendors } from '../../services/vendorService';
 import { getAllTransporters, bulkImportTransporters } from '../../services/transporterService';
 import { getAllGroups, deleteGroup } from '../../services/productGroupingService';
+import { getAllRanks, deleteRank } from '../../services/rankService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/Select';
-import { getProductGrouping } from '@/lib/productGrouping';
 
 import ProductModal from './components/ProductModal';
 import ProductTable from './components/ProductTable';
@@ -28,6 +28,8 @@ import GroupTable from './components/ProductGrouping/GroupTable';
 import { TabSwitcher } from '@/components/StandardButtons';
 import GroupModal from './components/ProductGrouping/GroupModal';
 import BulkImportEntityModal, { CUSTOMER_CONFIG, VENDOR_CONFIG, TRANSPORTER_CONFIG } from './components/BulkImportEntityModal';
+import RankTable from './components/RankTable';
+import RankModal from './components/RankModal';
 
 const TABS = [
   { id: 'products', label: 'Products', icon: Package },
@@ -36,6 +38,7 @@ const TABS = [
   { id: 'vendors', label: 'Vendors', icon: Building2 },
   { id: 'transporters', label: 'Transporters', icon: Truck },
   { id: 'product-grouping', label: 'Product Grouping', icon: FolderTree },
+  { id: 'ranks', label: 'Ranks', icon: Award },
 ];
 
 // Select dropdown with a search box pinned above the options — for filters with long lists.
@@ -91,6 +94,7 @@ const Master = () => {
   const [vendors, setVendors] = useState([]);
   const [transporters, setTransporters] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [ranks, setRanks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [godownModalOpen, setGodownModalOpen] = useState(false);
@@ -99,12 +103,14 @@ const Master = () => {
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [vendorModalOpen, setVendorModalOpen] = useState(false);
   const [transporterModalOpen, setTransporterModalOpen] = useState(false);
+  const [rankModalOpen, setRankModalOpen] = useState(false);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [editingVendor, setEditingVendor] = useState(null);
   const [editingTransporter, setEditingTransporter] = useState(null);
   const [editingGroup, setEditingGroup] = useState(null);
+  const [editingRank, setEditingRank] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [godownFilter, setGodownFilter] = useState('all');
   const [transporterFilter, setTransporterFilter] = useState('all');
@@ -127,17 +133,30 @@ const Master = () => {
     godowns.filter(g => g.godown_type === 'Transporter')
   ), [godowns]);
 
-  // Unique Grouping (Brand + Category) values across every product, for the
-  // Grouping filter dropdown — sorted alphabetically, empty ones excluded
-  // since "no grouping" isn't a useful filter option.
+  // group_id -> group_name, straight from product_groups — the Products
+  // table's Grouping column and filter both read the actual stored group a
+  // product is linked to, not a re-derived Brand+Category string (the two
+  // can drift apart once a group's name is edited, or casing gets
+  // normalized on save).
+  const groupNameMap = useMemo(() => {
+    const map = {};
+    groups.forEach(g => { map[g.group_id] = g.group_name; });
+    return map;
+  }, [groups]);
+
+  // Groupings actually in use by at least one product, for the Grouping
+  // filter dropdown — sorted alphabetically, products with no group_id yet
+  // excluded since "no grouping" isn't a useful filter option.
   const productGroupings = useMemo(() => {
-    const names = new Set();
+    const seen = new Map();
     products.forEach(p => {
-      const grouping = getProductGrouping(p);
-      if (grouping) names.add(grouping);
+      const name = p.group_id && groupNameMap[p.group_id];
+      if (name && !seen.has(p.group_id)) seen.set(p.group_id, name);
     });
-    return [...names].sort((a, b) => a.localeCompare(b));
-  }, [products]);
+    return [...seen.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [products, groupNameMap]);
 
   const filteredProducts = useMemo(() => {
     let result = products.filter(p =>
@@ -154,7 +173,7 @@ const Master = () => {
       );
     }
     if (groupingFilter !== 'all') {
-      result = result.filter(p => getProductGrouping(p) === groupingFilter);
+      result = result.filter(p => p.group_id === groupingFilter);
     }
     return result;
   }, [products, searchTerm, godownFilter, transporterFilter, groupingFilter, allStock]);
@@ -202,12 +221,20 @@ const Master = () => {
     );
   }, [groups, searchTerm]);
 
+  const filteredRanks = useMemo(() => {
+    const term = searchTerm.toLowerCase();
+    return ranks.filter(r =>
+      r.rank_name?.toLowerCase().includes(term)
+    );
+  }, [ranks, searchTerm]);
+
   const totalProductPages = Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage));
   const totalGodownPages = Math.max(1, Math.ceil(filteredGodowns.length / itemsPerPage));
   const totalCustomerPages = Math.max(1, Math.ceil(filteredCustomers.length / itemsPerPage));
   const totalVendorPages = Math.max(1, Math.ceil(filteredVendors.length / itemsPerPage));
   const totalTransporterPages = Math.max(1, Math.ceil(filteredTransporters.length / itemsPerPage));
   const totalGroupPages = Math.max(1, Math.ceil(filteredGroups.length / itemsPerPage));
+  const totalRankPages = Math.max(1, Math.ceil(filteredRanks.length / itemsPerPage));
 
   const currentProducts = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
@@ -239,6 +266,11 @@ const Master = () => {
     return filteredGroups.slice(start, start + itemsPerPage);
   }, [filteredGroups, currentPage, itemsPerPage]);
 
+  const currentRanks = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredRanks.slice(start, start + itemsPerPage);
+  }, [filteredRanks, currentPage, itemsPerPage]);
+
   const stockMap = useMemo(() => {
     const map = {};
     for (const s of allStock) {
@@ -263,14 +295,18 @@ const Master = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [p, g, s, c, v, t, gr] = await Promise.all([
+      const [p, g, s, c, v, t, gr, rk] = await Promise.all([
         getAllProducts(), getAllGodowns(), getAllProductStock(),
         getAllCustomers(), getAllVendors(), getAllTransporters(),
         getAllGroups(),
+        // Falls back to empty rather than failing the whole page — lets
+        // every other Master tab keep working even before the `ranks`
+        // table migration has been run.
+        getAllRanks().catch(() => []),
       ]);
       setProducts(p); setGodowns(g); setAllStock(s);
       setCustomers(c); setVendors(v); setTransporters(t);
-      setGroups(gr);
+      setGroups(gr); setRanks(rk);
     } catch (err) { toast.error('Failed to load data'); }
     setLoading(false);
   };
@@ -338,6 +374,25 @@ const Master = () => {
     try {
       await deleteGroup(group.group_id);
       toast.success('Group deleted');
+      loadData();
+    } catch (err) { toast.error(err.message); }
+  };
+
+  const handleEditRank = (rank) => {
+    setEditingRank(rank);
+    setRankModalOpen(true);
+  };
+
+  const handleCloseRankModal = () => {
+    setRankModalOpen(false);
+    setEditingRank(null);
+  };
+
+  const handleDeleteRank = async (rank) => {
+    if (!window.confirm(`Delete rank "${rank.rank_name}"? This action cannot be undone.`)) return;
+    try {
+      await deleteRank(rank.rank_id);
+      toast.success('Rank deleted');
       loadData();
     } catch (err) { toast.error(err.message); }
   };
@@ -428,7 +483,7 @@ const Master = () => {
                 <FilterSelect
                   value={groupingFilter}
                   onValueChange={setGroupingFilter}
-                  options={productGroupings.map(name => ({ id: name, name }))}
+                  options={productGroupings}
                   placeholder="All Groupings"
                   label="Filter by Grouping"
                   allLabel="All Groupings"
@@ -471,6 +526,7 @@ const Master = () => {
                     else if (activeTab === 'vendors') { setEditingVendor(null); setVendorModalOpen(true); }
                     else if (activeTab === 'transporters') { setEditingTransporter(null); setTransporterModalOpen(true); }
                     else if (activeTab === 'product-grouping') { setEditingGroup(null); setGroupModalOpen(true); }
+                    else if (activeTab === 'ranks') { setEditingRank(null); setRankModalOpen(true); }
                   }} className="gap-2 px-3 h-8 text-sm font-medium">
                     <Plus size={15} />
                     <span>Add {
@@ -479,6 +535,7 @@ const Master = () => {
                       activeTab === 'customers' ? 'Customer' :
                       activeTab === 'vendors' ? 'Vendor' :
                       activeTab === 'transporters' ? 'Transporter' :
+                      activeTab === 'ranks' ? 'Rank' :
                       'Group'
                     }</span>
                   </Button>
@@ -491,7 +548,7 @@ const Master = () => {
         <div className="flex flex-col flex-1 min-h-0">
           {activeTab === 'products' && (
             <div className="flex flex-col flex-1 min-h-0">
-              <ProductTable products={currentProducts} totalItems={filteredProducts.length} loading={loading} onEdit={handleEditProduct} searchTerm={searchTerm} stockMap={stockMap}
+              <ProductTable products={currentProducts} totalItems={filteredProducts.length} loading={loading} onEdit={handleEditProduct} searchTerm={searchTerm} stockMap={stockMap} groupNameMap={groupNameMap}
                 currentPage={currentPage} totalPages={totalProductPages} itemsPerPage={itemsPerPage}
                 onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
             </div>
@@ -531,6 +588,13 @@ const Master = () => {
                 onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
             </div>
           )}
+          {activeTab === 'ranks' && (
+            <div className="flex flex-col flex-1 min-h-0">
+              <RankTable ranks={currentRanks} totalItems={filteredRanks.length} loading={loading} onEdit={handleEditRank} onDelete={handleDeleteRank} searchTerm={searchTerm}
+                currentPage={currentPage} totalPages={totalRankPages} itemsPerPage={itemsPerPage}
+                onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+            </div>
+          )}
         </div>
       </div>
       )}
@@ -550,6 +614,8 @@ const Master = () => {
         onSuccess={loadData} editingTransporter={editingTransporter} user={user} godowns={godowns} />
       <GroupModal isOpen={groupModalOpen} onClose={handleCloseGroupModal}
         user={user} onSuccess={loadData} editingGroup={editingGroup} />
+      <RankModal isOpen={rankModalOpen} onClose={handleCloseRankModal}
+        onSuccess={loadData} editingRank={editingRank} />
       {entityImportType && (
         <BulkImportEntityModal
           isOpen={!!entityImportType}

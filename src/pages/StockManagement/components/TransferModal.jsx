@@ -322,7 +322,7 @@ const TransferModal = ({ isOpen, onClose, products, godowns, productStockMap = {
           </ModalTitle>
           <ModalDescription className="sr-only">{isEditing ? 'Editing transfer entry' : 'Transfer stock between godowns'}</ModalDescription>
         </ModalHeader>
-        <form onSubmit={isEditing ? handleSubmit : (e) => e.preventDefault()}>
+        <form onSubmit={isEditing ? handleSubmit : (e) => e.preventDefault()} className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <ModalBody>
             <div className={isEditing ? "grid grid-cols-5 gap-6" : ""}>
               <div className={isEditing ? "col-span-2 space-y-4" : "space-y-4"}>

@@ -73,7 +73,7 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, currentPage
               <td className="px-4 py-3 text-center font-medium text-slate-800">{g.group_name}</td>
               <td className="px-4 py-3 text-center">
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
-                  {g.members?.length || 0}
+                  {g.allProducts?.length || 0}
                 </span>
               </td>
               <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
@@ -93,10 +93,10 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, currentPage
               <tr>
                 <td colSpan={4} className="px-0 py-0">
                   <div className="bg-slate-50 border-t border-slate-100">
-                    {g.members && g.members.length > 0 ? (
+                    {g.allProducts && g.allProducts.length > 0 ? (
                       <table className="w-full text-xs">
                         <tbody className="divide-y divide-slate-100">
-                          {g.members.map(m => (
+                          {g.allProducts.map(m => (
                             <tr key={m.id} className="hover:bg-white transition-colors">
                               <td className="px-4 py-2 text-center text-slate-700">{m.product_name}</td>
                             </tr>
@@ -125,7 +125,7 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, currentPage
               </div>
               <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
-                  {g.members?.length || 0} Products
+                  {g.allProducts?.length || 0} Products
                 </span>
                 <Button variant="ghost" size="icon" onClick={() => onEdit(g)} className="text-slate-400 hover:text-primary h-8 w-8">
                   <Edit2 size={14} />
@@ -137,9 +137,9 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, currentPage
             </div>
             {isExpanded && (
               <div className="bg-slate-50 rounded-lg overflow-hidden border border-slate-100">
-                {g.members && g.members.length > 0 ? (
+                {g.allProducts && g.allProducts.length > 0 ? (
                   <ul className="divide-y divide-slate-100">
-                    {g.members.map(m => (
+                    {g.allProducts.map(m => (
                       <li key={m.id} className="px-3 py-2 text-xs text-center text-slate-700 bg-white">
                         {m.product_name}
                       </li>

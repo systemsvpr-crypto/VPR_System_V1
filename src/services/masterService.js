@@ -53,7 +53,30 @@ const productMatchKey = (brandName, category, productType, mux) =>
 const getAllProductKeys = async () => {
   return fetchAllRows(() => supabase
     .from('products')
-    .select('product_id, name, brand_name, category, product_type, mux'));
+    .select('product_id, name, brand_name, category, product_type, mux, group_id, created_at'));
+};
+
+// Just the Brand Name + Category half of productMatchKey — what actually
+// decides which product_groups row a product belongs to (Product Type/Mux
+// don't factor into grouping).
+const groupKey = (brandName, category) =>
+  [brandName, category].map(v => (v || '').trim().toLowerCase()).join('|');
+
+// Brand Name / Category, spelling-locked to whichever casing was stored
+// first: if any existing product already has this value (case-insensitively
+// — "Aa" matches an existing "AA"), reuse that exact casing instead of
+// letting a new product introduce its own spelling variant of the same
+// brand/category. `field` is 'brand_name' or 'category'; `excludeId` leaves
+// out the product currently being edited, so fixing that product's own
+// casing (e.g. a typo) isn't immediately reverted by matching its own
+// pre-edit value.
+const resolveExistingCasing = (value, field, allProducts, excludeId) => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return trimmed;
+  const matches = allProducts
+    .filter(p => p.product_id !== excludeId && (p[field] || '').trim().toLowerCase() === trimmed.toLowerCase())
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  return matches.length > 0 ? matches[0][field].trim() : trimmed;
 };
 
 const duplicateProductError = (name) => {
@@ -62,17 +85,68 @@ const duplicateProductError = (name) => {
   return err;
 };
 
+// Every product belongs to a product_groups row keyed by its own Brand Name +
+// Category, concatenated exactly as typed (Brand "AA" + Category "BB" ->
+// group_name "AABB") — reused case-insensitively, so "Aa"+"BB" resolves to
+// that same "AABB" row instead of creating a near-duplicate group. Returns
+// null when both fields are blank (nothing to group by).
+const PG_UNIQUE_VIOLATION = '23505';
+
+const resolveProductGroupId = async (brand_name, category, created_by) => {
+  const groupName = `${(brand_name || '').trim()}${(category || '').trim()}`;
+  if (!groupName) return null;
+
+  const { data: groups, error: fetchErr } = await supabase
+    .from('product_groups')
+    .select('group_id, group_name');
+  if (fetchErr) throw fetchErr;
+
+  const existing = (groups || []).find(g => (g.group_name || '').trim().toLowerCase() === groupName.toLowerCase());
+  if (existing) return existing.group_id;
+
+  const { data: created, error: createErr } = await supabase
+    .from('product_groups')
+    .insert([{ group_name: groupName, created_by: created_by || null }])
+    .select('group_id')
+    .single();
+  if (createErr) {
+    // Another request created the exact same group in the gap between our
+    // lookup and insert — fall back to using theirs instead of failing.
+    if (createErr.code === PG_UNIQUE_VIOLATION) {
+      const { data: retryGroups } = await supabase.from('product_groups').select('group_id, group_name');
+      const retryMatch = (retryGroups || []).find(g => (g.group_name || '').trim().toLowerCase() === groupName.toLowerCase());
+      if (retryMatch) return retryMatch.group_id;
+    }
+    throw createErr;
+  }
+  return created.group_id;
+};
+
 export const createProduct = async ({ name, unit, allow_negative_stock, product_type, brand_name, category, mux, openingEntries, as_of_date, created_by }) => {
-  const newKey = productMatchKey(brand_name, category, product_type, mux);
   const allProducts = await getAllProductKeys();
+
+  // Lock Brand Name / Category to whichever casing is already on record
+  // (case-insensitively) — "Aa" after "AA" already exists keeps storing
+  // "AA", here and in the auto-generated Product Name below, instead of
+  // adding "Aa" as a second spelling of the same brand/category.
+  const normalizedBrand = resolveExistingCasing(brand_name, 'brand_name', allProducts);
+  const normalizedCategory = resolveExistingCasing(category, 'category', allProducts);
+
+  const newKey = productMatchKey(normalizedBrand, normalizedCategory, product_type, mux);
   const duplicate = allProducts.find(p => productMatchKey(p.brand_name, p.category, p.product_type, p.mux) === newKey);
   if (duplicate) {
     throw duplicateProductError(duplicate.name);
   }
 
+  const group_id = await resolveProductGroupId(normalizedBrand, normalizedCategory, created_by);
+  // Re-derived from the normalized Brand/Category rather than trusting the
+  // popup's own live preview verbatim — that preview is built from whatever
+  // was actually typed, which may not be the casing that ends up stored.
+  const resolvedName = bulkImportProductName(normalizedBrand, normalizedCategory, product_type, mux) || name;
+
   const { data: product, error: productError } = await supabase
     .from('products')
-    .insert([{ name, unit, allow_negative_stock: !!allow_negative_stock, product_type: product_type || '', brand_name: brand_name || '', category: category || '', mux: mux || '' }])
+    .insert([{ name: resolvedName, unit, allow_negative_stock: !!allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id }])
     .select()
     .single();
   if (productError) throw productError;
@@ -103,9 +177,18 @@ export const createProduct = async ({ name, unit, allow_negative_stock, product_
 };
 
 export const updateProduct = async ({ product_id, name, unit, allow_negative_stock, product_type, brand_name, category, mux }) => {
-  const newKey = productMatchKey(brand_name, category, product_type, mux);
   const allProducts = await getAllProductKeys();
   const self = allProducts.find(p => p.product_id === product_id);
+
+  // Lock Brand Name / Category to whichever casing is already on record
+  // elsewhere (case-insensitively) — this product's own current (pre-edit)
+  // value is excluded from that check, so deliberately fixing this
+  // product's own casing (e.g. a typo) isn't immediately reverted by
+  // matching itself.
+  const normalizedBrand = resolveExistingCasing(brand_name, 'brand_name', allProducts, product_id);
+  const normalizedCategory = resolveExistingCasing(category, 'category', allProducts, product_id);
+
+  const newKey = productMatchKey(normalizedBrand, normalizedCategory, product_type, mux);
   const oldKey = self ? productMatchKey(self.brand_name, self.category, self.product_type, self.mux) : null;
 
   // Only block when this edit actually changes the identity fields into a collision with
@@ -118,9 +201,19 @@ export const updateProduct = async ({ product_id, name, unit, allow_negative_sto
     }
   }
 
+  // Re-resolve the group only when Brand/Category themselves actually change
+  // (Product Type/Mux edits don't affect grouping) — so an edit that renames
+  // either one moves the product into the right group instead of leaving it
+  // linked to its old one, without spending an extra lookup on every save.
+  const oldGroupKey = self ? groupKey(self.brand_name, self.category) : null;
+  const group_id = groupKey(normalizedBrand, normalizedCategory) !== oldGroupKey
+    ? await resolveProductGroupId(normalizedBrand, normalizedCategory)
+    : self?.group_id ?? null;
+  const resolvedName = bulkImportProductName(normalizedBrand, normalizedCategory, product_type, mux) || name;
+
   const { data, error } = await supabase
     .from('products')
-    .update({ name, unit, allow_negative_stock, product_type: product_type || '', brand_name: brand_name || '', category: category || '', mux: mux || '' })
+    .update({ name: resolvedName, unit, allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id })
     .eq('product_id', product_id)
     .select()
     .single();
@@ -128,12 +221,49 @@ export const updateProduct = async ({ product_id, name, unit, allow_negative_sto
   return data;
 };
 
+// Removes a product_groups row once nothing references it any more: no
+// product is still auto-linked via group_id, AND it has no manual
+// membership via product_group_members either — that join table backs the
+// separate, manually-curated "Product Grouping" tab, so a group someone set
+// up there is never deleted out from under them just because its
+// auto-linked products happened to all get deleted.
+const deleteGroupIfOrphaned = async (group_id) => {
+  const [{ count: productCount, error: productErr }, { count: memberCount, error: memberErr }] = await Promise.all([
+    supabase.from('products').select('product_id', { count: 'exact', head: true }).eq('group_id', group_id),
+    supabase.from('product_group_members').select('id', { count: 'exact', head: true }).eq('group_id', group_id),
+  ]);
+  if (productErr) throw productErr;
+  if (memberErr) throw memberErr;
+  if ((productCount || 0) === 0 && (memberCount || 0) === 0) {
+    await supabase.from('product_groups').delete().eq('group_id', group_id);
+  }
+};
+
 export const deleteProduct = async (product_id) => {
+  const { data: product } = await supabase
+    .from('products')
+    .select('group_id')
+    .eq('product_id', product_id)
+    .maybeSingle();
+
   const { error } = await supabase
     .from('products')
     .delete()
     .eq('product_id', product_id);
   if (error) throw error;
+
+  // Last product of its group just went — clean up the now-empty group too,
+  // so product_groups doesn't accumulate rows nothing points to any more.
+  // The product itself is already gone at this point either way, so a
+  // failure here is logged rather than thrown — it shouldn't surface as
+  // "delete failed" for a deletion that actually succeeded.
+  if (product?.group_id) {
+    try {
+      await deleteGroupIfOrphaned(product.group_id);
+    } catch (err) {
+      console.error('Failed to clean up orphaned product group:', err.message);
+    }
+  }
 };
 
 export const deleteGodown = async (godown_id) => {

@@ -23,6 +23,7 @@ export const PAGE_TABS = {
     { id: 'vendors', label: 'Vendors' },
     { id: 'transporters', label: 'Transporters' },
     { id: 'product-grouping', label: 'Product Grouping' },
+    { id: 'ranks', label: 'Ranks' },
   ],
   sales: [
     { id: 'orders', label: 'Orders' },

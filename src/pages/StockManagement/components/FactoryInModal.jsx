@@ -365,7 +365,7 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
           )}
           <ModalDescription className="sr-only">{isEditing ? `Editing ${editTitle}` : (isProduction ? 'Add production stock' : 'Add Godown IN')}</ModalDescription>
         </ModalHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <ModalBody>
             <div className={isEditing ? "grid grid-cols-5 gap-6" : ""}>
               <div className={isEditing ? "col-span-2 space-y-4" : "space-y-4"}>

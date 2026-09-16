@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { supabase, fetchAllRows } from '../supabase';
 
 export const getAllGroups = async () => {
   const { data: groups, error: groupErr } = await supabase
@@ -7,10 +7,22 @@ export const getAllGroups = async () => {
     .order('group_name', { ascending: true });
   if (groupErr) throw groupErr;
 
+  // Manually-curated members — someone building a group by hand via this
+  // page's own Add/Edit Group form (the product_group_members join table).
   const { data: members, error: memberErr } = await supabase
     .from('product_group_members')
     .select('*, products:product_id(name, unit)');
   if (memberErr) throw memberErr;
+
+  // Auto-linked members — every product whose own group_id already points
+  // here (see masterService.js's resolveProductGroupId, which links a
+  // product to its Brand+Category group the moment it's created/edited).
+  // This is how a product actually ends up "in" a group day to day; the
+  // join table above only ever gets rows from a deliberate manual pick.
+  const linkedProducts = await fetchAllRows(() => supabase
+    .from('products')
+    .select('product_id, name, unit, group_id')
+    .not('group_id', 'is', null));
 
   const memberMap = {};
   for (const m of members || []) {
@@ -23,10 +35,31 @@ export const getAllGroups = async () => {
     });
   }
 
-  return (groups || []).map(g => ({
-    ...g,
-    members: memberMap[g.group_id] || [],
-  }));
+  const linkedMap = {};
+  for (const p of linkedProducts || []) {
+    if (!linkedMap[p.group_id]) linkedMap[p.group_id] = [];
+    linkedMap[p.group_id].push({
+      id: `auto-${p.product_id}`,
+      product_id: p.product_id,
+      product_name: p.name || 'Unknown',
+      unit: p.unit || '',
+    });
+  }
+
+  return (groups || []).map(g => {
+    const manualMembers = memberMap[g.group_id] || [];
+    const linked = linkedMap[g.group_id] || [];
+    // Combined, de-duplicated view for display (Products count + expanded
+    // list) — every auto-linked product, plus any manually-added member not
+    // already covered by that link.
+    const linkedIds = new Set(linked.map(p => p.product_id));
+    const allProducts = [...linked, ...manualMembers.filter(m => !linkedIds.has(m.product_id))];
+    return {
+      ...g,
+      members: manualMembers, // unchanged — still exactly what Edit Group's checkboxes use
+      allProducts,            // what the table's Products count + expanded list show
+    };
+  });
 };
 
 export const createGroup = async ({ group_name, product_ids, created_by }) => {
