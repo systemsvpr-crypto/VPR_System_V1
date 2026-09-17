@@ -3,7 +3,7 @@ import { Upload, FileSpreadsheet, CheckCircle, XCircle, AlertCircle, ArrowLeft, 
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 
 // ---------------------------------------------------------------------------
 // CONFIGS — define one per entity type
@@ -182,7 +182,9 @@ const BulkImportEntityModal = ({ isOpen, onClose, onSuccess, config, importFn })
       <ModalContent className="max-w-2xl">
         <ModalHeader>
           <div className="bg-primary/10 p-2 rounded-lg"><FileSpreadsheet size={20} className="text-primary" /></div>
-          <h2 className="text-xl font-bold text-slate-800">Bulk Import {label}</h2>
+          <ModalTitle asChild>
+            <h2 className="text-xl font-bold text-slate-800">Bulk Import {label}</h2>
+          </ModalTitle>
         </ModalHeader>
 
         {/* ── UPLOAD STEP ──────────────────────────────────────────── */}

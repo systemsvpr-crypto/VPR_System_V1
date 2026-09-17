@@ -5,7 +5,7 @@ import { getAllGroups, createGroup, updateGroup, deleteGroup } from '../../../..
 import { getAllProducts } from '../../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 
 const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }) => {
   const [groupName, setGroupName] = useState('');
@@ -126,9 +126,11 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
           <div className="bg-primary/10 p-2 rounded-lg">
             <FolderTree size={20} className="text-primary" />
           </div>
-          <h2 className="text-xl font-bold text-slate-800">
-            {isEditing ? 'Edit Product Group' : 'Create Product Group'}
-          </h2>
+          <ModalTitle asChild>
+            <h2 className="text-xl font-bold text-slate-800">
+              {isEditing ? 'Edit Product Group' : 'Create Product Group'}
+            </h2>
+          </ModalTitle>
         </ModalHeader>
         <form onSubmit={handleSubmit}>
           <ModalBody>

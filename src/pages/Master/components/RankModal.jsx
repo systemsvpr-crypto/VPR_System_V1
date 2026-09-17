@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { createRank, updateRank } from '../../../services/rankService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 
 const RankModal = ({ isOpen, onClose, onSuccess, editingRank }) => {
   const [rankName, setRankName] = useState('');
@@ -43,7 +43,9 @@ const RankModal = ({ isOpen, onClose, onSuccess, editingRank }) => {
       <ModalContent className="max-w-md">
         <ModalHeader>
           <div className="bg-primary/10 p-2 rounded-lg"><Award size={20} className="text-primary" /></div>
-          <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Rank' : 'Add Rank'}</h2>
+          <ModalTitle asChild>
+            <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Rank' : 'Add Rank'}</h2>
+          </ModalTitle>
         </ModalHeader>
         <form onSubmit={handleSubmit}>
           <ModalBody>

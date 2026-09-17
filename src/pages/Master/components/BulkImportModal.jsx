@@ -1,12 +1,15 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Upload, FileSpreadsheet, CheckCircle, XCircle, AlertCircle, ArrowLeft, Loader, Database, Download, FileText, Pencil, Check, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { bulkImportProducts, getAllProducts } from '../../../services/masterService';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 import { sanitizeQtyInput } from '@/lib/qty';
+import { Dropdown } from '@/components/ui/dropdown';
+import { cn } from '@/lib/utils';
+import ProductModal from './ProductModal';
 
 const COLUMN_ALIASES = {
   'Brand Name': ['brand name', 'brand', 'brandname'],
@@ -55,17 +58,29 @@ const normalizeUnit = (raw) => {
   return trimmed;
 };
 
-const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
+const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [fileName, setFileName] = useState('');
   const [rows, setRows] = useState([]);
+  const [existingProductsList, setExistingProductsList] = useState(products || []);
   const [productLookup, setProductLookup] = useState(new Map());
   const [editingIndex, setEditingIndex] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (products && products.length > 0) {
+        setExistingProductsList(products);
+      } else {
+        getAllProducts().then(setExistingProductsList).catch(console.error);
+      }
+    }
+  }, [isOpen, products]);
 
   const activeGodowns = (godowns || []).filter(g => g.is_active !== false);
 
@@ -76,6 +91,7 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
     setProductLookup(new Map());
     setEditingIndex(null);
     setEditDraft(null);
+    setQuickAddOpen(false);
     setAsOfDate(new Date().toISOString().split('T')[0]);
     setSubmitting(false);
     setResults(null);
@@ -144,7 +160,11 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
           return;
         }
 
-        const existingProducts = await getAllProducts();
+        const existingProducts = (products && products.length > 0)
+          ? products
+          : (existingProductsList.length > 0 ? existingProductsList : await getAllProducts());
+        setExistingProductsList(existingProducts);
+
         const lookup = new Map();
         for (const p of existingProducts) {
           lookup.set(matchKey(p.brand_name, p.category, p.product_type, p.mux), p);
@@ -152,7 +172,12 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
 
         const withMatch = parsed.map(r => {
           const match = lookup.get(matchKey(r.brandName, r.category, r.productType, r.mux));
-          return { ...r, productId: match?.product_id || null, isNew: !match };
+          return {
+            ...r,
+            productId: match?.product_id || null,
+            isNew: !match,
+            productName: match?.name || r.productName,
+          };
         });
 
         setProductLookup(lookup);
@@ -179,8 +204,21 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
     const r = rows[index];
     setEditingIndex(index);
     setEditDraft({
-      brandName: r.brandName, category: r.category, productType: r.productType,
-      unit: r.unit, mux: r.mux, godownName: r.godownName, qty: r.qty,
+      brandName: r.brandName,
+      category: r.category,
+      productType: r.productType,
+      unit: r.unit,
+      mux: r.mux,
+      godownName: r.godownName,
+      qty: r.qty,
+      productId: r.productId || null,
+      productName: r.productName,
+      isNew: r.isNew,
+      custom_brandName: r.brandName,
+      custom_category: r.category,
+      custom_productType: r.productType,
+      custom_unit: r.unit,
+      custom_mux: r.mux,
     });
   };
 
@@ -189,16 +227,92 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
     setEditDraft(null);
   };
 
+  const handleProductSelect = (val) => {
+    if (val === '__new__') {
+      setEditDraft(prev => {
+        const brand = prev.custom_brandName ?? prev.brandName;
+        const cat = prev.custom_category ?? prev.category;
+        const pType = prev.custom_productType ?? prev.productType;
+        const u = prev.custom_unit ?? prev.unit;
+        const m = prev.custom_mux ?? prev.mux;
+        return {
+          ...prev,
+          isNew: true,
+          productId: null,
+          brandName: brand,
+          category: cat,
+          productType: pType,
+          unit: u,
+          mux: m,
+          productName: buildProductName(brand, cat, pType, m),
+        };
+      });
+    } else {
+      const selected = existingProductsList.find(p => String(p.product_id) === String(val));
+      if (selected) {
+        setEditDraft(prev => ({
+          ...prev,
+          isNew: false,
+          productId: selected.product_id,
+          productName: selected.name,
+          brandName: selected.brand_name || '',
+          category: selected.category || '',
+          productType: selected.product_type || '',
+          unit: selected.unit || '',
+          mux: selected.mux || '',
+          custom_brandName: prev.isNew ? prev.brandName : prev.custom_brandName,
+          custom_category: prev.isNew ? prev.category : prev.custom_category,
+          custom_productType: prev.isNew ? prev.productType : prev.custom_productType,
+          custom_unit: prev.isNew ? prev.unit : prev.custom_unit,
+          custom_mux: prev.isNew ? prev.mux : prev.custom_mux,
+        }));
+      }
+    }
+  };
+
+  const handleProductQuickAdded = (newProduct) => {
+    if (!newProduct) return;
+    setExistingProductsList(prev => [newProduct, ...prev]);
+    setProductLookup(prev => {
+      const next = new Map(prev);
+      next.set(matchKey(newProduct.brand_name, newProduct.category, newProduct.product_type, newProduct.mux), newProduct);
+      return next;
+    });
+
+    if (editingIndex !== null) {
+      setEditDraft(prev => ({
+        ...prev,
+        isNew: false,
+        productId: newProduct.product_id,
+        productName: newProduct.name,
+        brandName: newProduct.brand_name || '',
+        category: newProduct.category || '',
+        productType: newProduct.product_type || '',
+        unit: newProduct.unit || '',
+        mux: newProduct.mux || '',
+      }));
+    }
+    setQuickAddOpen(false);
+  };
+
   const saveEdit = () => {
-    const productName = buildProductName(editDraft.brandName, editDraft.category, editDraft.productType, editDraft.mux);
+    const isExplicitExisting = !editDraft.isNew && !!editDraft.productId;
+    const computedName = buildProductName(editDraft.brandName, editDraft.category, editDraft.productType, editDraft.mux);
     const match = productLookup.get(matchKey(editDraft.brandName, editDraft.category, editDraft.productType, editDraft.mux));
+
+    const finalProductId = isExplicitExisting ? editDraft.productId : (match?.product_id || null);
+    const finalIsNew = isExplicitExisting ? false : !match;
+    const finalProductName = isExplicitExisting
+      ? (editDraft.productName || match?.name || computedName)
+      : (match?.name || computedName);
+
     setRows(prev => prev.map((r, i) => i !== editingIndex ? r : {
       ...r,
       ...editDraft,
       qty: Number(editDraft.qty) || 0,
-      productName,
-      productId: match?.product_id || null,
-      isNew: !match,
+      productName: finalProductName,
+      productId: finalProductId,
+      isNew: finalIsNew,
     }));
     setEditingIndex(null);
     setEditDraft(null);
@@ -256,8 +370,30 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
     XLSX.writeFile(wb, 'Products_Import_Template.xlsx');
   };
 
+  const productOptions = useMemo(() => {
+    const currentNewName = buildProductName(
+      editDraft?.isNew ? editDraft.brandName : (editDraft?.custom_brandName || editDraft?.brandName),
+      editDraft?.isNew ? editDraft.category : (editDraft?.custom_category || editDraft?.category),
+      editDraft?.isNew ? editDraft.productType : (editDraft?.custom_productType || editDraft?.productType),
+      editDraft?.isNew ? editDraft.mux : (editDraft?.custom_mux || editDraft?.mux)
+    );
+
+    return [
+      {
+        value: '__new__',
+        label: `(New) ${currentNewName || 'Create as New Product'}`,
+        isNewOption: true,
+      },
+      ...existingProductsList.map(p => ({
+        value: p.product_id,
+        label: p.name,
+        meta: [p.brand_name, p.category, p.product_type, p.mux].filter(Boolean).join(' • '),
+      }))
+    ];
+  }, [existingProductsList, editDraft]);
+
   const summary = rows.reduce((acc, r) => {
-    const key = matchKey(r.brandName, r.category, r.productType, r.mux);
+    const key = r.productId ? `id:${r.productId}` : matchKey(r.brandName, r.category, r.productType, r.mux);
     if (!acc[key]) acc[key] = { productName: r.productName, isNew: r.isNew, godowns: new Set(), totalQty: 0, count: 0 };
     acc[key].godowns.add(r.godownName);
     acc[key].totalQty += Number(r.qty) || 0;
@@ -268,354 +404,471 @@ const BulkImportModal = ({ isOpen, onClose, godowns, user, onSuccess }) => {
   const existingProductCount = Object.keys(summary).length - newProductCount;
 
   return (
-    <Modal open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
-      <ModalContent className="max-w-4xl">
-        <ModalHeader>
-          <div className="bg-primary/10 p-2 rounded-lg"><FileSpreadsheet size={20} className="text-primary" /></div>
-          <h2 className="text-xl font-bold text-slate-800">Bulk Import Products</h2>
-        </ModalHeader>
+    <>
+      <Modal open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
+        <ModalContent className="max-w-4xl">
+          <ModalHeader>
+            <div className="bg-primary/10 p-2 rounded-lg"><FileSpreadsheet size={20} className="text-primary" /></div>
+            <ModalTitle asChild>
+              <h2 className="text-xl font-bold text-slate-800">Bulk Import Products</h2>
+            </ModalTitle>
+          </ModalHeader>
 
-        {step === 'upload' && (
-          <>
-            <ModalBody>
-              <div
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-slate-300 rounded-xl p-10 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all"
-              >
-                <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-200">
-                  <Upload size={28} className="text-slate-400" />
-                </div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Click to upload or drag and drop</p>
-                <p className="text-xs text-slate-400">.xlsx, .xls, or .csv files</p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={(e) => handleFile(e.target.files[0])}
-                  className="hidden"
-                />
-              </div>
-              
-              <div className="mt-6 flex flex-col gap-4">
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-700 flex items-start gap-3 shadow-2xs">
-                  <div className="p-1.5 rounded-lg bg-amber-100/80 text-amber-700 shrink-0 mt-0.5">
-                    <FileText size={16} />
+          {step === 'upload' && (
+            <>
+              <ModalBody>
+                <div
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-slate-300 rounded-xl p-10 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all"
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-200">
+                    <Upload size={28} className="text-slate-400" />
                   </div>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-slate-800 text-xs">Required Document Guidelines</span>
-                      <span className="px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-600 text-[10px] font-medium">Formats: .xlsx, .xls, .csv</span>
+                  <p className="text-sm font-medium text-slate-600 mb-1">Click to upload or drag and drop</p>
+                  <p className="text-xs text-slate-400">.xlsx, .xls, or .csv files</p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={(e) => handleFile(e.target.files[0])}
+                    className="hidden"
+                  />
+                </div>
+
+                <div className="mt-6 flex flex-col gap-4">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-700 flex items-start gap-3 shadow-2xs">
+                    <div className="p-1.5 rounded-lg bg-amber-100/80 text-amber-700 shrink-0 mt-0.5">
+                      <FileText size={16} />
                     </div>
-                    <p className="text-slate-600 text-[11px] leading-relaxed">
-                      Your document can include headers for <strong>Brand Name</strong>, <strong>Category</strong>, <strong>Size</strong>, <strong>Unit</strong>,
-                      <strong> mux</strong>, <strong>Godown Name</strong>, and <strong>Qty</strong> — none are mandatory. Product Name is auto-generated as Brand + Category + Size + (mux) and matched
-                      against existing products — a combination not found in the system will be auto-created. Godowns must already exist in Master records.
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="border border-slate-200 rounded-lg overflow-hidden">
-                  <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Expected Format</span>
-                    <button onClick={handleDownloadTemplate} className="text-xs text-primary hover:underline flex items-center gap-1 font-medium transition-colors">
-                      <Download size={12} /> Download Template
-                    </button>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs text-left whitespace-nowrap">
-                      <thead className="bg-white">
-                        <tr>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Brand Name</th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Category</th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Size</th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Unit</th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">mux</th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Godown Name</th>
-                          <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Qty</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-slate-50/50">
-                        <tr>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Ambuja</td>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Nt 160g</td>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">10*13</td>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">bag</td>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">32 Kg</td>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Main Godown</td>
-                          <td className="px-3 py-2 text-slate-500 border-b border-slate-100">500</td>
-                        </tr>
-                        <tr>
-                          <td className="px-3 py-2 text-slate-500">AM</td>
-                          <td className="px-3 py-2 text-slate-500">BLK</td>
-                          <td className="px-3 py-2 text-slate-500">7*14</td>
-                          <td className="px-3 py-2 text-slate-500">bag</td>
-                          <td className="px-3 py-2 text-slate-500">30 Kg</td>
-                          <td className="px-3 py-2 text-slate-500">Site B Godown</td>
-                          <td className="px-3 py-2 text-slate-500">1000</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </ModalBody>
-            <ModalFooter>
-              <Button variant="outline" onClick={handleClose}>Cancel</Button>
-            </ModalFooter>
-          </>
-        )}
-
-        {step === 'preview' && (
-          <>
-            <ModalBody>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm text-slate-500">
-                  <span className="font-medium text-slate-700">{rows.length}</span> rows found in <span className="font-medium">{fileName}</span>
-                </p>
-                <button onClick={() => setStep('upload')} className="text-xs text-primary hover:underline flex items-center gap-1">
-                  <ArrowLeft size={12} /> Change file
-                </button>
-              </div>
-              <div className="flex items-center gap-4 mb-2 text-[11px] text-slate-500">
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-green-400 inline-block" />Existing product — stock will be added</span>
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400 inline-block" />New product — will be created</span>
-              </div>
-              <div className="border border-slate-200 rounded-lg max-h-72 overflow-auto">
-                <table className="w-full text-sm min-w-[880px]">
-                  <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
-                    <tr>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">#</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Product Name</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Brand Name</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Category</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Size</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Unit</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">mux</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Godown Name</th>
-                      <th className="text-right px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Qty</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Status</th>
-                      <th className="text-center px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Edit</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {rows.map((r, i) => {
-                      const isEditing = editingIndex === i;
-                      const cellInput = (field, opts = {}) => (
-                        <input
-                          type={opts.type || 'text'}
-                          value={editDraft[field]}
-                          onChange={(e) => setEditDraft({ ...editDraft, [field]: opts.type === 'number' ? sanitizeQtyInput(e.target.value) : e.target.value })}
-                          className="w-full min-w-[70px] border border-slate-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-                        />
-                      );
-                      return (
-                        <tr key={i} className={isEditing ? 'bg-blue-50/60' : r.isNew ? 'bg-red-50/50 hover:bg-red-50' : 'bg-green-50/50 hover:bg-green-50'}>
-                          <td className="px-3 py-2 text-slate-400 text-xs">{i + 1}</td>
-                          {isEditing ? (
-                            <>
-                              <td className="px-3 py-2 text-slate-400 italic text-xs whitespace-nowrap">
-                                {buildProductName(editDraft.brandName, editDraft.category, editDraft.productType, editDraft.mux) || 'empty'}
-                              </td>
-                              <td className="px-2 py-2">{cellInput('brandName')}</td>
-                              <td className="px-2 py-2">{cellInput('category')}</td>
-                              <td className="px-2 py-2">{cellInput('productType')}</td>
-                              <td className="px-2 py-2">
-                                <select
-                                  value={editDraft.unit}
-                                  onChange={(e) => setEditDraft({ ...editDraft, unit: e.target.value })}
-                                  className="w-full min-w-[70px] border border-slate-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary bg-white"
-                                >
-                                  <option value="">Select unit</option>
-                                  {['kg', 'bag'].map(u => (
-                                    <option key={u} value={u}>{u}</option>
-                                  ))}
-                                </select>
-                              </td>
-                              <td className="px-2 py-2">{cellInput('mux')}</td>
-                              <td className="px-2 py-2">
-                                {activeGodowns.length > 0 ? (
-                                  <select
-                                    value={editDraft.godownName}
-                                    onChange={(e) => setEditDraft({ ...editDraft, godownName: e.target.value })}
-                                    className="w-full min-w-[100px] border border-slate-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary bg-white"
-                                  >
-                                    <option value="">Select godown</option>
-                                    {activeGodowns.map(g => (
-                                      <option key={g.godown_id} value={g.name}>{g.name}</option>
-                                    ))}
-                                  </select>
-                                ) : cellInput('godownName')}
-                              </td>
-                              <td className="px-2 py-2">{cellInput('qty', { type: 'number' })}</td>
-                              <td className="px-3 py-2" colSpan={2}>
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <button type="button" onClick={saveEdit} title="Save" className="p-1 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200">
-                                    <Check size={13} />
-                                  </button>
-                                  <button type="button" onClick={cancelEdit} title="Cancel" className="p-1 rounded bg-slate-100 text-slate-500 hover:bg-slate-200">
-                                    <X size={13} />
-                                  </button>
-                                </div>
-                              </td>
-                            </>
-                          ) : (
-                            <>
-                              <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{r.productName || <span className="text-red-400 italic">empty</span>}</td>
-                              <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.brandName || <span className="text-red-400 italic">empty</span>}</td>
-                              <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.category || <span className="text-red-400 italic">empty</span>}</td>
-                              <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.productType || <span className="text-slate-300">—</span>}</td>
-                              <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.unit || <span className="text-slate-300">—</span>}</td>
-                              <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.mux || <span className="text-slate-300">—</span>}</td>
-                              <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{r.godownName || <span className="text-red-400 italic">empty</span>}</td>
-                              <td className="px-3 py-2 text-right font-medium whitespace-nowrap">{r.qty || <span className="text-red-400 italic">0</span>}</td>
-                              <td className="px-3 py-2 whitespace-nowrap">
-                                {r.isNew ? (
-                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">New</span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Existing</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-center">
-                                <button type="button" onClick={() => startEdit(i)} title="Edit row" className="p-1 rounded text-slate-400 hover:text-primary hover:bg-primary/10">
-                                  <Pencil size={13} />
-                                </button>
-                              </td>
-                            </>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                <p className="text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wider">Summary</p>
-                <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-                  <div><span className="text-slate-400">Unique Products:</span> <span className="font-medium">{Object.keys(summary).length}</span></div>
-                  <div><span className="text-slate-400">Total Entries:</span> <span className="font-medium">{rows.length}</span></div>
-                  <div><span className="text-slate-400">New Products:</span> <span className="font-medium text-red-600">{newProductCount}</span></div>
-                  <div><span className="text-slate-400">Existing Products:</span> <span className="font-medium text-green-700">{existingProductCount}</span></div>
-                  {Object.entries(summary).slice(0, 5).map(([key, s]) => (
-                    <div key={key} className="col-span-2 truncate" title={s.productName}>
-                      <span className={s.isNew ? 'text-red-400' : 'text-green-500'}>•</span> {s.productName} — <span className="font-medium">{s.godowns.size}</span> godown{s.godowns.size !== 1 ? 's' : ''}, <span className="font-medium">{s.totalQty}</span> total qty
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-800 text-xs">Required Document Guidelines</span>
+                        <span className="px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-600 text-[10px] font-medium">Formats: .xlsx, .xls, .csv</span>
+                      </div>
+                      <p className="text-slate-600 text-[11px] leading-relaxed">
+                        Your document can include headers for <strong>Brand Name</strong>, <strong>Category</strong>, <strong>Size</strong>, <strong>Unit</strong>,
+                        <strong> mux</strong>, <strong>Godown Name</strong>, and <strong>Qty</strong> — none are mandatory. Product Name is auto-generated as Brand + Category + Size + (mux) and matched
+                        against existing products — a combination not found in the system will be auto-created. Godowns must already exist in Master records.
+                      </p>
                     </div>
-                  ))}
-                  {Object.keys(summary).length > 5 && (
-                    <div className="col-span-2 text-slate-400 italic">...and {Object.keys(summary).length - 5} more</div>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">As of Date</label>
-                <DatePicker value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} />
-              </div>
-            </ModalBody>
-            <ModalFooter>
-              <Button variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button onClick={handleImport} disabled={submitting}>
-                {submitting ? 'Importing...' : `Import ${rows.length} Entr${rows.length === 1 ? 'y' : 'ies'}`}
-              </Button>
-            </ModalFooter>
-          </>
-        )}
-
-        {step === 'processing' && (
-          <ModalBody>
-            <div className="flex flex-col items-center justify-center py-12">
-              <div className="relative mb-6">
-                <div className="w-20 h-20 rounded-2xl bg-primary/5 flex items-center justify-center border border-primary/10">
-                  <Database size={36} className="text-primary" />
-                </div>
-                <div className="absolute -top-1 -right-1">
-                  <span className="relative flex h-5 w-5">
-                    <span className="animate-ping absolute inset-0 rounded-full bg-primary opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-5 w-5 bg-primary"></span>
-                  </span>
-                </div>
-              </div>
-              <Loader size={28} className="text-primary animate-spin mb-4" />
-              <p className="text-base font-semibold text-slate-800 mb-1">Importing Products</p>
-              <p className="text-sm text-slate-400">Processing {rows.length} entr{rows.length === 1 ? 'y' : 'ies'} into the system...</p>
-              <div className="mt-6 w-64 h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-primary rounded-full animate-pulse" style={{ width: '60%' }}></div>
-              </div>
-              <p className="text-xs text-slate-400 mt-2">This may take a few seconds</p>
-            </div>
-          </ModalBody>
-        )}
-
-        {step === 'results' && results && (
-          <>
-            <ModalBody>
-              <div className="flex items-center gap-3 mb-4">
-                {results.errorCount === 0 ? (
-                  <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
-                    <CheckCircle size={24} className="text-green-600" />
                   </div>
-                ) : results.successCount > 0 ? (
-                  <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
-                    <AlertCircle size={24} className="text-amber-600" />
+
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Expected Format</span>
+                      <button onClick={handleDownloadTemplate} className="text-xs text-primary hover:underline flex items-center gap-1 font-medium transition-colors">
+                        <Download size={12} /> Download Template
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left whitespace-nowrap">
+                        <thead className="bg-white">
+                          <tr>
+                            <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Brand Name</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Category</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Size</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Unit</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">mux</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Godown Name</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Qty</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-slate-50/50">
+                          <tr>
+                            <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Ambuja</td>
+                            <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Nt 160g</td>
+                            <td className="px-3 py-2 text-slate-500 border-b border-slate-100">10*13</td>
+                            <td className="px-3 py-2 text-slate-500 border-b border-slate-100">bag</td>
+                            <td className="px-3 py-2 text-slate-500 border-b border-slate-100">32 Kg</td>
+                            <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Main Godown</td>
+                            <td className="px-3 py-2 text-slate-500 border-b border-slate-100">500</td>
+                          </tr>
+                          <tr>
+                            <td className="px-3 py-2 text-slate-500">AM</td>
+                            <td className="px-3 py-2 text-slate-500">BLK</td>
+                            <td className="px-3 py-2 text-slate-500">7*14</td>
+                            <td className="px-3 py-2 text-slate-500">bag</td>
+                            <td className="px-3 py-2 text-slate-500">30 Kg</td>
+                            <td className="px-3 py-2 text-slate-500">Site B Godown</td>
+                            <td className="px-3 py-2 text-slate-500">1000</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                ) : (
-                  <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
-                    <XCircle size={24} className="text-red-600" />
-                  </div>
-                )}
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">
-                    {results.errorCount === 0
-                      ? 'Import completed successfully!'
-                      : results.successCount > 0
-                        ? 'Import completed with some errors'
-                        : 'Import failed'}
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="outline" onClick={handleClose}>Cancel</Button>
+              </ModalFooter>
+            </>
+          )}
+
+          {step === 'preview' && (
+            <>
+              <ModalBody>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm text-slate-500">
+                    <span className="font-medium text-slate-700">{rows.length}</span> rows found in <span className="font-medium">{fileName}</span>
                   </p>
-                  <p className="text-xs text-slate-500">
-                    {results.successCount} entr{results.successCount === 1 ? 'y' : 'ies'} imported
-                    {results.newProductCount > 0 ? ` · ${results.newProductCount} product${results.newProductCount === 1 ? '' : 's'} created` : ''}
-                    {results.errorCount > 0 ? ` · ${results.errorCount} error${results.errorCount === 1 ? '' : 's'}` : ''}
-                  </p>
+                  <button onClick={() => setStep('upload')} className="text-xs text-primary hover:underline flex items-center gap-1">
+                    <ArrowLeft size={12} /> Change file
+                  </button>
                 </div>
-              </div>
-
-              {results.errors.length > 0 && (
-                <div className="border border-red-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-red-50 border-b border-red-200 sticky top-0">
+                <div className="flex items-center gap-4 mb-2 text-[11px] text-slate-500">
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-green-400 inline-block" />Existing product — stock will be added</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400 inline-block" />New product — will be created</span>
+                </div>
+                <div className="border border-slate-200 rounded-lg max-h-72 overflow-auto">
+                  <table className="w-full text-sm min-w-[980px]">
+                    <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                       <tr>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-red-600 uppercase">Row</th>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-red-600 uppercase">Error</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">#</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Product Name</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Brand Name</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Category</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Size</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Unit</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">mux</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Godown Name</th>
+                        <th className="text-right px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Qty</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Status</th>
+                        <th className="text-center px-3 py-2 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Edit</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-red-100">
-                      {results.errors.map((err, i) => (
-                        <tr key={i} className="hover:bg-red-50/50">
-                          <td className="px-3 py-2 text-xs text-slate-600">{err.row}</td>
-                          <td className="px-3 py-2 text-xs text-red-600">{err.message}</td>
-                        </tr>
-                      ))}
+                    <tbody className="divide-y divide-slate-100">
+                      {rows.map((r, i) => {
+                        const isEditing = editingIndex === i;
+                        const isLockedToExisting = !editDraft?.isNew && !!editDraft?.productId;
+
+                        const cellInput = (field, opts = {}) => {
+                          const isFieldDisabled = opts.disabled ?? (isLockedToExisting && ['brandName', 'category', 'productType', 'mux'].includes(field));
+                          return (
+                            <input
+                              type={opts.type || 'text'}
+                              value={editDraft[field] ?? ''}
+                              disabled={isFieldDisabled}
+                              onChange={(e) => {
+                                const val = opts.type === 'number' ? sanitizeQtyInput(e.target.value) : e.target.value;
+                                setEditDraft(prev => ({
+                                  ...prev,
+                                  [field]: val,
+                                  ...(prev.isNew ? { [`custom_${field}`]: val } : {})
+                                }));
+                              }}
+                              className={cn(
+                                "w-full min-w-[70px] border rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary",
+                                isFieldDisabled
+                                  ? "border-slate-200 bg-slate-100/70 text-slate-500 cursor-not-allowed select-none"
+                                  : "border-slate-300 bg-white"
+                              )}
+                            />
+                          );
+                        };
+                        return (
+                          <tr key={i} className={isEditing ? 'bg-blue-50/60' : r.isNew ? 'bg-red-50/50 hover:bg-red-50' : 'bg-green-50/50 hover:bg-green-50'}>
+                            <td className="px-3 py-2 text-slate-400 text-xs">{i + 1}</td>
+                            {isEditing ? (
+                              <>
+                                <td className="px-2 py-2 min-w-[220px]">
+                                  <Dropdown
+                                    value={editDraft.isNew ? '__new__' : (editDraft.productId || '__new__')}
+                                    onValueChange={handleProductSelect}
+                                    options={productOptions}
+                                    placeholder="Select Product"
+                                    searchPlaceholder="Search existing products..."
+                                    emptyText="No matching products found."
+                                    onAddNew={() => setQuickAddOpen(true)}
+                                    addNewLabel="+ Add New Product"
+                                    className="h-8 text-xs py-1 px-2 border-slate-300 bg-white"
+                                    contentClassName="w-80 shadow-lg"
+                                    renderOption={(opt) => {
+                                      if (opt.isNewOption) {
+                                        return (
+                                          <div className="flex items-center gap-1.5 py-0.5 w-full">
+                                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 uppercase shrink-0">
+                                              New
+                                            </span>
+                                            <span className="font-medium text-slate-800 truncate">
+                                              {opt.label || 'Create as New Product'}
+                                            </span>
+                                          </div>
+                                        );
+                                      }
+                                      return (
+                                        <div className="flex flex-col py-0.5 w-full text-left">
+                                          <div className="flex items-center gap-1.5 w-full">
+                                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700 uppercase shrink-0">
+                                              Existing
+                                            </span>
+                                            <span className="font-medium text-slate-800 truncate flex-1">
+                                              {opt.label}
+                                            </span>
+                                          </div>
+                                          {opt.meta && (
+                                            <span className="text-[11px] text-slate-400 truncate pl-6 mt-0.5">
+                                              {opt.meta}
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    }}
+                                  >
+                                    {editDraft.isNew ? (
+                                      <span className="flex items-center gap-1.5 truncate text-left w-full">
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 uppercase shrink-0">
+                                          New
+                                        </span>
+                                        <span className="truncate text-slate-700 font-medium">
+                                          {buildProductName(editDraft.brandName, editDraft.category, editDraft.productType, editDraft.mux) || 'Create as New'}
+                                        </span>
+                                      </span>
+                                    ) : (
+                                      <span className="flex items-center gap-1.5 truncate text-left w-full">
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700 uppercase shrink-0">
+                                          Existing
+                                        </span>
+                                        <span className="truncate text-slate-800 font-medium">
+                                          {editDraft.productName || 'Select Product'}
+                                        </span>
+                                      </span>
+                                    )}
+                                  </Dropdown>
+                                </td>
+                                <td className="px-2 py-2">{cellInput('brandName')}</td>
+                                <td className="px-2 py-2">{cellInput('category')}</td>
+                                <td className="px-2 py-2">{cellInput('productType')}</td>
+                                <td className="px-2 py-2">
+                                  <select
+                                    value={editDraft.unit || ''}
+                                    disabled={isLockedToExisting}
+                                    onChange={(e) => setEditDraft(prev => ({
+                                      ...prev,
+                                      unit: e.target.value,
+                                      ...(prev.isNew ? { custom_unit: e.target.value } : {})
+                                    }))}
+                                    className={cn(
+                                      "w-full min-w-[70px] border rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary",
+                                      isLockedToExisting
+                                        ? "border-slate-200 bg-slate-100/70 text-slate-500 cursor-not-allowed select-none"
+                                        : "border-slate-300 bg-white"
+                                    )}
+                                  >
+                                    <option value="">Select unit</option>
+                                    {['kg', 'bag'].map(u => (
+                                      <option key={u} value={u}>{u}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="px-2 py-2">{cellInput('mux')}</td>
+                                <td className="px-2 py-2">
+                                  {activeGodowns.length > 0 ? (
+                                    <select
+                                      value={editDraft.godownName}
+                                      onChange={(e) => setEditDraft({ ...editDraft, godownName: e.target.value })}
+                                      className="w-full min-w-[100px] border border-slate-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary bg-white"
+                                    >
+                                      <option value="">Select godown</option>
+                                      {activeGodowns.map(g => (
+                                        <option key={g.godown_id} value={g.name}>{g.name}</option>
+                                      ))}
+                                    </select>
+                                  ) : cellInput('godownName')}
+                                </td>
+                                <td className="px-2 py-2">{cellInput('qty', { type: 'number' })}</td>
+                                <td className="px-3 py-2 whitespace-nowrap">
+                                  {editDraft.isNew ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">New</span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Existing</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button type="button" onClick={saveEdit} title="Save" className="p-1 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200">
+                                      <Check size={13} />
+                                    </button>
+                                    <button type="button" onClick={cancelEdit} title="Cancel" className="p-1 rounded bg-slate-100 text-slate-500 hover:bg-slate-200">
+                                      <X size={13} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{r.productName || <span className="text-red-400 italic">empty</span>}</td>
+                                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.brandName || <span className="text-red-400 italic">empty</span>}</td>
+                                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.category || <span className="text-red-400 italic">empty</span>}</td>
+                                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.productType || <span className="text-slate-300">—</span>}</td>
+                                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.unit || <span className="text-slate-300">—</span>}</td>
+                                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.mux || <span className="text-slate-300">—</span>}</td>
+                                <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{r.godownName || <span className="text-red-400 italic">empty</span>}</td>
+                                <td className="px-3 py-2 text-right font-medium whitespace-nowrap">{r.qty || <span className="text-red-400 italic">0</span>}</td>
+                                <td className="px-3 py-2 whitespace-nowrap">
+                                  {r.isNew ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">New</span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Existing</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <button type="button" onClick={() => startEdit(i)} title="Edit row" className="p-1 rounded text-slate-400 hover:text-primary hover:bg-primary/10">
+                                    <Pencil size={13} />
+                                  </button>
+                                </td>
+                              </>
+                            )}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
-              )}
 
-              {results.successCount > 0 && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-700 flex items-start gap-2">
-                  <CheckCircle size={14} className="mt-0.5 shrink-0" />
-                  <span>Successfully imported {results.successCount} opening stock entr{results.successCount === 1 ? 'y' : 'ies'} into the system.</span>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wider">Summary</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                    <div><span className="text-slate-400">Unique Products:</span> <span className="font-medium">{Object.keys(summary).length}</span></div>
+                    <div><span className="text-slate-400">Total Entries:</span> <span className="font-medium">{rows.length}</span></div>
+                    <div><span className="text-slate-400">New Products:</span> <span className="font-medium text-red-600">{newProductCount}</span></div>
+                    <div><span className="text-slate-400">Existing Products:</span> <span className="font-medium text-green-700">{existingProductCount}</span></div>
+                    {Object.entries(summary).slice(0, 5).map(([key, s]) => (
+                      <div key={key} className="col-span-2 truncate" title={s.productName}>
+                        <span className={s.isNew ? 'text-red-400' : 'text-green-500'}>•</span> {s.productName} — <span className="font-medium">{s.godowns.size}</span> godown{s.godowns.size !== 1 ? 's' : ''}, <span className="font-medium">{s.totalQty}</span> total qty
+                      </div>
+                    ))}
+                    {Object.keys(summary).length > 5 && (
+                      <div className="col-span-2 text-slate-400 italic">...and {Object.keys(summary).length - 5} more</div>
+                    )}
+                  </div>
                 </div>
-              )}
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">As of Date</label>
+                  <DatePicker value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} />
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="outline" onClick={handleClose}>Cancel</Button>
+                <Button onClick={handleImport} disabled={submitting}>
+                  {submitting ? 'Importing...' : `Import ${rows.length} Entr${rows.length === 1 ? 'y' : 'ies'}`}
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+
+          {step === 'processing' && (
+            <ModalBody>
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="relative mb-6">
+                  <div className="w-20 h-20 rounded-2xl bg-primary/5 flex items-center justify-center border border-primary/10">
+                    <Database size={36} className="text-primary" />
+                  </div>
+                  <div className="absolute -top-1 -right-1">
+                    <span className="relative flex h-5 w-5">
+                      <span className="animate-ping absolute inset-0 rounded-full bg-primary opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-5 w-5 bg-primary"></span>
+                    </span>
+                  </div>
+                </div>
+                <Loader size={28} className="text-primary animate-spin mb-4" />
+                <p className="text-base font-semibold text-slate-800 mb-1">Importing Products</p>
+                <p className="text-sm text-slate-400">Processing {rows.length} entr{rows.length === 1 ? 'y' : 'ies'} into the system...</p>
+                <div className="mt-6 w-64 h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-primary rounded-full animate-pulse" style={{ width: '60%' }}></div>
+                </div>
+                <p className="text-xs text-slate-400 mt-2">This may take a few seconds</p>
+              </div>
             </ModalBody>
-            <ModalFooter>
-              <Button onClick={handleDone}>Done</Button>
-            </ModalFooter>
-          </>
-        )}
-      </ModalContent>
-    </Modal>
+          )}
+
+          {step === 'results' && results && (
+            <>
+              <ModalBody>
+                <div className="flex items-center gap-3 mb-4">
+                  {results.errorCount === 0 ? (
+                    <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
+                      <CheckCircle size={24} className="text-green-600" />
+                    </div>
+                  ) : results.successCount > 0 ? (
+                    <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
+                      <AlertCircle size={24} className="text-amber-600" />
+                    </div>
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                      <XCircle size={24} className="text-red-600" />
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">
+                      {results.errorCount === 0
+                        ? 'Import completed successfully!'
+                        : results.successCount > 0
+                          ? 'Import completed with some errors'
+                          : 'Import failed'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {results.successCount} entr{results.successCount === 1 ? 'y' : 'ies'} imported
+                      {results.newProductCount > 0 ? ` · ${results.newProductCount} product${results.newProductCount === 1 ? '' : 's'} created` : ''}
+                      {results.errorCount > 0 ? ` · ${results.errorCount} error${results.errorCount === 1 ? '' : 's'}` : ''}
+                    </p>
+                  </div>
+                </div>
+
+                {results.errors.length > 0 && (
+                  <div className="border border-red-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-red-50 border-b border-red-200 sticky top-0">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-xs font-semibold text-red-600 uppercase">Row</th>
+                          <th className="text-left px-3 py-2 text-xs font-semibold text-red-600 uppercase">Error</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-red-100">
+                        {results.errors.map((err, i) => (
+                          <tr key={i} className="hover:bg-red-50/50">
+                            <td className="px-3 py-2 text-xs text-slate-600">{err.row}</td>
+                            <td className="px-3 py-2 text-xs text-red-600">{err.message}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {results.successCount > 0 && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-700 flex items-start gap-2">
+                    <CheckCircle size={14} className="mt-0.5 shrink-0" />
+                    <span>Successfully imported {results.successCount} opening stock entr{results.successCount === 1 ? 'y' : 'ies'} into the system.</span>
+                  </div>
+                )}
+              </ModalBody>
+              <ModalFooter>
+                <Button onClick={handleDone}>Done</Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      <ProductModal
+        isOpen={quickAddOpen}
+        onClose={() => setQuickAddOpen(false)}
+        godowns={godowns}
+        user={user}
+        onSuccess={handleProductQuickAdded}
+        initialValues={editDraft ? {
+          brand_name: editDraft.brandName || '',
+          category: editDraft.category || '',
+          product_type: editDraft.productType || '',
+          unit: editDraft.unit || 'bag',
+          mux: editDraft.mux || '',
+        } : null}
+        quickAdd
+      />
+    </>
   );
 };
 

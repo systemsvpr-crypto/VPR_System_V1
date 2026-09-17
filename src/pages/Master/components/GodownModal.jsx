@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { createGodown } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 
 const GodownModal = ({ isOpen, onClose, onSuccess }) => {
   const [name, setName] = useState('');
@@ -30,7 +30,9 @@ const GodownModal = ({ isOpen, onClose, onSuccess }) => {
       <ModalContent className="max-w-md">
         <ModalHeader>
           <div className="bg-primary/10 p-2 rounded-lg"><Warehouse size={20} className="text-primary" /></div>
-          <h2 className="text-xl font-bold text-slate-800">Add Godown</h2>
+          <ModalTitle asChild>
+            <h2 className="text-xl font-bold text-slate-800">Add Godown</h2>
+          </ModalTitle>
         </ModalHeader>
         <form onSubmit={handleSubmit}>
           <ModalBody>

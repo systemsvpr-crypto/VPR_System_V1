@@ -423,181 +423,179 @@ const Master = () => {
 
       <div className="flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex-1 min-h-0">
 
-      {visibleTabs.length === 0 ? (
-        <div className="p-12 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
-            <Package size={32} className="text-slate-300" />
-          </div>
-          <h3 className="text-base font-semibold text-slate-600 mb-1">No Tabs Available</h3>
-          <p className="text-sm text-slate-400">You don't have access to any Master tabs. Contact your administrator.</p>
-        </div>
-      ) : (
-      <div className="flex flex-col flex-1 min-h-0">
-        {/* Table UI Header matching Live Stock pages */}
-        <div className="px-5 py-4 border-b border-slate-100 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 bg-white shrink-0">
-          
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="bg-blue-50 p-2 rounded-lg text-blue-600">
-              {(() => {
-                const ActiveIcon = visibleTabs.find(t => t.id === activeTab)?.icon || Package;
-                return <ActiveIcon size={18} />;
-              })()}
+        {visibleTabs.length === 0 ? (
+          <div className="p-12 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+              <Package size={32} className="text-slate-300" />
             </div>
-            <h3 className="font-semibold text-slate-800 text-lg">
-              {visibleTabs.find(t => t.id === activeTab)?.label || 'Master'}
-            </h3>
+            <h3 className="text-base font-semibold text-slate-600 mb-1">No Tabs Available</h3>
+            <p className="text-sm text-slate-400">You don't have access to any Master tabs. Contact your administrator.</p>
           </div>
+        ) : (
+          <div className="flex flex-col flex-1 min-h-0">
+            {/* Table UI Header matching Live Stock pages */}
+            <div className="px-5 py-4 border-b border-slate-100 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 bg-white shrink-0">
 
-          <div className="flex flex-nowrap items-center gap-3 w-full xl:w-auto xl:justify-end overflow-x-auto pb-1 xl:pb-0">
-            <div className="relative w-full sm:w-48 shrink-0">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={14} />
-              <Input type="text" placeholder={`Search ${activeTab}...`} className="pl-8 h-8 w-full text-sm"
-                value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-            </div>
-            {activeTab === 'products' && ownGodowns.length > 0 && (
-              <div className="w-40 shrink-0">
-                <FilterSelect
-                  value={godownFilter}
-                  onValueChange={setGodownFilter}
-                  options={ownGodowns.map(g => ({ id: g.godown_id, name: g.name }))}
-                  placeholder="All Godowns"
-                  label="Filter by Godown"
-                  allLabel="All Godowns"
-                />
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="bg-blue-50 p-2 rounded-lg text-blue-600">
+                  {(() => {
+                    const ActiveIcon = visibleTabs.find(t => t.id === activeTab)?.icon || Package;
+                    return <ActiveIcon size={18} />;
+                  })()}
+                </div>
+                <h3 className="font-semibold text-slate-800 text-lg">
+                  {visibleTabs.find(t => t.id === activeTab)?.label || 'Master'}
+                </h3>
               </div>
-            )}
-            {activeTab === 'products' && transporterGodowns.length > 0 && (
-              <div className="w-40 shrink-0">
-                <FilterSelect
-                  value={transporterFilter}
-                  onValueChange={setTransporterFilter}
-                  options={transporterGodowns.map(g => ({ id: g.godown_id, name: g.name }))}
-                  placeholder="All Transporters"
-                  label="Filter by Transporter"
-                  allLabel="All Transporters"
-                />
-              </div>
-            )}
-            {activeTab === 'products' && productGroupings.length > 0 && (
-              <div className="w-40 shrink-0">
-                <FilterSelect
-                  value={groupingFilter}
-                  onValueChange={setGroupingFilter}
-                  options={productGroupings}
-                  placeholder="All Groupings"
-                  label="Filter by Grouping"
-                  allLabel="All Groupings"
-                />
-              </div>
-            )}
-            {activeTab === 'godowns' && (
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 w-fit shrink-0">
-                <button type="button" onClick={() => setGodownTypeFilter('Own')}
-                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-all h-6 flex items-center ${
-                    godownTypeFilter === 'Own' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}>
-                  Own
-                </button>
-                <button type="button" onClick={() => setGodownTypeFilter('Transporter')}
-                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-all h-6 flex items-center ${
-                    godownTypeFilter === 'Transporter' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}>
-                  Transporter
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            {!loading && (
-              <>
-                {['products', 'customers', 'vendors', 'transporters'].includes(activeTab) && (
-                  <Button onClick={() => {
-                    if (activeTab === 'products') setImportModalOpen(true);
-                    else setEntityImportType(activeTab);
-                  }} variant="outline" className="gap-2 px-3 h-8 text-sm font-medium">
-                    <FileSpreadsheet size={15} /><span>Import</span>
-                  </Button>
-                )}
-                {!(activeTab === 'godowns' && godownTypeFilter === 'Transporter') && (
-                  <Button onClick={() => {
-                    if (activeTab === 'products') { setEditingProduct(null); setProductModalOpen(true); }
-                    else if (activeTab === 'godowns') setGodownModalOpen(true);
-                    else if (activeTab === 'customers') { setEditingCustomer(null); setCustomerModalOpen(true); }
-                    else if (activeTab === 'vendors') { setEditingVendor(null); setVendorModalOpen(true); }
-                    else if (activeTab === 'transporters') { setEditingTransporter(null); setTransporterModalOpen(true); }
-                    else if (activeTab === 'product-grouping') { setEditingGroup(null); setGroupModalOpen(true); }
-                    else if (activeTab === 'ranks') { setEditingRank(null); setRankModalOpen(true); }
-                  }} className="gap-2 px-3 h-8 text-sm font-medium">
-                    <Plus size={15} />
-                    <span>Add {
-                      activeTab === 'products' ? 'Product' :
-                      activeTab === 'godowns' ? 'Godown' :
-                      activeTab === 'customers' ? 'Customer' :
-                      activeTab === 'vendors' ? 'Vendor' :
-                      activeTab === 'transporters' ? 'Transporter' :
-                      activeTab === 'ranks' ? 'Rank' :
-                      'Group'
-                    }</span>
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
-        </div>
 
-        <div className="flex flex-col flex-1 min-h-0">
-          {activeTab === 'products' && (
-            <div className="flex flex-col flex-1 min-h-0">
-              <ProductTable products={currentProducts} totalItems={filteredProducts.length} loading={loading} onEdit={handleEditProduct} searchTerm={searchTerm} stockMap={stockMap} groupNameMap={groupNameMap}
-                currentPage={currentPage} totalPages={totalProductPages} itemsPerPage={itemsPerPage}
-                onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+              <div className="flex flex-nowrap items-center gap-3 w-full xl:w-auto xl:justify-end overflow-x-auto pb-1 xl:pb-0">
+                <div className="relative w-full sm:w-48 shrink-0">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={14} />
+                  <Input type="text" placeholder={`Search ${activeTab}...`} className="pl-8 h-8 w-full text-sm"
+                    value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                </div>
+                {activeTab === 'products' && ownGodowns.length > 0 && (
+                  <div className="w-40 shrink-0">
+                    <FilterSelect
+                      value={godownFilter}
+                      onValueChange={setGodownFilter}
+                      options={ownGodowns.map(g => ({ id: g.godown_id, name: g.name }))}
+                      placeholder="All Godowns"
+                      label="Filter by Godown"
+                      allLabel="All Godowns"
+                    />
+                  </div>
+                )}
+                {activeTab === 'products' && transporterGodowns.length > 0 && (
+                  <div className="w-40 shrink-0">
+                    <FilterSelect
+                      value={transporterFilter}
+                      onValueChange={setTransporterFilter}
+                      options={transporterGodowns.map(g => ({ id: g.godown_id, name: g.name }))}
+                      placeholder="All Transporters"
+                      label="Filter by Transporter"
+                      allLabel="All Transporters"
+                    />
+                  </div>
+                )}
+                {activeTab === 'products' && productGroupings.length > 0 && (
+                  <div className="w-40 shrink-0">
+                    <FilterSelect
+                      value={groupingFilter}
+                      onValueChange={setGroupingFilter}
+                      options={productGroupings}
+                      placeholder="All Groupings"
+                      label="Filter by Grouping"
+                      allLabel="All Groupings"
+                    />
+                  </div>
+                )}
+                {activeTab === 'godowns' && (
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 w-fit shrink-0">
+                    <button type="button" onClick={() => setGodownTypeFilter('Own')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-all h-6 flex items-center ${godownTypeFilter === 'Own' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                        }`}>
+                      Own
+                    </button>
+                    <button type="button" onClick={() => setGodownTypeFilter('Transporter')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-all h-6 flex items-center ${godownTypeFilter === 'Transporter' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                        }`}>
+                      Transporter
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                {!loading && (
+                  <>
+                    {['products', 'customers', 'vendors', 'transporters'].includes(activeTab) && (
+                      <Button onClick={() => {
+                        if (activeTab === 'products') setImportModalOpen(true);
+                        else setEntityImportType(activeTab);
+                      }} variant="outline" className="gap-2 px-3 h-8 text-sm font-medium">
+                        <FileSpreadsheet size={15} /><span>Import</span>
+                      </Button>
+                    )}
+                    {!(activeTab === 'godowns' && godownTypeFilter === 'Transporter') && (
+                      <Button onClick={() => {
+                        if (activeTab === 'products') { setEditingProduct(null); setProductModalOpen(true); }
+                        else if (activeTab === 'godowns') setGodownModalOpen(true);
+                        else if (activeTab === 'customers') { setEditingCustomer(null); setCustomerModalOpen(true); }
+                        else if (activeTab === 'vendors') { setEditingVendor(null); setVendorModalOpen(true); }
+                        else if (activeTab === 'transporters') { setEditingTransporter(null); setTransporterModalOpen(true); }
+                        else if (activeTab === 'product-grouping') { setEditingGroup(null); setGroupModalOpen(true); }
+                        else if (activeTab === 'ranks') { setEditingRank(null); setRankModalOpen(true); }
+                      }} className="gap-2 px-3 h-8 text-sm font-medium">
+                        <Plus size={15} />
+                        <span>Add {
+                          activeTab === 'products' ? 'Product' :
+                            activeTab === 'godowns' ? 'Godown' :
+                              activeTab === 'customers' ? 'Customer' :
+                                activeTab === 'vendors' ? 'Vendor' :
+                                  activeTab === 'transporters' ? 'Transporter' :
+                                    activeTab === 'ranks' ? 'Rank' :
+                                      'Group'
+                        }</span>
+                      </Button>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
-          )}
-          {activeTab === 'godowns' && (
+
             <div className="flex flex-col flex-1 min-h-0">
-              <GodownTable godowns={currentGodowns} totalItems={filteredGodowns.length} loading={loading} onToggle={handleToggleGodown} searchTerm={searchTerm} user={user} onDelete={handleDeleteGodown} typeFilter={godownTypeFilter}
-                currentPage={currentPage} totalPages={totalGodownPages} itemsPerPage={itemsPerPage}
-                onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+              {activeTab === 'products' && (
+                <div className="flex flex-col flex-1 min-h-0">
+                  <ProductTable products={currentProducts} totalItems={filteredProducts.length} loading={loading} onEdit={handleEditProduct} searchTerm={searchTerm} stockMap={stockMap} groupNameMap={groupNameMap}
+                    currentPage={currentPage} totalPages={totalProductPages} itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+                </div>
+              )}
+              {activeTab === 'godowns' && (
+                <div className="flex flex-col flex-1 min-h-0">
+                  <GodownTable godowns={currentGodowns} totalItems={filteredGodowns.length} loading={loading} onToggle={handleToggleGodown} searchTerm={searchTerm} user={user} onDelete={handleDeleteGodown} typeFilter={godownTypeFilter}
+                    currentPage={currentPage} totalPages={totalGodownPages} itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+                </div>
+              )}
+              {activeTab === 'customers' && (
+                <div className="flex flex-col flex-1 min-h-0">
+                  <CustomerTable customers={currentCustomers} totalItems={filteredCustomers.length} loading={loading} onEdit={handleEditCustomer} searchTerm={searchTerm}
+                    currentPage={currentPage} totalPages={totalCustomerPages} itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+                </div>
+              )}
+              {activeTab === 'vendors' && (
+                <div className="flex flex-col flex-1 min-h-0">
+                  <VendorTable vendors={currentVendors} totalItems={filteredVendors.length} loading={loading} onEdit={handleEditVendor} searchTerm={searchTerm}
+                    currentPage={currentPage} totalPages={totalVendorPages} itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+                </div>
+              )}
+              {activeTab === 'transporters' && (
+                <div className="flex flex-col flex-1 min-h-0">
+                  <TransporterTable transporters={currentTransporters} totalItems={filteredTransporters.length} loading={loading} onEdit={handleEditTransporter} searchTerm={searchTerm}
+                    currentPage={currentPage} totalPages={totalTransporterPages} itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+                </div>
+              )}
+              {activeTab === 'product-grouping' && (
+                <div className="flex flex-col flex-1 min-h-0">
+                  <GroupTable groups={currentGroups} totalItems={filteredGroups.length} loading={loading} onEdit={handleEditGroup} onDelete={handleDeleteGroup}
+                    currentPage={currentPage} totalPages={totalGroupPages} itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+                </div>
+              )}
+              {activeTab === 'ranks' && (
+                <div className="flex flex-col flex-1 min-h-0">
+                  <RankTable ranks={currentRanks} totalItems={filteredRanks.length} loading={loading} onEdit={handleEditRank} onDelete={handleDeleteRank} searchTerm={searchTerm}
+                    currentPage={currentPage} totalPages={totalRankPages} itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+                </div>
+              )}
             </div>
-          )}
-          {activeTab === 'customers' && (
-            <div className="flex flex-col flex-1 min-h-0">
-              <CustomerTable customers={currentCustomers} totalItems={filteredCustomers.length} loading={loading} onEdit={handleEditCustomer} searchTerm={searchTerm}
-                currentPage={currentPage} totalPages={totalCustomerPages} itemsPerPage={itemsPerPage}
-                onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
-            </div>
-          )}
-          {activeTab === 'vendors' && (
-            <div className="flex flex-col flex-1 min-h-0">
-              <VendorTable vendors={currentVendors} totalItems={filteredVendors.length} loading={loading} onEdit={handleEditVendor} searchTerm={searchTerm}
-                currentPage={currentPage} totalPages={totalVendorPages} itemsPerPage={itemsPerPage}
-                onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
-            </div>
-          )}
-          {activeTab === 'transporters' && (
-            <div className="flex flex-col flex-1 min-h-0">
-              <TransporterTable transporters={currentTransporters} totalItems={filteredTransporters.length} loading={loading} onEdit={handleEditTransporter} searchTerm={searchTerm}
-                currentPage={currentPage} totalPages={totalTransporterPages} itemsPerPage={itemsPerPage}
-                onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
-            </div>
-          )}
-          {activeTab === 'product-grouping' && (
-            <div className="flex flex-col flex-1 min-h-0">
-              <GroupTable groups={currentGroups} totalItems={filteredGroups.length} loading={loading} onEdit={handleEditGroup} onDelete={handleDeleteGroup}
-                currentPage={currentPage} totalPages={totalGroupPages} itemsPerPage={itemsPerPage}
-                onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
-            </div>
-          )}
-          {activeTab === 'ranks' && (
-            <div className="flex flex-col flex-1 min-h-0">
-              <RankTable ranks={currentRanks} totalItems={filteredRanks.length} loading={loading} onEdit={handleEditRank} onDelete={handleDeleteRank} searchTerm={searchTerm}
-                currentPage={currentPage} totalPages={totalRankPages} itemsPerPage={itemsPerPage}
-                onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
-            </div>
-          )}
-        </div>
-      </div>
-      )}
+          </div>
+        )}
       </div>
 
       <ProductModal isOpen={productModalOpen} onClose={handleCloseProductModal}
@@ -605,7 +603,7 @@ const Master = () => {
       <GodownModal isOpen={godownModalOpen} onClose={() => setGodownModalOpen(false)}
         onSuccess={loadData} />
       <BulkImportModal isOpen={importModalOpen} onClose={() => setImportModalOpen(false)}
-        godowns={godowns} user={user} onSuccess={loadData} />
+        godowns={godowns} products={products} user={user} onSuccess={loadData} />
       <CustomerModal isOpen={customerModalOpen} onClose={handleCloseCustomerModal}
         onSuccess={loadData} editingCustomer={editingCustomer} user={user} />
       <VendorModal isOpen={vendorModalOpen} onClose={handleCloseVendorModal}
@@ -623,13 +621,13 @@ const Master = () => {
           onSuccess={loadData}
           config={
             entityImportType === 'customers' ? CUSTOMER_CONFIG :
-            entityImportType === 'vendors' ? VENDOR_CONFIG :
-            TRANSPORTER_CONFIG
+              entityImportType === 'vendors' ? VENDOR_CONFIG :
+                TRANSPORTER_CONFIG
           }
           importFn={
             entityImportType === 'customers' ? bulkImportCustomers :
-            entityImportType === 'vendors' ? bulkImportVendors :
-            bulkImportTransporters
+              entityImportType === 'vendors' ? bulkImportVendors :
+                bulkImportTransporters
           }
         />
       )}

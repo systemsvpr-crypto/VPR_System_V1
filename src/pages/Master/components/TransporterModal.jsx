@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { createTransporter, updateTransporter, deleteTransporter } from '../../../services/transporterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 
 const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user, onDelete, godowns }) => {
   const [name, setName] = useState('');
@@ -72,7 +72,9 @@ const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user
       <ModalContent className="max-w-md">
         <ModalHeader>
           <div className="bg-primary/10 p-2 rounded-lg"><Truck size={20} className="text-primary" /></div>
-          <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Transporter' : 'Add Transporter'}</h2>
+          <ModalTitle asChild>
+            <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Transporter' : 'Add Transporter'}</h2>
+          </ModalTitle>
         </ModalHeader>
         <form onSubmit={handleSubmit}>
           <ModalBody>

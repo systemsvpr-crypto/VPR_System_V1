@@ -8,10 +8,10 @@ import { DatePicker } from '@/components/ui/date-picker';
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from '@/components/ui/Select';
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 import { sanitizeQtyInput } from '@/lib/qty';
 
-const ProductModal = ({ isOpen, onClose, godowns = [], user, onSuccess, editingProduct, onDelete, quickAdd = false }) => {
+const ProductModal = ({ isOpen, onClose, godowns = [], user, onSuccess, editingProduct, onDelete, quickAdd = false, initialValues = null }) => {
   const [form, setForm] = useState({
     brand_name: '', category: '', unit: 'bag', product_type: '', mux: '', allow_negative_stock: false,
     as_of_date: new Date().toISOString().split('T')[0], entries: [],
@@ -43,16 +43,28 @@ const ProductModal = ({ isOpen, onClose, godowns = [], user, onSuccess, editingP
       setForm({
         brand_name: editingProduct.brand_name || '',
         category: editingProduct.category || '',
-        unit: editingProduct.unit,
+        unit: editingProduct.unit || 'bag',
         product_type: editingProduct.product_type || '',
         mux: editingProduct.mux || '',
-        allow_negative_stock: editingProduct.allow_negative_stock,
+        allow_negative_stock: editingProduct.allow_negative_stock || false,
+        as_of_date: new Date().toISOString().split('T')[0],
+        entries: [],
+      });
+      setDuplicateNotice('');
+    } else if (initialValues) {
+      setForm({
+        brand_name: initialValues.brand_name || '',
+        category: initialValues.category || '',
+        unit: initialValues.unit || 'bag',
+        product_type: initialValues.product_type || '',
+        mux: initialValues.mux || '',
+        allow_negative_stock: false,
         as_of_date: new Date().toISOString().split('T')[0],
         entries: [],
       });
       setDuplicateNotice('');
     }
-  }, [isOpen, editingProduct]);
+  }, [isOpen, editingProduct, initialValues]);
 
   // Once flagged as a duplicate, clear the notice as soon as the user changes any of the
   // 4 identity fields — it becomes stale the moment they start correcting it.
@@ -134,10 +146,12 @@ const ProductModal = ({ isOpen, onClose, godowns = [], user, onSuccess, editingP
 
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <ModalContent className="max-w-xl">
+      <ModalContent className={quickAdd ? "max-w-xl z-[60]" : "max-w-xl"}>
         <ModalHeader>
           <div className="bg-primary/10 p-2 rounded-lg"><Package size={20} className="text-primary" /></div>
-          <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Product' : 'Add Product'}</h2>
+          <ModalTitle asChild>
+            <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Product' : 'Add Product'}</h2>
+          </ModalTitle>
         </ModalHeader>
         <form onSubmit={handleSubmit}>
           <ModalBody>

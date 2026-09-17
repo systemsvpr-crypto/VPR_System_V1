@@ -338,6 +338,7 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
   const uniqueProducts = [];
   const seen = new Set();
   for (const r of rows) {
+    if (r.productId && !r.isNew) continue;
     const key = productMatchKey(r.brandName, r.category, r.productType, r.mux);
     if ((r.brandName?.trim() || r.category?.trim()) && !seen.has(key)) {
       seen.add(key);
@@ -380,12 +381,12 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const displayName = bulkImportProductName(row.brandName, row.category, row.productType, row.mux);
+    const displayName = row.productName || bulkImportProductName(row.brandName, row.category, row.productType, row.mux);
     const productKey = productMatchKey(row.brandName, row.category, row.productType, row.mux);
     const godownKey = row.godownName?.trim().toLowerCase();
     const qty = Number(row.qty);
 
-    if (!row.brandName?.trim() && !row.category?.trim()) {
+    if (!row.productId && !row.brandName?.trim() && !row.category?.trim()) {
       errors.push({ row: `Row ${i + 1}`, message: 'Brand Name / Category is empty' });
       continue;
     }
@@ -398,7 +399,7 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
       continue;
     }
 
-    const productId = productMap[productKey];
+    const productId = (row.productId && !row.isNew) ? row.productId : productMap[productKey];
     if (!productId) {
       errors.push({ row: `Row ${i + 1}: ${displayName}`, message: 'Product could not be resolved' });
       continue;

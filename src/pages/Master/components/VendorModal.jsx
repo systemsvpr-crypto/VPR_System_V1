@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { createVendor, updateVendor, deleteVendor } from '../../../services/vendorService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 
 const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor, user, onDelete }) => {
   const [name, setName] = useState('');
@@ -76,7 +76,9 @@ const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor, user, onDelete
       <ModalContent className="max-w-lg">
         <ModalHeader>
           <div className="bg-primary/10 p-2 rounded-lg"><Building2 size={20} className="text-primary" /></div>
-          <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Vendor' : 'Add Vendor'}</h2>
+          <ModalTitle asChild>
+            <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Vendor' : 'Add Vendor'}</h2>
+          </ModalTitle>
         </ModalHeader>
         <form onSubmit={handleSubmit}>
           <ModalBody>

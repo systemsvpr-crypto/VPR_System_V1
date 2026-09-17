@@ -5,7 +5,7 @@ import { createCustomer, updateCustomer, deleteCustomer } from '../../../service
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 
 const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDelete }) => {
   const [name, setName] = useState('');
@@ -79,7 +79,9 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDe
       <ModalContent className="max-w-lg">
         <ModalHeader>
           <div className="bg-primary/10 p-2 rounded-lg"><Users size={20} className="text-primary" /></div>
-          <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Customer' : 'Add Customer'}</h2>
+          <ModalTitle asChild>
+            <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Customer' : 'Add Customer'}</h2>
+          </ModalTitle>
         </ModalHeader>
         <form onSubmit={handleSubmit}>
           <ModalBody>
