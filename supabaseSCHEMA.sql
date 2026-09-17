@@ -106,8 +106,25 @@ CREATE TABLE public.product_groups (
   group_name text NOT NULL,
   created_at timestamp with time zone DEFAULT now(),
   created_by uuid,
+  second_last_purchase date,
+  last_purchase date,
+  a_rate double precision,
+  b_rate double precision,
+  c_rate double precision,
   CONSTRAINT product_groups_pkey PRIMARY KEY (group_id),
   CONSTRAINT product_groups_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id)
+);
+CREATE TABLE public.product_group_history (
+  history_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  group_id uuid NOT NULL,
+  a_rate double precision,
+  b_rate double precision,
+  c_rate double precision,
+  created_at timestamp with time zone DEFAULT now(),
+  created_by uuid,
+  CONSTRAINT product_group_history_pkey PRIMARY KEY (history_id),
+  CONSTRAINT product_group_history_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.product_groups(group_id) ON DELETE CASCADE,
+  CONSTRAINT product_group_history_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id)
 );
 CREATE TABLE public.product_group_members (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

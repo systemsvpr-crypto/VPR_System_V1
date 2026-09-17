@@ -17,6 +17,7 @@ import {
   BarChart3,
   ClipboardList,
   DollarSign,
+  IndianRupee,
   ShoppingCart,
   Boxes,
 } from 'lucide-react';
@@ -87,6 +88,7 @@ const Sidebar = ({ onClose }) => {
     'live-stock-dashboard': BarChart3,
     'stock-management': ArrowLeftRight,
     'master': Package,
+    'pricing': IndianRupee,
     'sales': DollarSign,
     'purchase': ShoppingCart,
     'ultimate-ims': Boxes,
@@ -105,6 +107,7 @@ const Sidebar = ({ onClose }) => {
   // Helper: Check if user has access to a specific page ID
   const hasAccess = (pageId) => {
     if (user?.role === 'SUPER ADMIN') return true;
+    if (user?.role?.toUpperCase().includes('ADMIN')) return true;
     if (!user?.page_access || !Array.isArray(user?.page_access)) {
       return DEFAULT_USER_PAGES.includes(pageId);
     }
@@ -253,7 +256,7 @@ const SidebarContent = ({ menuItems, onClose, isCollapsed = false, user, handleL
                       <NavLink
                         key={subItem.path}
                         to={subItem.path}
-                         className={({ isActive }) =>
+                        className={({ isActive }) =>
                           `flex items-center py-2.5 px-3 rounded-lg transition-all duration-200 text-sm ${isActive
                             ? 'text-primary font-medium bg-primary/10'
                             : 'text-sidebar-foreground/60 hover:text-primary hover:bg-primary/5'

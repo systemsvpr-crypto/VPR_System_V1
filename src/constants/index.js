@@ -7,6 +7,7 @@ export const PAGES = [
     { id: 'ultimate-ims', label: 'Ultimate IMS' },
     { id: 'stock-management', label: 'Stock Management' },
     { id: 'master', label: 'Master' },
+    { id: 'pricing', label: 'Pricing' },
     { id: 'sales', label: 'Sales' },
     { id: 'purchase', label: 'Purchase' },
     { id: 'settings', label: 'Settings' },

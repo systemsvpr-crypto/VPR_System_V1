@@ -9,6 +9,7 @@ import Settings from './pages/Settings/Settings';
 import Sales from './pages/Sales/Sales';
 import Purchase from './pages/Purchase/Purchase';
 import Master from './pages/Master/Master';
+import Pricing from './pages/Pricing/Pricing';
 import StockManagement from './pages/StockManagement/StockManagement';
 import LiveStockDashboard from './pages/LiveStockDashboard/LiveStockDashboard';
 import UltimateIMS from './pages/UltimateIMS/UltimateIMS';
@@ -30,6 +31,7 @@ function App() {
             <Route path="live-stock-dashboard" element={<LiveStockDashboard />} />
             <Route path="stock-management" element={<StockManagement />} />
             <Route path="master" element={<Master />} />
+            <Route path="pricing" element={<Pricing />} />
             <Route path="settings" element={<Settings />} />
             <Route path="sales" element={<Sales />} />
             <Route path="purchase" element={<Purchase />} />

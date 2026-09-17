@@ -10,7 +10,7 @@ const ProtectedRoute = ({ children }) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (user.role === 'SUPER ADMIN') {
+  if (user.role === 'SUPER ADMIN' || user.role?.toUpperCase().includes('ADMIN')) {
     return <>{children}</>;
   }
 
