@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import {
@@ -8,6 +8,8 @@ import {
   createDelivery,
   cancelIndentItem,
   getPackagingSize,
+  deleteIndentItem,
+  deleteDelivery,
 } from '../../../services/purchaseService';
 import { sendPurchaseDeliveredWhatsapp } from '../../../services/whatsappService';
 import { Button } from '@/components/ui/button';
@@ -203,8 +205,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
     });
   };
 
-  // Same "applies to every selected row" convention for LR No., Vehicle No.
-  // and Driver No.
+  // Same "applies to every selected row" convention for Exp. Date, LR No.,
+  // Vehicle No. and Driver No.
   const setFieldForSelected = (itemId, field, value) => {
     setRowEdits(prev => {
       const next = { ...prev };
@@ -288,11 +290,12 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
     // instead of redoing every field on the row.
     const savedIds = new Set();
 
-    // Auto-fallback: if the user only fills out Transporter/LR No on the first row,
+    // Auto-fallback: if the user only fills out Transporter/LR No/Exp Date on the first row,
     // apply it to the other selected rows automatically.
     let fallbackTransporterId = null;
     let fallbackTransporterName = '-';
     let fallbackLrNumber = null;
+    let fallbackExpDate = null;
     
     for (const itemId of toSubmitIds) {
       const edit = rowEdits[itemId];
@@ -304,7 +307,10 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
       if (!fallbackLrNumber && edit?.lr_number) {
         fallbackLrNumber = edit.lr_number;
       }
-      if (fallbackTransporterId && fallbackLrNumber) break;
+      if (!fallbackExpDate && edit?.exp_date) {
+        fallbackExpDate = edit.exp_date;
+      }
+      if (fallbackTransporterId && fallbackLrNumber && fallbackExpDate) break;
     }
 
     for (const itemId of toSubmitIds) {
@@ -363,7 +369,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
           item_id: item.item_id,
           indent_id: item.purchase_indents?.indent_id,
           delivery_date: new Date().toISOString().slice(0, 10),
-          expected_delivery_date: edit.exp_date !== undefined ? edit.exp_date : (item.planning_date || null),
+          expected_delivery_date: edit.exp_date !== undefined ? edit.exp_date : (fallbackExpDate || item.planning_date || null),
           godown_allocations: defaultGodownId ? [{ godown_id: defaultGodownId, qty: masterQty }] : [],
           transporter_id: tId,
           lr_number: lrNum,
@@ -449,6 +455,38 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
       setSelectedItems(prev => { const next = new Set(prev); savedIds.forEach(id => next.delete(id)); return next; });
       setRowEdits(prev => { const next = { ...prev }; savedIds.forEach(id => { delete next[id]; }); return next; });
       loadData();
+    }
+  };
+
+  const handleDeletePendingItem = async (item) => {
+    const pName = item.products?.name || 'this product';
+    const iNum = item.purchase_indents?.indent_number || '';
+    if (!window.confirm(`Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`)) return;
+    try {
+      await deleteIndentItem(item.item_id);
+      toast.success('Item deleted');
+      setItems(prev => prev.filter(i => i.item_id !== item.item_id));
+      setSelectedItems(prev => {
+        const next = new Set(prev);
+        next.delete(item.item_id);
+        return next;
+      });
+      loadData();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete item');
+    }
+  };
+
+  const handleDeleteDelivery = async (del) => {
+    const liftNum = del.lifting_number || del.delivery_id;
+    if (!window.confirm(`Permanently delete delivery lift "${liftNum}"? This cannot be undone.`)) return;
+    try {
+      await deleteDelivery(del.delivery_id);
+      toast.success('Delivery lift deleted');
+      setHistoryItems(prev => prev.filter(d => d.delivery_id !== del.delivery_id));
+      loadData();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete delivery');
     }
   };
 
@@ -620,6 +658,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                   <th className="w-10 px-2 py-3 text-center">
                     <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                   </th>
+                  <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
@@ -645,7 +684,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
               <tbody className="divide-y divide-slate-100">
                 {currentList.length === 0 && (
                   <tr>
-                    <td colSpan="21" className="p-12 text-center text-slate-400">
+                    <td colSpan="22" className="p-12 text-center text-slate-400">
                       <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No approved deliveries available.</p>
                     </td>
@@ -674,6 +713,18 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                           onChange={() => toggleSelect(item.item_id)}
                           className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                         />
+                      </td>
+                      <td className="px-2 py-3 text-center">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          type="button"
+                          title="Delete Row"
+                          onClick={() => handleDeletePendingItem(item)}
+                          className="p-1.5 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
@@ -726,7 +777,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                         <Input
                           type="date"
                           value={getRowVal(item.item_id, 'exp_date', item.planning_date || '')}
-                          onChange={e => setRowVal(item.item_id, 'exp_date', e.target.value)}
+                          onChange={e => setFieldForSelected(item.item_id, 'exp_date', e.target.value)}
                           disabled={!isSelected}
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
                         />
@@ -819,6 +870,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
             <table className="w-full text-xs">
               <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                 <tr>
+                  <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
@@ -838,7 +890,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
               <tbody className="divide-y divide-slate-100">
                 {currentList.length === 0 && (
                   <tr>
-                    <td colSpan="13" className="p-12 text-center text-slate-400">
+                    <td colSpan="15" className="p-12 text-center text-slate-400">
                       <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No delivery history found.</p>
                     </td>
@@ -852,6 +904,18 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
 
                   return (
                     <tr key={del.delivery_id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-2 py-3 text-center">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          type="button"
+                          title="Delete Delivery"
+                          onClick={() => handleDeleteDelivery(del)}
+                          className="p-1.5 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}
                       </td>

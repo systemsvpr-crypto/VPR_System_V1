@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, History, Download, X, Eye, Zap, ArrowRightLeft, BadgeCheck, Truck, Timer, MapPin, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, History, Download, X, Eye, Zap, ArrowRightLeft, BadgeCheck, Truck, Timer, MapPin, CheckCircle2, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getPurchaseDashboardItems } from '../../../services/purchaseService';
+import { getPurchaseDashboardItems, deleteIndentItem, deleteDelivery } from '../../../services/purchaseService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalTitle } from '@/components/ui/modal';
@@ -42,9 +42,52 @@ const PurchaseCompleteTable = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
   const [selectedItem, setSelectedItem] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => { setCurrentPage(1); }, [searchTerm, dateFilter, productFilter, transporterFilter, pageSize]);
+
+  const handleDeleteItem = async (item) => {
+    if (!window.confirm(`Are you sure you want to delete purchase indent item "${item.product_name}" (Indent: ${item.indent_number}) and all its deliveries?`)) {
+      return;
+    }
+    setDeletingId(item.item_id);
+    try {
+      await deleteIndentItem(item.item_id);
+      toast.success('Purchase item deleted successfully');
+      loadData();
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'Failed to delete purchase item');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleDeleteLift = async (deliveryId, liftNo) => {
+    if (!window.confirm(`Are you sure you want to delete lift "${liftNo || deliveryId}"?`)) {
+      return;
+    }
+    setDeletingId(deliveryId);
+    try {
+      await deleteDelivery(deliveryId);
+      toast.success('Lift deleted successfully');
+      if (selectedItem) {
+        const remainingLifts = selectedItem.lifts.filter(l => l.delivery_id !== deliveryId);
+        if (remainingLifts.length === 0) {
+          setSelectedItem(null);
+        } else {
+          setSelectedItem({ ...selectedItem, lifts: remainingLifts });
+        }
+      }
+      loadData();
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'Failed to delete lift');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -182,6 +225,7 @@ const PurchaseCompleteTable = () => {
             <table className="w-full text-xs">
               <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                 <tr>
+                  <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
@@ -201,7 +245,7 @@ const PurchaseCompleteTable = () => {
               <tbody className="divide-y divide-slate-100">
                 {filteredItems.length === 0 && (
                   <tr>
-                    <td colSpan="14" className="p-12 text-center text-slate-400">
+                    <td colSpan="15" className="p-12 text-center text-slate-400">
                       <BadgeCheck size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No purchase indent items found.</p>
                     </td>
@@ -214,6 +258,20 @@ const PurchaseCompleteTable = () => {
                       onClick={() => hasLifts && setSelectedItem(item)}
                       title={hasLifts ? 'Click to view all lifts for this item' : undefined}
                       className={`hover:bg-slate-50/60 transition-colors ${hasLifts ? 'cursor-pointer' : ''}`}>
+                      <td className="px-2 py-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteItem(item);
+                          }}
+                          disabled={deletingId === item.item_id}
+                          title="Delete row"
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {item.indent_date ? format(new Date(item.indent_date), 'dd/MM/yyyy') : '—'}
                       </td>
@@ -359,6 +417,7 @@ const PurchaseCompleteTable = () => {
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                         <tr>
+                          <th className="w-12 text-center px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                           <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lift No.</th>
                           <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                           <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
@@ -378,6 +437,17 @@ const PurchaseCompleteTable = () => {
                             const SIcon = style.icon;
                             return (
                               <tr key={lift.delivery_id} className="hover:bg-slate-50">
+                                <td className="px-2 py-2.5 text-center whitespace-nowrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteLift(lift.delivery_id, lift.lifting_number)}
+                                    disabled={deletingId === lift.delivery_id}
+                                    title="Delete lift"
+                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </td>
                                 <td className="px-3 py-2.5 font-semibold text-teal-700 whitespace-nowrap">{lift.lifting_number || '—'}</td>
                                 <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">
                                   {lift.delivery_date ? format(new Date(lift.delivery_date), 'dd/MM/yyyy') : '—'}

@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, ShoppingCart, ChevronDown, ChevronLeft, ChevronRight, CheckCircle, CheckCheck, Zap, ArrowRightLeft } from 'lucide-react';
+import { Search, ShoppingCart, ChevronDown, ChevronLeft, ChevronRight, CheckCircle, CheckCheck, Zap, ArrowRightLeft, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getIndentsForApproval, approveIndentItem } from '../../../services/purchaseService';
+import { getIndentsForApproval, approveIndentItem, deleteIndent, deleteIndentItem } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
@@ -233,6 +233,31 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
     if (approved > 0) toast.success(`${approved} item${approved !== 1 ? 's' : ''} approved`);
   };
 
+  const handleDeleteIndent = async (indent) => {
+    const iNum = indent.indent_number || 'this indent';
+    if (!window.confirm(`Permanently delete indent "${iNum}" and all its items? This cannot be undone.`)) return;
+    try {
+      await deleteIndent(indent.indent_id);
+      toast.success('Indent deleted');
+      setIndents(prev => prev.filter(i => i.indent_id !== indent.indent_id));
+      loadData();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete indent');
+    }
+  };
+
+  const handleDeleteItem = async (item) => {
+    const pName = item.products?.name || 'this item';
+    if (!window.confirm(`Permanently delete "${pName}"? This cannot be undone.`)) return;
+    try {
+      await deleteIndentItem(item.item_id);
+      toast.success('Item deleted');
+      loadData();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete item');
+    }
+  };
+
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
@@ -295,6 +320,7 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
                       className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                   )}
                 </th>
+                <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Indent No.</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Indent Type</th>
@@ -307,7 +333,7 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
             <tbody className="divide-y divide-slate-100">
               {filteredIndents.length === 0 && (
                 <tr>
-                  <td colSpan="8" className="p-12 text-center">
+                  <td colSpan="10" className="p-12 text-center">
                     <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                       <ShoppingCart size={32} className="text-slate-300" />
                     </div>
@@ -340,6 +366,18 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
                           className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                       )}
                     </td>
+                    <td className="px-2 py-3 text-center" onClick={e => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        type="button"
+                        title="Delete Indent"
+                        onClick={() => handleDeleteIndent(indent)}
+                        className="p-1.5 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </td>
                     <td className="px-3 py-3 font-medium text-slate-800">{indent.indent_number || '—'}</td>
                     <td className="px-3 py-3 text-slate-500 text-xs">
                       {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
@@ -362,7 +400,7 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
                 if (isExpanded && items.length > 0) {
                   rows.push(
                     <tr key={`${indent.indent_id}-details`}>
-                      <td colSpan={9} className="px-0 py-0">
+                      <td colSpan={10} className="px-0 py-0">
                         <div className="bg-slate-50 border-t border-slate-100">
                           <table className="w-full text-sm">
                             <thead>
@@ -454,10 +492,10 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
                                       </span>
                                     </td>
                                     <td className="px-3 py-2.5 text-center">
-                                      {approved ? (
-                                        <CheckCircle size={18} className="text-emerald-400 mx-auto" />
-                                      ) : (
-                                        <div className="flex items-center justify-center gap-1">
+                                      <div className="flex items-center justify-center gap-1">
+                                        {approved ? (
+                                          <CheckCircle size={18} className="text-emerald-400" />
+                                        ) : (
                                           <Button size="sm" type="button"
                                             disabled={approving}
                                             onClick={() => approveItem(item)}
@@ -469,16 +507,26 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
                                             )}
                                             Approve
                                           </Button>
-                                          {changed && (
-                                            <button type="button"
-                                              onClick={() => resetItem(item.item_id)}
-                                              className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all"
-                                              title="Reset edits">
-                                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-                                            </button>
-                                          )}
-                                        </div>
-                                      )}
+                                        )}
+                                        {changed && (
+                                          <button type="button"
+                                            onClick={() => resetItem(item.item_id)}
+                                            className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all"
+                                            title="Reset edits">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                                          </button>
+                                        )}
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          type="button"
+                                          title="Delete Item"
+                                          onClick={() => handleDeleteItem(item)}
+                                          className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                        >
+                                          <Trash2 size={13} />
+                                        </Button>
+                                      </div>
                                     </td>
                                   </tr>
                                 );

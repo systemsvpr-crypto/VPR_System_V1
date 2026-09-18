@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getAawakDeliveries, updateAawakLift } from '../../../services/purchaseService';
+import { getAawakDeliveries, updateAawakLift, deleteDelivery } from '../../../services/purchaseService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -283,6 +283,24 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   const selectableCount = currentDeliveries.filter(d => !isRowLocked(d)).length;
   const allSelected = selectableCount > 0 && currentDeliveries.filter(d => !isRowLocked(d)).every(d => selectedLifts.has(d.delivery_id));
 
+  const handleDeleteDelivery = async (del) => {
+    const liftNum = del.lifting_number || del.delivery_id;
+    if (!window.confirm(`Permanently delete delivery lift "${liftNum}"? This cannot be undone.`)) return;
+    try {
+      await deleteDelivery(del.delivery_id);
+      toast.success('Delivery lift deleted');
+      setDeliveries(prev => prev.filter(d => d.delivery_id !== del.delivery_id));
+      setSelectedLifts(prev => {
+        const next = new Set(prev);
+        next.delete(del.delivery_id);
+        return next;
+      });
+      loadData();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete delivery');
+    }
+  };
+
   const clearFilters = () => {
     setSearchTerm('');
     setDateFilter('');
@@ -434,6 +452,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </th>
+                  <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
@@ -454,7 +473,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
               <tbody className="divide-y divide-slate-100">
                 {filteredDeliveries.length === 0 && (
                   <tr>
-                    <td colSpan="16" className="p-12 text-center text-slate-400">
+                    <td colSpan="17" className="p-12 text-center text-slate-400">
                       <PackageOpen size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">
                         {activeSubTab === 'pending' ? 'No pending lifts found.' : 'No arrived lifts found.'}
@@ -479,6 +498,18 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           disabled={locked}
                           className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         />
+                      </td>
+                      <td className="px-2 py-3 text-center">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          type="button"
+                          title="Delete Lift"
+                          onClick={() => handleDeleteDelivery(del)}
+                          className="p-1.5 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
                       </td>
                       <td className="px-3 py-3 text-center text-slate-800 font-semibold whitespace-nowrap">{del.lifting_number || '—'}</td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">

@@ -356,11 +356,19 @@ export const deleteIndent = async (indent_id) => {
     // 2. Get all delivery_ids for these items
     const { data: deliveries, error: delFetchErr } = await supabase
       .from('purchase_deliveries')
-      .select('delivery_id')
+      .select('delivery_id, lifting_number')
       .in('item_id', itemIds);
     if (delFetchErr) throw delFetchErr;
 
     const deliveryIds = (deliveries || []).map(d => d.delivery_id);
+    const liftingNumbers = (deliveries || []).map(d => d.lifting_number).filter(Boolean);
+
+    if (liftingNumbers.length > 0) {
+      await supabase
+        .from('transactions')
+        .update({ is_void: true, void_reason: 'Indent deleted' })
+        .in('lifting_number', liftingNumbers);
+    }
 
     if (deliveryIds.length > 0) {
       // 3. Delete godown allocations for those deliveries
@@ -413,11 +421,19 @@ export const deleteIndentItem = async (item_id) => {
   // 1. Get all delivery_ids for this item
   const { data: deliveries, error: delFetchErr } = await supabase
     .from('purchase_deliveries')
-    .select('delivery_id')
+    .select('delivery_id, lifting_number')
     .eq('item_id', item_id);
   if (delFetchErr) throw delFetchErr;
 
   const deliveryIds = (deliveries || []).map(d => d.delivery_id);
+  const liftingNumbers = (deliveries || []).map(d => d.lifting_number).filter(Boolean);
+
+  if (liftingNumbers.length > 0) {
+    await supabase
+      .from('transactions')
+      .update({ is_void: true, void_reason: 'Indent item deleted' })
+      .in('lifting_number', liftingNumbers);
+  }
 
   if (deliveryIds.length > 0) {
     // 2. Delete godown allocations for those deliveries
@@ -457,6 +473,36 @@ export const deleteIndentItem = async (item_id) => {
       if (indentErr) throw indentErr;
     }
   }
+};
+
+// Permanently deletes a single delivery lift record along with its godown allocations
+// and voids any stock ledger transactions associated with its lifting_number.
+export const deleteDelivery = async (delivery_id) => {
+  const { data: del, error: fetchErr } = await supabase
+    .from('purchase_deliveries')
+    .select('delivery_id, lifting_number')
+    .eq('delivery_id', delivery_id)
+    .single();
+  if (fetchErr) throw fetchErr;
+
+  if (del?.lifting_number) {
+    await supabase
+      .from('transactions')
+      .update({ is_void: true, void_reason: 'Delivery deleted' })
+      .eq('lifting_number', del.lifting_number);
+  }
+
+  const { error: gdErr } = await supabase
+    .from('purchase_delivery_godowns')
+    .delete()
+    .eq('delivery_id', delivery_id);
+  if (gdErr) throw gdErr;
+
+  const { error: delErr } = await supabase
+    .from('purchase_deliveries')
+    .delete()
+    .eq('delivery_id', delivery_id);
+  if (delErr) throw delErr;
 };
 
 // purchase_indent_items can easily exceed the 1000-row cap — page past it
@@ -619,11 +665,11 @@ export const getApprovedItemsForDelivery = async () => {
 
   const itemIds = (items || []).map(i => i.item_id);
   const vendorIds = [...new Set((items || []).map(i => i.approved_vendor_id).filter(Boolean))];
-  
+
   let deliverySums = [];
   let allocatedSums = [];
   let vendorsData = [];
-  
+
   const promises = [];
   if (itemIds.length > 0) {
     promises.push(
@@ -636,7 +682,7 @@ export const getApprovedItemsForDelivery = async () => {
       supabase.from('vendors').select('vendor_id, name').in('vendor_id', vendorIds)
     );
   }
-  
+
   if (promises.length > 0) {
     const results = await Promise.all(promises);
     if (itemIds.length > 0) {
@@ -685,8 +731,8 @@ export const getApprovedItemsForDelivery = async () => {
       if (received_qty >= Number(item.quantity)) delivery_status = 'Completed';
       else if (received_qty > 0) delivery_status = 'Partial';
 
-      const vendor_name = item.approved_vendor_id 
-        ? vendorMap[item.approved_vendor_id] || item.item_vendor?.name 
+      const vendor_name = item.approved_vendor_id
+        ? vendorMap[item.approved_vendor_id] || item.item_vendor?.name
         : item.item_vendor?.name;
 
       return {

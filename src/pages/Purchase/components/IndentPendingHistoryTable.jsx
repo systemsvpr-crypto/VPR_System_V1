@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, Save, ShoppingCart, Clock, History as HistoryIcon, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getAllIndentItems, updateVendorSelection, getPackagingSize } from '../../../services/purchaseService';
+import { getAllIndentItems, updateVendorSelection, getPackagingSize, deleteIndentItem } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -304,6 +304,23 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
     }
   };
 
+  const handleDeleteRow = async (item) => {
+    const pName = item.products?.name || 'this product';
+    const iNum = item.purchase_indents?.indent_number || '';
+    if (!window.confirm(`Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`)) return;
+    try {
+      if (onDelete) {
+        await onDelete([item]);
+      } else {
+        await deleteIndentItem(item.item_id);
+        toast.success('Indent item deleted');
+        await loadItems();
+      }
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete item');
+    }
+  };
+
   // Bulk delete for the checkbox selection — each selected row's own item
   // gets removed individually (not the whole indent), same as the old
   // per-row delete button did. Confirms once for the whole batch rather than
@@ -400,6 +417,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                         className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                     </th>
                   )}
+                  <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Number</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">Product Name</th>
@@ -418,7 +436,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
               <tbody className="divide-y divide-slate-100">
                 {isEmpty && (
                   <tr>
-                    <td colSpan="15" className="p-12 text-center">
+                    <td colSpan={subTab === 'pending' ? 16 : 15} className="p-12 text-center">
                       <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                         <ShoppingCart size={32} className="text-slate-300" />
                       </div>
@@ -449,6 +467,18 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                             className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                         </td>
                       )}
+                      <td className="px-2 py-3 text-center">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          type="button"
+                          title="Delete Row"
+                          onClick={() => handleDeleteRow(item)}
+                          className="p-1.5 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </td>
                       <td className="px-4 py-3 text-center text-slate-600">
                         {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
                       </td>
