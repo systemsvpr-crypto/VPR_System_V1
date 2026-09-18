@@ -23,6 +23,11 @@ function Dropdown({
   // create a missing record without leaving the dropdown.
   onAddNew,
   addNewLabel = "+ Add New",
+  // False shows the full label (wrapping the trigger/option onto multiple
+  // lines instead) — for callers where cutting a name off with "..." would
+  // hide information the user needs to see in full (e.g. matching a long
+  // product name during import).
+  truncateLabel = true,
 }) {
   const [open, setOpen] = React.useState(false)
   const [searchValue, setSearchValue] = React.useState("")
@@ -47,11 +52,12 @@ function Dropdown({
           data-slot="dropdown-trigger"
           disabled={disabled}
           className={cn(
-            "flex w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm whitespace-nowrap transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+            "flex w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+            truncateLabel ? "whitespace-nowrap" : "whitespace-normal items-start text-left",
             className
           )}
         >
-          <span className={cn("flex-1 text-left truncate", !value && !children && "text-muted-foreground")}>
+          <span className={cn("flex-1 text-left", truncateLabel && "truncate", !value && !children && "text-muted-foreground")}>
             {label}
           </span>
           <ChevronDown
@@ -109,7 +115,7 @@ function Dropdown({
                 {renderOption ? (
                   <span className="flex-1 text-left">{renderOption(option)}</span>
                 ) : (
-                  <span className="flex-1 text-left truncate">{option.label}</span>
+                  <span className={cn("flex-1 text-left", truncateLabel && "truncate")}>{option.label}</span>
                 )}
                 {value === option.value && (
                   <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center">

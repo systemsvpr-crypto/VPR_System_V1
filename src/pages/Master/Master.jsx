@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet, Award } from 'lucide-react';
+import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet, Award, PackagePlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllGodowns, getAllProducts, getAllProductStock, toggleGodownStatus, deleteGodown } from '../../services/masterService';
@@ -18,6 +18,7 @@ import ProductTable from './components/ProductTable';
 import GodownModal from './components/GodownModal';
 import GodownTable from './components/GodownTable';
 import BulkImportModal from './components/BulkImportModal';
+import BulkImportOpeningStockModal from './components/BulkImportOpeningStockModal';
 import CustomerTable from './components/CustomerTable';
 import CustomerModal from './components/CustomerModal';
 import VendorTable from './components/VendorTable';
@@ -99,6 +100,7 @@ const Master = () => {
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [godownModalOpen, setGodownModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [openingStockImportOpen, setOpeningStockImportOpen] = useState(false);
   const [entityImportType, setEntityImportType] = useState(null);
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [vendorModalOpen, setVendorModalOpen] = useState(false);
@@ -449,13 +451,13 @@ const Master = () => {
               </div>
 
               <div className="flex flex-nowrap items-center gap-3 w-full xl:w-auto xl:justify-end overflow-x-auto pb-1 xl:pb-0">
-                <div className="relative w-full sm:w-48 shrink-0">
+                <div className="relative w-48 shrink-0">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={14} />
                   <Input type="text" placeholder={`Search ${activeTab}...`} className="pl-8 h-8 w-full text-sm"
                     value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                 </div>
                 {activeTab === 'products' && ownGodowns.length > 0 && (
-                  <div className="w-40 shrink-0">
+                  <div className="w-36 shrink-0">
                     <FilterSelect
                       value={godownFilter}
                       onValueChange={setGodownFilter}
@@ -467,7 +469,7 @@ const Master = () => {
                   </div>
                 )}
                 {activeTab === 'products' && transporterGodowns.length > 0 && (
-                  <div className="w-40 shrink-0">
+                  <div className="w-36 shrink-0">
                     <FilterSelect
                       value={transporterFilter}
                       onValueChange={setTransporterFilter}
@@ -479,7 +481,7 @@ const Master = () => {
                   </div>
                 )}
                 {activeTab === 'products' && productGroupings.length > 0 && (
-                  <div className="w-40 shrink-0">
+                  <div className="w-36 shrink-0">
                     <FilterSelect
                       value={groupingFilter}
                       onValueChange={setGroupingFilter}
@@ -504,16 +506,19 @@ const Master = () => {
                     </button>
                   </div>
                 )}
-              </div>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 {!loading && (
-                  <>
+                  <div className="flex items-center gap-3 shrink-0 ml-2">
                     {['products', 'customers', 'vendors', 'transporters'].includes(activeTab) && (
                       <Button onClick={() => {
                         if (activeTab === 'products') setImportModalOpen(true);
                         else setEntityImportType(activeTab);
-                      }} variant="outline" className="gap-2 px-3 h-8 text-sm font-medium">
+                      }} variant="outline" className="gap-2 px-3 h-8 text-sm font-medium shrink-0">
                         <FileSpreadsheet size={15} /><span>Import</span>
+                      </Button>
+                    )}
+                    {activeTab === 'products' && (
+                      <Button onClick={() => setOpeningStockImportOpen(true)} variant="outline" className="gap-2 px-3 h-8 text-sm font-medium shrink-0">
+                        <PackagePlus size={15} /><span>Opening Stock</span>
                       </Button>
                     )}
                     {!(activeTab === 'godowns' && godownTypeFilter === 'Transporter') && (
@@ -525,7 +530,7 @@ const Master = () => {
                         else if (activeTab === 'transporters') { setEditingTransporter(null); setTransporterModalOpen(true); }
                         else if (activeTab === 'product-grouping') { setEditingGroup(null); setGroupModalOpen(true); }
                         else if (activeTab === 'ranks') { setEditingRank(null); setRankModalOpen(true); }
-                      }} className="gap-2 px-3 h-8 text-sm font-medium">
+                      }} className="gap-2 px-3 h-8 text-sm font-medium shrink-0">
                         <Plus size={15} />
                         <span>Add {
                           activeTab === 'products' ? 'Product' :
@@ -538,7 +543,7 @@ const Master = () => {
                         }</span>
                       </Button>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
             </div>
@@ -603,6 +608,8 @@ const Master = () => {
       <GodownModal isOpen={godownModalOpen} onClose={() => setGodownModalOpen(false)}
         onSuccess={loadData} />
       <BulkImportModal isOpen={importModalOpen} onClose={() => setImportModalOpen(false)}
+        godowns={godowns} products={products} user={user} onSuccess={loadData} />
+      <BulkImportOpeningStockModal isOpen={openingStockImportOpen} onClose={() => setOpeningStockImportOpen(false)}
         godowns={godowns} products={products} user={user} onSuccess={loadData} />
       <CustomerModal isOpen={customerModalOpen} onClose={handleCloseCustomerModal}
         onSuccess={loadData} editingCustomer={editingCustomer} user={user} />

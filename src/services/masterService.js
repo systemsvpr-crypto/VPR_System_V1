@@ -437,3 +437,60 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
     errors,
   };
 };
+
+// Opening stock import for products/godowns that already exist — unlike
+// bulkImportProducts, this never creates a product: product_id/godown_id are
+// resolved client-side (by matching the file's Product Name / Godown text
+// against the current lists) and rows arrive here already carrying them, or
+// blank when nothing matched. Writes the same OPEN_STOCK transaction shape
+// bulkImportProducts/createProduct do, so opening balances land identically
+// regardless of which import path set them.
+export const bulkImportOpeningStock = async ({ rows, as_of_date, created_by }) => {
+  const errors = [];
+  const openingEntries = [];
+  const today = new Date();
+  const todayStr = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const label = row.rawProductName || `Row ${i + 1}`;
+    const qty = Number(row.qty);
+
+    if (!row.product_id) {
+      errors.push({ row: label, message: `Product "${row.rawProductName || ''}" could not be matched` });
+      continue;
+    }
+    if (!row.godown_id) {
+      errors.push({ row: `${label} → ${row.rawGodownName || ''}`, message: `Godown "${row.rawGodownName || ''}" could not be matched` });
+      continue;
+    }
+    if (isNaN(qty) || qty < 0 || !hasValidQtyPrecision(qty)) {
+      errors.push({ row: `${label} → ${row.rawGodownName || ''}`, message: 'Quantity must be a valid non-negative number with at most two decimal places' });
+      continue;
+    }
+
+    openingEntries.push({
+      product_id: row.product_id,
+      godown_id: row.godown_id,
+      txn_date: as_of_date,
+      txn_type: 'OPEN_STOCK',
+      qty,
+      is_void: false,
+      created_by,
+      back_dated: new Date(as_of_date) < new Date(todayStr),
+    });
+  }
+
+  if (openingEntries.length > 0) {
+    const { error: txnError } = await supabase
+      .from('transactions')
+      .insert(openingEntries);
+    if (txnError) throw txnError;
+  }
+
+  return {
+    successCount: openingEntries.length,
+    errorCount: errors.length,
+    errors,
+  };
+};
