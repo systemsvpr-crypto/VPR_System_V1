@@ -210,11 +210,11 @@ const UltimateIMS = () => {
 
   const filteredRows = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    
+
     return rows.map(r => {
-      const filteredStats = godownFilter 
-          ? r.stats.filter(st => String(st.godownId) === godownFilter)
-          : r.stats;
+      const filteredStats = godownFilter
+        ? r.stats.filter(st => String(st.godownId) === godownFilter)
+        : r.stats;
       return { ...r, filteredStats };
     }).filter(r => {
       const matchSearch = !term ||
@@ -228,17 +228,17 @@ const UltimateIMS = () => {
         orderPendingQty: 0
       };
       for (const st of r.filteredStats) {
-         totals.currentStock += st.currentStock;
-         totals.pendingApprovalQty += st.pendingApprovalQty;
-         totals.approvedQty += st.approvedQty;
-         totals.inTransitQty += st.inTransitQty;
-         totals.totalOrderedQty += st.totalOrderedQty;
-         totals.totalReceivedQty += st.totalReceivedQty;
-         totals.orderPendingQty += (st.orderPendingQty || 0);
+        totals.currentStock += st.currentStock;
+        totals.pendingApprovalQty += st.pendingApprovalQty;
+        totals.approvedQty += st.approvedQty;
+        totals.inTransitQty += st.inTransitQty;
+        totals.totalOrderedQty += st.totalOrderedQty;
+        totals.totalReceivedQty += st.totalReceivedQty;
+        totals.orderPendingQty += (st.orderPendingQty || 0);
       }
       return {
-          ...r,
-          ...totals
+        ...r,
+        ...totals
       };
     });
   }, [rows, searchTerm, godownFilter]);
@@ -431,90 +431,90 @@ const UltimateIMS = () => {
                   </td>
                 </tr>
               ) : (
-                  currentRows.map((row) => {
-                    const selected = selectedRows.has(row.key);
-                    const actualQty = getReorderActualQty(row);
-                    return (
-                      <tr key={row.key} className={`hover:bg-slate-50/80 transition-colors ${selected ? 'bg-primary/5' : ''}`}>
-                        <td className="px-2 py-3 text-center">
-                          <input type="checkbox" checked={selected} onChange={() => toggleSelect(row.key)}
-                            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-                        </td>
-                        <td className="px-4 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
-                          {row.productName}{' '}
-                          <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{row.unit}</span>
-                        </td>
-                        <td className="px-4 py-3 text-center font-semibold text-slate-900 tabular-nums whitespace-nowrap">
-                          {formatNum(row.currentStock)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
+                currentRows.map((row) => {
+                  const selected = selectedRows.has(row.key);
+                  const actualQty = getReorderActualQty(row);
+                  return (
+                    <tr key={row.key} className={`hover:bg-slate-50/80 transition-colors ${selected ? 'bg-primary/5' : ''}`}>
+                      <td className="px-2 py-3 text-center">
+                        <input type="checkbox" checked={selected} onChange={() => toggleSelect(row.key)}
+                          className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+                      </td>
+                      <td className="px-4 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
+                        {row.productName}{' '}
+                        <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{row.unit}</span>
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-slate-900 tabular-nums whitespace-nowrap">
+                        {formatNum(row.currentStock)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          disabled={!selected}
+                          value={getReorderUnitValue(row)}
+                          onChange={(e) => handleReorderUnitChange(row, e.target.value)}
+                          className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                        >
+                          <option value="bag">BAG</option>
+                          <option value="kg">KG</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="w-24 mx-auto">
+                          <Input type="text" inputMode="decimal" placeholder="Qty"
                             disabled={!selected}
-                            value={getReorderUnitValue(row)}
-                            onChange={(e) => handleReorderUnitChange(row, e.target.value)}
-                            className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
-                          >
-                            <option value="bag">BAG</option>
-                            <option value="kg">KG</option>
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="w-24 mx-auto">
-                            <Input type="text" inputMode="decimal" placeholder="Qty"
-                              disabled={!selected}
-                              value={reorderQty[row.key] ?? ''}
-                              onChange={(e) => setReorderQtyValue(row.key, sanitizeQtyInput(e.target.value))}
-                              className="h-8 text-xs text-center" />
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums whitespace-nowrap"
-                          title={`Pkg/Bag used: ${row.packagingSize} Kg (from Master > Product's Mux)`}>
-                          {actualQty != null ? formatNum(actualQty) : <span className="text-slate-300">—</span>}
-                        </td>
-                        <td className="px-4 py-3 text-center font-semibold text-amber-600 tabular-nums whitespace-nowrap">
-                          {row.pendingApprovalQty > 0 ? formatNum(row.pendingApprovalQty) : <span className="text-slate-300">0</span>}
-                        </td>
-                        <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums whitespace-nowrap">
-                          {row.approvedQty > 0 ? formatNum(row.approvedQty) : <span className="text-slate-300">0</span>}
-                        </td>
-                        <td className="px-4 py-3 text-center font-semibold text-violet-600 tabular-nums whitespace-nowrap">
-                          {row.inTransitQty > 0 ? formatNum(row.inTransitQty) : <span className="text-slate-300">0</span>}
-                        </td>
-                        <td className="px-4 py-3 text-center font-semibold text-red-600 tabular-nums whitespace-nowrap">
-                          {row.orderPendingQty > 0 ? formatNum(row.orderPendingQty) : <span className="text-slate-300">0</span>}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <div className="flex flex-col gap-1 w-[120px] mx-auto">
-                            {(() => {
-                              // Unassigned Godown is a bucket for items with no
-                              // real godown pick yet (still awaiting planning/
-                              // approval), not an actual stock location — it
-                              // never belongs in this per-godown breakdown.
-                              const visibleGodowns = row.filteredStats
-                                .filter(g => g.godownId !== 'unassigned')
-                                .filter(g => g.currentStock !== 0 || g.pendingApprovalQty > 0 || g.approvedQty > 0 || g.inTransitQty > 0 || g.totalOrderedQty > 0)
-                                .sort((a, b) => b.currentStock - a.currentStock);
-                              return visibleGodowns.length > 0 ? (
-                                visibleGodowns.map((g) => (
-                                  <div key={g.godownId} className="flex items-center justify-between gap-2 text-[11px] leading-tight border-b border-slate-100 last:border-0 pb-1 last:pb-0">
-                                    <span
-                                      className={`truncate font-medium text-left ${g.godownType !== 'Own' ? 'text-amber-500' : 'text-slate-500'}`}
-                                      title={g.godownName}
-                                    >
-                                      {g.godownName}
-                                    </span>
-                                    <span className="font-semibold text-slate-700 text-right">{formatNum(g.currentStock)}</span>
-                                  </div>
-                                ))
-                              ) : (
-                                <span className="text-xs text-slate-400">No stock</span>
-                              );
-                            })()}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
+                            value={reorderQty[row.key] ?? ''}
+                            onChange={(e) => setReorderQtyValue(row.key, sanitizeQtyInput(e.target.value))}
+                            className="h-8 text-xs text-center" />
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums whitespace-nowrap"
+                        title={`Pkg/Bag used: ${row.packagingSize} Kg (from Master > Product's Mux)`}>
+                        {actualQty != null ? formatNum(actualQty) : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-amber-600 tabular-nums whitespace-nowrap">
+                        {row.pendingApprovalQty > 0 ? formatNum(row.pendingApprovalQty) : <span className="text-slate-300">0</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums whitespace-nowrap">
+                        {row.approvedQty > 0 ? formatNum(row.approvedQty) : <span className="text-slate-300">0</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-violet-600 tabular-nums whitespace-nowrap">
+                        {row.inTransitQty > 0 ? formatNum(row.inTransitQty) : <span className="text-slate-300">0</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-red-600 tabular-nums whitespace-nowrap">
+                        {row.orderPendingQty > 0 ? formatNum(row.orderPendingQty) : <span className="text-slate-300">0</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex flex-col gap-1 w-[120px] mx-auto">
+                          {(() => {
+                            // Unassigned Godown is a bucket for items with no
+                            // real godown pick yet (still awaiting planning/
+                            // approval), not an actual stock location — it
+                            // never belongs in this per-godown breakdown.
+                            const visibleGodowns = row.filteredStats
+                              .filter(g => g.godownId !== 'unassigned')
+                              .filter(g => g.currentStock !== 0 || g.pendingApprovalQty > 0 || g.approvedQty > 0 || g.inTransitQty > 0 || g.totalOrderedQty > 0)
+                              .sort((a, b) => b.currentStock - a.currentStock);
+                            return visibleGodowns.length > 0 ? (
+                              visibleGodowns.map((g) => (
+                                <div key={g.godownId} className="flex items-center justify-between gap-2 text-[11px] leading-tight border-b border-slate-100 last:border-0 pb-1 last:pb-0">
+                                  <span
+                                    className={`truncate font-medium text-left ${g.godownType !== 'Own' ? 'text-amber-500' : 'text-slate-500'}`}
+                                    title={g.godownName}
+                                  >
+                                    {g.godownName}
+                                  </span>
+                                  <span className="font-semibold text-slate-700 text-right">{formatNum(g.currentStock)}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <span className="text-xs text-slate-400">No stock</span>
+                            );
+                          })()}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

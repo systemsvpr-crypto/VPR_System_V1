@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAawakDeliveries, updateAawakLift, deleteDelivery } from '../../../services/purchaseService';
@@ -38,6 +38,13 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   const [selectedLifts, setSelectedLifts] = useState(new Set());
   const [editingRows, setEditingRows] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [deletingSelected, setDeletingSelected] = useState(false);
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('purchase_view_mode') || 'card');
+
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('purchase_view_mode', mode);
+  };
 
   const isHistory = activeSubTab === 'history';
 
@@ -253,8 +260,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   };
 
   const toggleSelect = (deliveryId) => {
-    const del = deliveries.find(d => String(d.delivery_id) === String(deliveryId));
-    if (isRowLocked(del)) return;
     setSelectedLifts(prev => {
       const next = new Set(prev);
       if (next.has(deliveryId)) next.delete(deliveryId);
@@ -263,25 +268,23 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     });
   };
 
+  const allSelected = currentDeliveries.length > 0 && currentDeliveries.every(d => selectedLifts.has(d.delivery_id));
+
   const toggleSelectAll = () => {
-    const selectable = currentDeliveries.filter(d => !isRowLocked(d));
-    if (selectable.length > 0 && selectable.every(d => selectedLifts.has(d.delivery_id))) {
+    if (allSelected) {
       setSelectedLifts(prev => {
         const next = new Set(prev);
-        selectable.forEach(d => next.delete(d.delivery_id));
+        currentDeliveries.forEach(d => next.delete(d.delivery_id));
         return next;
       });
     } else {
       setSelectedLifts(prev => {
         const next = new Set(prev);
-        selectable.forEach(d => next.add(d.delivery_id));
+        currentDeliveries.forEach(d => next.add(d.delivery_id));
         return next;
       });
     }
   };
-
-  const selectableCount = currentDeliveries.filter(d => !isRowLocked(d)).length;
-  const allSelected = selectableCount > 0 && currentDeliveries.filter(d => !isRowLocked(d)).every(d => selectedLifts.has(d.delivery_id));
 
   const handleDeleteDelivery = async (del) => {
     const liftNum = del.lifting_number || del.delivery_id;
@@ -301,6 +304,34 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     }
   };
 
+  const handleDeleteSelected = async () => {
+    const toDeleteIds = Array.from(selectedLifts);
+    if (toDeleteIds.length === 0) return;
+
+    if (!window.confirm(`Permanently delete ${toDeleteIds.length} selected delivery lift(s)? This will revert inventory transactions and cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingSelected(true);
+    let success = 0;
+    for (const id of toDeleteIds) {
+      try {
+        await deleteDelivery(id);
+        success++;
+      } catch (err) {
+        console.error('Failed to delete delivery', id, err);
+      }
+    }
+    setDeletingSelected(false);
+    if (success > 0) {
+      toast.success(`Successfully deleted ${success} delivery lift(s)`);
+      setSelectedLifts(new Set());
+      loadData();
+    } else {
+      toast.error('Failed to delete selected deliveries');
+    }
+  };
+
   const clearFilters = () => {
     setSearchTerm('');
     setDateFilter('');
@@ -308,6 +339,203 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     setTransporterFilter('');
     setExpDateFilter('');
   };
+
+  const renderCards = () => (
+    <div className="flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
+      {filteredDeliveries.length === 0 ? (
+        <div className="p-12 text-center text-slate-400">
+          <PackageOpen size={36} className="mx-auto mb-2 text-slate-300" />
+          <p className="text-sm font-medium">
+            {activeSubTab === 'pending' ? 'No pending lifts found.' : 'No arrived lifts found.'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+          {currentDeliveries.map(del => {
+            const isSelected = selectedLifts.has(del.delivery_id);
+            const prod = del.purchase_indent_items?.products || {};
+            const locked = isRowLocked(del);
+            const uiStatus = getRowVal(del, 'status');
+            const indent = del.purchase_indent_items?.purchase_indents || {};
+            const vendorName = del.purchase_indent_items?.approved_vendor?.name || del.purchase_indent_items?.item_vendor?.name || '';
+
+            return (
+              <div
+                key={del.delivery_id}
+                className={`bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2 transition-all ${
+                  isSelected ? 'ring-2 ring-primary/20 border-primary' : 'hover:border-slate-300 hover:shadow-md'
+                }`}
+              >
+                {/* Card Header */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelect(del.delivery_id)}
+                      className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0 mt-0.5"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-slate-800 text-sm">{del.lifting_number || '—'}</span>
+                        <IndentTypeBadge processType={indent.process_type} />
+                      </div>
+                      <div className="text-xs text-slate-500 truncate">
+                        {prod.name || '—'} <span className="uppercase text-[10px] text-slate-400">({prod.unit || '—'})</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <select
+                      disabled={locked}
+                      value={uiStatus}
+                      onChange={e => handleStatusChange(del.delivery_id, e.target.value)}
+                      className="h-6 text-[11px] font-semibold px-2 rounded border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-primary disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                    >
+                      <option value="In Transit">In Transit</option>
+                      <option value="AT TPT GDN">AT TPT GDN</option>
+                      <option value="Arrived">Arrived</option>
+                    </select>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      type="button"
+                      title="Delete Lift"
+                      onClick={() => handleDeleteDelivery(del)}
+                      className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
+                    >
+                      <Trash2 size={13} />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* 2-Column Key-Value Grid */}
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+                  <div>
+                    <span className="text-slate-400">Indent No:</span>{' '}
+                    <span className="text-slate-700 font-medium">{indent.indent_number || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Date:</span>{' '}
+                    <span className="text-slate-700">{del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Vendor:</span>{' '}
+                    <span className="text-slate-700 font-medium truncate inline-block max-w-[120px] align-bottom" title={vendorName}>{vendorName || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Transporter:</span>{' '}
+                    <span className="text-slate-700 truncate inline-block max-w-[120px] align-bottom" title={del.transporters?.name}>{del.transporters?.name || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Exp. Recv:</span>{' '}
+                    <span className="text-slate-700">{del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Dispatch Kg:</span>{' '}
+                    <span className="text-slate-700 font-semibold">{del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Dispatch Bag:</span>{' '}
+                    <span className="text-slate-700 font-semibold">{del.dispatch_qty_bag != null ? Number(Number(del.dispatch_qty_bag).toFixed(2)) : '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Recv Qty:</span>{' '}
+                    <span className="text-emerald-700 font-bold">{getRowVal(del, 'received_quantity') || '—'}</span>
+                  </div>
+                </div>
+
+                {/* Form Controls / Inputs Section */}
+                <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
+                  <div className="grid grid-cols-12 gap-2">
+                    <div className="col-span-6 sm:col-span-4">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Recv. Qty</label>
+                      {locked ? (
+                        <div className="h-8 px-2 flex items-center text-xs font-bold text-emerald-700 bg-slate-50 border border-slate-200 rounded">
+                          {getRowVal(del, 'received_quantity') || '—'}
+                        </div>
+                      ) : (
+                        <Input
+                          type="number"
+                          step="any"
+                          disabled={locked}
+                          value={getRowVal(del, 'received_quantity')}
+                          onChange={e => setRowVal(del.delivery_id, 'received_quantity', e.target.value)}
+                          placeholder="Recv Qty"
+                          className="h-8 text-xs font-bold text-emerald-700"
+                        />
+                      )}
+                    </div>
+                    <div className="col-span-6 sm:col-span-4">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Godown</label>
+                      <select
+                        disabled={locked}
+                        value={getRowVal(del, 'godown_id')}
+                        onChange={e => setRowVal(del.delivery_id, 'godown_id', e.target.value)}
+                        className="w-full h-8 text-xs px-2 rounded border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-primary disabled:bg-slate-100 disabled:text-slate-500"
+                      >
+                        <option value="">Select godown...</option>
+                        {ownGodowns.map(g => (
+                          <option key={g.godown_id} value={g.godown_id}>{g.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-span-12 sm:col-span-4">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">LR Number</label>
+                      <Input
+                        type="text"
+                        placeholder="LR No."
+                        disabled={locked}
+                        value={getRowVal(del, 'lr_number')}
+                        onChange={e => setRowVal(del.delivery_id, 'lr_number', e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-12 gap-2">
+                    <div className="col-span-6 sm:col-span-4">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Vehicle No.</label>
+                      <Input
+                        type="text"
+                        placeholder="Vehicle No."
+                        disabled={locked}
+                        value={getRowVal(del, 'vehicle_number')}
+                        onChange={e => setRowVal(del.delivery_id, 'vehicle_number', e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="col-span-6 sm:col-span-4">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Driver Contact</label>
+                      <Input
+                        type="text"
+                        placeholder="Driver Phone"
+                        disabled={locked}
+                        value={getRowVal(del, 'driver_phone_number')}
+                        onChange={e => setRowVal(del.delivery_id, 'driver_phone_number', e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="col-span-12 sm:col-span-4">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Remarks</label>
+                      <Input
+                        type="text"
+                        placeholder="Remarks..."
+                        disabled={locked}
+                        value={getRowVal(del, 'remarks')}
+                        onChange={e => setRowVal(del.delivery_id, 'remarks', e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 
   if (loading) {
     return (
@@ -421,15 +649,64 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
           </Button>
         )}
 
-        <div className="flex items-center gap-3 shrink-0 sm:ml-auto">
+        <div className="flex items-center gap-2 shrink-0 sm:ml-auto">
+          {/* View Mode Switcher */}
+          <div className="flex items-center border border-slate-200 rounded-lg p-0.5 bg-slate-50 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleViewModeChange('card')}
+              className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all ${
+                viewMode === 'card'
+                  ? 'bg-white text-primary shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+              title="Card View"
+            >
+              <LayoutGrid size={14} />
+              <span className="hidden sm:inline">Cards</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleViewModeChange('table')}
+              className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all ${
+                viewMode === 'table'
+                  ? 'bg-white text-primary shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+              title="Table View"
+            >
+              <LayoutList size={14} />
+              <span className="hidden sm:inline">Table</span>
+            </button>
+          </div>
+
           <span className="text-xs text-slate-400 font-medium whitespace-nowrap">
             {filteredDeliveries.length} item{filteredDeliveries.length !== 1 ? 's' : ''}
           </span>
+
+          {selectedLifts.size > 0 && (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={handleDeleteSelected}
+              disabled={deletingSelected}
+              className="h-9 px-3 text-xs bg-red-600 hover:bg-red-700 text-white font-medium gap-1.5 shadow-sm shrink-0 animate-in fade-in"
+            >
+              {deletingSelected ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Trash2 size={14} />
+              )}
+              Delete Selected ({selectedLifts.size})
+            </Button>
+          )}
+
           <Button
             type="button"
             onClick={handleSubmit}
             disabled={submitting || selectedLifts.size === 0}
-            className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm disabled:opacity-50 transition-all flex items-center gap-1.5 shrink-0"
+            className="h-9 px-4 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm disabled:opacity-50 transition-all flex items-center gap-1.5 shrink-0"
           >
             {submitting && <Loader2 size={14} className="animate-spin" />}
             {submitting ? 'Submitting...' : 'Submit'}
@@ -439,20 +716,45 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
       {/* Main Table - Modern Rounded-XL Container */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 min-h-0">
-        <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+        {/* ── Sub-header bar with Select All Checkbox & Count (same as Sales Dispatch Planning) ── */}
+        <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex-wrap shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-slate-600">
+              {filteredDeliveries.length} item{filteredDeliveries.length !== 1 ? 's' : ''}
+            </span>
+            {selectedLifts.size > 0 && (
+              <span className="text-primary font-semibold">({selectedLifts.size} selected)</span>
+            )}
+          </div>
+          <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+              disabled={currentDeliveries.length === 0}
+              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <span>Select All</span>
+          </label>
+        </div>
+
+        {viewMode === 'card' ? renderCards() : (
+          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
             <table className="w-full text-xs">
               <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                 <tr>
-                  <th className="w-10 px-2 py-3 text-center">
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={toggleSelectAll}
-                      disabled={selectableCount === 0}
-                      className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
+                  <th className="w-16 px-2 py-3 text-center">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleSelectAll}
+                        disabled={currentDeliveries.length === 0}
+                        className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      />
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase">Action</span>
+                    </div>
                   </th>
-                  <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
@@ -473,7 +775,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
               <tbody className="divide-y divide-slate-100">
                 {filteredDeliveries.length === 0 && (
                   <tr>
-                    <td colSpan="17" className="p-12 text-center text-slate-400">
+                    <td colSpan="16" className="p-12 text-center text-slate-400">
                       <PackageOpen size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">
                         {activeSubTab === 'pending' ? 'No pending lifts found.' : 'No arrived lifts found.'}
@@ -490,26 +792,25 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
                   return (
                     <tr key={del.delivery_id} className={`hover:bg-slate-50/60 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
-                      <td className="px-2 py-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleSelect(del.delivery_id)}
-                          disabled={locked}
-                          className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        />
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          type="button"
-                          title="Delete Lift"
-                          onClick={() => handleDeleteDelivery(del)}
-                          className="p-1.5 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                        >
-                          <Trash2 size={14} />
-                        </Button>
+                      <td className="px-2 py-3 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(del.delivery_id)}
+                            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            type="button"
+                            title="Delete Lift"
+                            onClick={() => handleDeleteDelivery(del)}
+                            className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                          >
+                            <Trash2 size={13} />
+                          </Button>
+                        </div>
                       </td>
                       <td className="px-3 py-3 text-center text-slate-800 font-semibold whitespace-nowrap">{del.lifting_number || '—'}</td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
@@ -608,6 +909,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
               </tbody>
             </table>
           </div>
+        )}
 
         <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">

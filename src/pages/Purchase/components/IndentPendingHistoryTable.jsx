@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Save, ShoppingCart, Clock, History as HistoryIcon, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Search, Save, ShoppingCart, Clock, History as HistoryIcon, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAllIndentItems, updateVendorSelection, getPackagingSize, deleteIndentItem } from '../../../services/purchaseService';
@@ -85,6 +85,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
   const [edits, setEdits] = useState({});
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('purchase_view_mode') || 'card');
 
   // Reloads on mount, and again whenever the Indent page creates/edits/bulk-
   // uploads an indent (Purchase.jsx bumps refreshToken after its own
@@ -330,9 +331,22 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
     if (!window.confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`)) return;
     setDeleting(true);
     const toDelete = items.filter(i => selectedItems.has(i.item_id));
-    await onDelete?.(toDelete);
-    setDeleting(false);
-    setSelectedItems(new Set());
+    try {
+      if (onDelete) {
+        await onDelete(toDelete);
+      } else {
+        for (const item of toDelete) {
+          await deleteIndentItem(item.item_id);
+        }
+        toast.success(`${toDelete.length} item${toDelete.length !== 1 ? 's' : ''} deleted`);
+        await loadItems();
+      }
+      setSelectedItems(new Set());
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete items');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const isEmpty = filteredItems.length === 0;
@@ -373,21 +387,47 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
 
         {toolbarExtra}
 
-        {subTab === 'pending' && canDelete && (
-          <Button size="sm" variant="outline" onClick={deleteSelected} disabled={deleting || saving || selectedCount === 0}
-            className="gap-1.5 text-xs h-9 w-full sm:w-auto sm:ml-auto shrink-0 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
+        {/* View Mode Switcher */}
+        <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
+          <button
+            type="button"
+            onClick={() => { setViewMode('card'); localStorage.setItem('purchase_view_mode', 'card'); }}
+            className={`px-2.5 py-1.5 rounded-md transition-all flex items-center gap-1 text-xs font-medium ${
+              viewMode === 'card' ? 'bg-white text-primary shadow-xs' : 'text-slate-500 hover:text-slate-800'
+            }`}
+            title="Card View"
+          >
+            <LayoutGrid size={14} />
+            <span className="hidden sm:inline">Cards</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setViewMode('table'); localStorage.setItem('purchase_view_mode', 'table'); }}
+            className={`px-2.5 py-1.5 rounded-md transition-all flex items-center gap-1 text-xs font-medium ${
+              viewMode === 'table' ? 'bg-white text-primary shadow-xs' : 'text-slate-500 hover:text-slate-800'
+            }`}
+            title="Table View"
+          >
+            <LayoutList size={14} />
+            <span className="hidden sm:inline">Table</span>
+          </button>
+        </div>
+
+        {canDelete && selectedCount > 0 && (
+          <Button size="sm" variant="outline" onClick={deleteSelected} disabled={deleting || saving}
+            className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
             {deleting ? (
               <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-red-600" />
             ) : (
               <Trash2 size={14} />
             )}
-            Delete
+            Delete Selected ({selectedCount})
           </Button>
         )}
 
         {subTab === 'pending' && (
           <Button size="sm" onClick={saveSelected} disabled={saving || selectedCount === 0}
-            className={`gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0 ${canDelete ? '' : 'sm:ml-auto'}`}>
+            className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0">
             {saving ? (
               <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white" />
             ) : (
@@ -405,181 +445,390 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
-          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
-            <table className="w-full text-sm relative [&_td]:align-middle">
-              <thead className="sticky top-0 z-10 shadow-sm">
-                <tr className="bg-blue-50 border-b border-slate-200">
-                  {subTab === 'pending' && (
-                    <th className="w-10 px-4 py-3 text-center">
-                      <input type="checkbox"
-                        checked={currentItems.length > 0 && currentItems.every(i => selectedItems.has(i.item_id))}
-                        onChange={toggleSelectAll}
-                        className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-                    </th>
-                  )}
-                  <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Number</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">Product Name</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Indent Qty</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[160px]">Vendor Name</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Rate</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Approve Unit</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Qty</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]">Approved Qty</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[150px]">Expected Delivery Date</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Remarks</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Items</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {isEmpty && (
-                  <tr>
-                    <td colSpan={subTab === 'pending' ? 16 : 15} className="p-12 text-center">
-                      <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
-                        <ShoppingCart size={32} className="text-slate-300" />
-                      </div>
-                      <h3 className="text-base font-semibold text-slate-600 mb-1">
-                        {subTab === 'pending' ? 'No Pending Items' : 'No History Found'}
-                      </h3>
-                      <p className="text-sm text-slate-400">
-                        {searchTerm
-                          ? 'No items match your search.'
-                          : subTab === 'pending'
-                          ? 'All indent items have been approved.'
-                          : 'Approved indent items will appear here.'}
-                      </p>
-                    </td>
-                  </tr>
-                )}
-                {currentItems.map(item => {
-                  const indent = item.purchase_indents || {};
-                  const selected = selectedItems.has(item.item_id);
-                  const vendorName = vendors.find(v => v.vendor_id === item.vendor_id)?.name
-                    || indent.vendors?.name || '—';
-                  const approvedQtyPreview = getApprovedQtyPreview(item);
-                  return (
-                    <tr key={item.item_id} className={`hover:bg-slate-50 transition-colors ${selected ? 'bg-primary/5' : ''}`}>
-                      {subTab === 'pending' && (
-                        <td className="px-4 py-3 text-center">
-                          <input type="checkbox" checked={selected} onChange={() => toggleSelect(item.item_id)}
-                            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-                        </td>
-                      )}
-                      <td className="px-2 py-3 text-center">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          type="button"
-                          title="Delete Row"
-                          onClick={() => handleDeleteRow(item)}
-                          className="p-1.5 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </td>
-                      <td className="px-4 py-3 text-center text-slate-600">
-                        {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-center font-medium text-slate-800">{indent.indent_number || '—'}</td>
-                      <td className="px-4 py-3 text-center whitespace-nowrap">
-                        <span className="font-medium text-slate-800">{item.products?.name || '—'}</span>{' '}
-                        <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
-                      </td>
-                      <td className="px-4 py-3 text-center font-medium text-slate-800">
-                        {/* indent_qty is the originally-requested amount — quantity
-                            itself becomes the Approved Qty once this item is planned,
-                            so this column has to read from indent_qty to stay accurate.
-                            Falls back to quantity for rows saved before that column existed. */}
-                        {item.indent_qty ?? item.quantity ?? '—'}
-                      </td>
+          {/* ── Sub-header bar with Select All Checkbox & Count (same as Sales Dispatch Planning) ── */}
+          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex-wrap shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-slate-600">
+                {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
+              </span>
+              {selectedCount > 0 && (
+                <span className="text-primary font-semibold">({selectedCount} selected)</span>
+              )}
+            </div>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={currentItems.length > 0 && currentItems.every(i => selectedItems.has(i.item_id))}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+              />
+              <span>Select All</span>
+            </label>
+          </div>
 
-                      {subTab === 'pending' ? (
-                        <>
-                          <td className="px-4 py-3 min-w-[160px] text-center">
-                            <Dropdown value={getValue(item, 'vendor_id')}
-                              onValueChange={(v) => setFieldForSelected(item, 'vendor_id', v)}
-                              options={vendorOptions} placeholder="Select vendor..."
-                              searchPlaceholder="Search vendors..." align="start"
-                              disabled={!selected} className="h-8 text-xs" />
-                          </td>
-                          <td className="px-4 py-3">
-                            <Input type="text" inputMode="decimal" placeholder="Rate"
-                              disabled={!selected}
-                              value={getValue(item, 'rate')}
-                              onChange={(e) => {
-                                let val = e.target.value.replace(/[^0-9.]/g, '');
-                                const parts = val.split('.');
-                                if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
-                                setItemField(item, 'rate', val);
-                              }}
-                              className="h-8 text-xs text-center" />
-                          </td>
-                          <td className="px-4 py-3">
-                            <select
-                              disabled={!selected}
-                              value={getValue(item, 'approve_unit')}
-                              onChange={(e) => handleApproveUnitChange(item, e.target.value)}
-                              className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
-                            >
-                              <option value="bag">BAG</option>
-                              <option value="kg">KG</option>
-                            </select>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="w-20 mx-auto">
-                              <Input type="text" inputMode="decimal" placeholder="Qty"
-                                disabled={!selected}
-                                value={getValue(item, 'approve_unit_qty')}
-                                onChange={(e) => setItemField(item, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
-                                className="h-8 text-xs text-center" />
+          {viewMode === 'card' ? (
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
+              {isEmpty ? (
+                <div className="p-12 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                    <ShoppingCart size={32} className="text-slate-300" />
+                  </div>
+                  <h3 className="text-base font-semibold text-slate-600 mb-1">
+                    {subTab === 'pending' ? 'No Pending Items' : 'No History Found'}
+                  </h3>
+                  <p className="text-sm text-slate-400">
+                    {searchTerm
+                      ? 'No items match your search.'
+                      : subTab === 'pending'
+                      ? 'All indent items have been approved.'
+                      : 'Approved indent items will appear here.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+                  {currentItems.map(item => {
+                    const indent = item.purchase_indents || {};
+                    const selected = selectedItems.has(item.item_id);
+                    const vendorName = vendors.find(v => v.vendor_id === item.vendor_id)?.name
+                      || indent.vendors?.name || '—';
+                    const approvedQtyPreview = getApprovedQtyPreview(item);
+
+                    return (
+                      <div
+                        key={item.item_id}
+                        className={`bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2 ${
+                          selected ? 'ring-2 ring-primary/20 border-primary' : ''
+                        }`}
+                      >
+                        {/* Card Header */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => toggleSelect(item.item_id)}
+                              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer mt-0.5"
+                            />
+                            <div>
+                              <div className="font-semibold text-slate-800 text-sm">{indent.indent_number || '—'}</div>
+                              <div className="text-xs text-slate-500">
+                                {item.products?.name || '—'} <span className="uppercase text-[10px] text-slate-400">({item.products?.unit || '—'})</span>
+                              </div>
                             </div>
-                          </td>
-                          <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums">
-                            {approvedQtyPreview || <span className="text-slate-300">—</span>}
-                          </td>
-                          <td className="px-4 py-3 min-w-[150px] text-center">
-                            <DatePicker value={getValue(item, 'planning_date')}
-                              disabled={!selected}
-                              onChange={(e) => setFieldForSelected(item, 'planning_date', e.target.value)}
-                              placeholder="Select date..." className="h-8 text-xs" />
-                          </td>
-                          <td className="px-4 py-3 min-w-[130px] text-center">
-                            <Input type="text" placeholder="Remarks"
-                              disabled={!selected}
-                              value={getValue(item, 'vendor_remarks')}
-                              onChange={(e) => setItemField(item, 'vendor_remarks', e.target.value)}
-                              className="h-8 text-xs text-center" />
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-4 py-3 text-center text-slate-700 font-medium">{vendorName}</td>
-                          <td className="px-4 py-3 text-center text-slate-600 tabular-nums">
-                            {item.rate ? `₹${Number(item.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
-                          </td>
-                          <td className="px-4 py-3 text-center text-slate-500 uppercase text-xs">{item.approve_unit || '—'}</td>
-                          <td className="px-4 py-3 text-center text-slate-600 tabular-nums">{item.approve_unit_qty ?? '—'}</td>
-                          <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums">{item.quantity ?? '—'}</td>
-                          <td className="px-4 py-3 text-center text-slate-600">
-                            {item.planning_date ? format(new Date(item.planning_date), 'dd/MM/yyyy') : '—'}
-                          </td>
-                          <td className="px-4 py-3 text-center text-slate-600">{item.vendor_remarks || '—'}</td>
-                        </>
-                      )}
-                      <td className="px-4 py-3 text-center"><IndentTypeBadge processType={indent.process_type} /></td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
-                          {itemNoMap.get(item.item_id) || '—'}
-                        </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <IndentTypeBadge processType={indent.process_type} />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Delete Row"
+                              onClick={() => handleDeleteRow(item)}
+                              className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Card Grid Info (same 2-col key-value layout as DispatchPlanningTable) */}
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+                          <div><span className="text-slate-400">Date:</span> <span className="text-slate-700">{indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}</span></div>
+                          <div><span className="text-slate-400">Department:</span> <span className="text-slate-700">{indent.departments?.name || '—'}</span></div>
+                          <div><span className="text-slate-400">Indent Qty:</span> <span className="font-semibold text-slate-900">{item.indent_qty ?? item.quantity ?? '—'}</span></div>
+                          <div><span className="text-slate-400">Packaging:</span> <span className="text-slate-700">{item.products?.packaging_size || '—'}</span></div>
+                          {subTab === 'history' && (
+                            <>
+                              <div><span className="text-slate-400">Vendor:</span> <span className="text-slate-700 truncate">{vendorName}</span></div>
+                              <div><span className="text-slate-400">Rate:</span> <span className="text-slate-700">{item.rate ? `₹${Number(item.rate).toLocaleString('en-IN')}` : '—'}</span></div>
+                              <div><span className="text-slate-400">Appr. Qty:</span> <span className="font-semibold text-emerald-700">{item.quantity ?? '—'}</span></div>
+                              <div><span className="text-slate-400">Del. Date:</span> <span className="text-slate-700">{item.planning_date ? format(new Date(item.planning_date), 'dd/MM/yyyy') : '—'}</span></div>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Pending Controls */}
+                        {subTab === 'pending' && (
+                          <div className="space-y-2 pt-2 border-t border-slate-100">
+                            <div>
+                              <label className="block text-[10px] text-slate-400 mb-1">Vendor</label>
+                              <Dropdown
+                                value={getValue(item, 'vendor_id')}
+                                onValueChange={(v) => setFieldForSelected(item, 'vendor_id', v)}
+                                options={vendorOptions}
+                                placeholder="Select vendor..."
+                                searchPlaceholder="Search vendors..."
+                                align="start"
+                                disabled={!selected}
+                                className="h-8 text-xs w-full"
+                              />
+                            </div>
+                            <div className="grid grid-cols-12 gap-2">
+                              <div className="col-span-6">
+                                <label className="block text-[10px] text-slate-400 mb-1">Rate (₹)</label>
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="0.00"
+                                  disabled={!selected}
+                                  value={getValue(item, 'rate')}
+                                  onChange={(e) => {
+                                    let val = e.target.value.replace(/[^0-9.]/g, '');
+                                    const parts = val.split('.');
+                                    if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                                    setItemField(item, 'rate', val);
+                                  }}
+                                  className="h-8 text-xs font-medium text-center"
+                                />
+                              </div>
+                              <div className="col-span-6">
+                                <label className="block text-[10px] text-slate-400 mb-1">Approve Unit</label>
+                                <select
+                                  disabled={!selected}
+                                  value={getValue(item, 'approve_unit')}
+                                  onChange={(e) => handleApproveUnitChange(item, e.target.value)}
+                                  className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                                >
+                                  <option value="bag">BAG</option>
+                                  <option value="kg">KG</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-12 gap-2">
+                              <div className="col-span-6">
+                                <label className="block text-[10px] text-slate-400 mb-1">Qty ({getValue(item, 'approve_unit') || 'unit'})</label>
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="Qty"
+                                  disabled={!selected}
+                                  value={getValue(item, 'approve_unit_qty')}
+                                  onChange={(e) => setItemField(item, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
+                                  className="h-8 text-xs font-medium text-center"
+                                />
+                              </div>
+                              <div className="col-span-6">
+                                <label className="block text-[10px] text-slate-400 mb-1 truncate">Appr. Qty ({item.products?.unit || 'master'})</label>
+                                <div className="h-8 px-2.5 rounded-md bg-emerald-50 border border-emerald-100 flex items-center justify-center font-bold text-xs text-emerald-700">
+                                  {approvedQtyPreview || '—'}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-12 gap-2">
+                              <div className="col-span-6">
+                                <label className="block text-[10px] text-slate-400 mb-1">Delivery Date</label>
+                                <DatePicker
+                                  value={getValue(item, 'planning_date')}
+                                  disabled={!selected}
+                                  onChange={(e) => setFieldForSelected(item, 'planning_date', e.target.value)}
+                                  placeholder="Select date..."
+                                  className="h-8 text-xs w-full"
+                                />
+                              </div>
+                              <div className="col-span-6">
+                                <label className="block text-[10px] text-slate-400 mb-1">Remarks</label>
+                                <Input
+                                  type="text"
+                                  placeholder="Remarks..."
+                                  disabled={!selected}
+                                  value={getValue(item, 'vendor_remarks')}
+                                  onChange={(e) => setItemField(item, 'vendor_remarks', e.target.value)}
+                                  className="h-8 text-xs w-full"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {subTab === 'history' && item.vendor_remarks && (
+                          <div className="text-[11px] text-slate-500 bg-slate-50 p-2 rounded-md border border-slate-100 italic pt-1">
+                            "{item.vendor_remarks}"
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+              <table className="w-full text-sm relative [&_td]:align-middle">
+                <thead className="sticky top-0 z-10 shadow-sm">
+                  <tr className="bg-blue-50 border-b border-slate-200">
+                    <th className="w-16 px-2 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          checked={currentItems.length > 0 && currentItems.every(i => selectedItems.has(i.item_id))}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                          title="Select all"
+                        />
+                        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Action</span>
+                      </div>
+                    </th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Number</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">Product Name</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Indent Qty</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[160px]">Vendor Name</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Rate</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Approve Unit</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Qty</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]">Approved Qty</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[150px]">Expected Delivery Date</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Remarks</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Items</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {isEmpty && (
+                    <tr>
+                      <td colSpan="14" className="p-12 text-center">
+                        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                          <ShoppingCart size={32} className="text-slate-300" />
+                        </div>
+                        <h3 className="text-base font-semibold text-slate-600 mb-1">
+                          {subTab === 'pending' ? 'No Pending Items' : 'No History Found'}
+                        </h3>
+                        <p className="text-sm text-slate-400">
+                          {searchTerm
+                            ? 'No items match your search.'
+                            : subTab === 'pending'
+                            ? 'All indent items have been approved.'
+                            : 'Approved indent items will appear here.'}
+                        </p>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  )}
+                  {currentItems.map(item => {
+                    const indent = item.purchase_indents || {};
+                    const selected = selectedItems.has(item.item_id);
+                    const vendorName = vendors.find(v => v.vendor_id === item.vendor_id)?.name
+                      || indent.vendors?.name || '—';
+                    const approvedQtyPreview = getApprovedQtyPreview(item);
+                    return (
+                      <tr key={item.item_id} className={`hover:bg-slate-50 transition-colors ${selected ? 'bg-primary/5' : ''}`}>
+                        <td className="px-2 py-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => toggleSelect(item.item_id)}
+                              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Delete Row"
+                              onClick={() => handleDeleteRow(item)}
+                              className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-center text-slate-600">
+                          {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-center font-medium text-slate-800">{indent.indent_number || '—'}</td>
+                        <td className="px-4 py-3 text-center whitespace-nowrap">
+                          <span className="font-medium text-slate-800">{item.products?.name || '—'}</span>{' '}
+                          <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center font-medium text-slate-800">
+                          {item.indent_qty ?? item.quantity ?? '—'}
+                        </td>
+
+                        {subTab === 'pending' ? (
+                          <>
+                            <td className="px-4 py-3 min-w-[160px] text-center">
+                              <Dropdown value={getValue(item, 'vendor_id')}
+                                onValueChange={(v) => setFieldForSelected(item, 'vendor_id', v)}
+                                options={vendorOptions} placeholder="Select vendor..."
+                                searchPlaceholder="Search vendors..." align="start"
+                                disabled={!selected} className="h-8 text-xs" />
+                            </td>
+                            <td className="px-4 py-3">
+                              <Input type="text" inputMode="decimal" placeholder="Rate"
+                                disabled={!selected}
+                                value={getValue(item, 'rate')}
+                                onChange={(e) => {
+                                  let val = e.target.value.replace(/[^0-9.]/g, '');
+                                  const parts = val.split('.');
+                                  if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                                  setItemField(item, 'rate', val);
+                                }}
+                                className="h-8 text-xs text-center" />
+                            </td>
+                            <td className="px-4 py-3">
+                              <select
+                                disabled={!selected}
+                                value={getValue(item, 'approve_unit')}
+                                onChange={(e) => handleApproveUnitChange(item, e.target.value)}
+                                className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                              >
+                                <option value="bag">BAG</option>
+                                <option value="kg">KG</option>
+                              </select>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="w-20 mx-auto">
+                                <Input type="text" inputMode="decimal" placeholder="Qty"
+                                  disabled={!selected}
+                                  value={getValue(item, 'approve_unit_qty')}
+                                  onChange={(e) => setItemField(item, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
+                                  className="h-8 text-xs text-center" />
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums">
+                              {approvedQtyPreview || <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-4 py-3 min-w-[150px] text-center">
+                              <DatePicker value={getValue(item, 'planning_date')}
+                                disabled={!selected}
+                                onChange={(e) => setFieldForSelected(item, 'planning_date', e.target.value)}
+                                placeholder="Select date..." className="h-8 text-xs" />
+                            </td>
+                            <td className="px-4 py-3 min-w-[130px] text-center">
+                              <Input type="text" placeholder="Remarks"
+                                disabled={!selected}
+                                value={getValue(item, 'vendor_remarks')}
+                                onChange={(e) => setItemField(item, 'vendor_remarks', e.target.value)}
+                                className="h-8 text-xs text-center" />
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-4 py-3 text-center text-slate-700 font-medium">{vendorName}</td>
+                            <td className="px-4 py-3 text-center text-slate-600 tabular-nums">
+                              {item.rate ? `₹${Number(item.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
+                            </td>
+                            <td className="px-4 py-3 text-center text-slate-500 uppercase text-xs">{item.approve_unit || '—'}</td>
+                            <td className="px-4 py-3 text-center text-slate-600 tabular-nums">{item.approve_unit_qty ?? '—'}</td>
+                            <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums">{item.quantity ?? '—'}</td>
+                            <td className="px-4 py-3 text-center text-slate-600">
+                              {item.planning_date ? format(new Date(item.planning_date), 'dd/MM/yyyy') : '—'}
+                            </td>
+                            <td className="px-4 py-3 text-center text-slate-600">{item.vendor_remarks || '—'}</td>
+                          </>
+                        )}
+                        <td className="px-4 py-3 text-center"><IndentTypeBadge processType={indent.process_type} /></td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                            {itemNoMap.get(item.item_id) || '—'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3 rounded-b-xl">
             <div className="flex items-center gap-2">

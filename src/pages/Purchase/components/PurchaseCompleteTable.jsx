@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, History, Download, X, Eye, Zap, ArrowRightLeft, BadgeCheck, Truck, Timer, MapPin, CheckCircle2, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Search, History, Download, X, Eye, Zap, ArrowRightLeft, BadgeCheck, Truck, Timer, MapPin, CheckCircle2, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getPurchaseDashboardItems, deleteIndentItem, deleteDelivery } from '../../../services/purchaseService';
@@ -35,6 +35,8 @@ const IndentTypeBadge = ({ processType }) => (
 const PurchaseCompleteTable = () => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('purchase_view_mode') || 'card');
+  const [selectedItems, setSelectedItems] = useState(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [productFilter, setProductFilter] = useState('');
@@ -47,6 +49,20 @@ const PurchaseCompleteTable = () => {
   useEffect(() => { loadData(); }, []);
   useEffect(() => { setCurrentPage(1); }, [searchTerm, dateFilter, productFilter, transporterFilter, pageSize]);
 
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('purchase_view_mode', mode);
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const handleDeleteItem = async (item) => {
     if (!window.confirm(`Are you sure you want to delete purchase indent item "${item.product_name}" (Indent: ${item.indent_number}) and all its deliveries?`)) {
       return;
@@ -55,6 +71,11 @@ const PurchaseCompleteTable = () => {
     try {
       await deleteIndentItem(item.item_id);
       toast.success('Purchase item deleted successfully');
+      setSelectedItems(prev => {
+        const next = new Set(prev);
+        next.delete(item.item_id);
+        return next;
+      });
       loadData();
     } catch (err) {
       console.error(err);
@@ -149,6 +170,170 @@ const PurchaseCompleteTable = () => {
     setTransporterFilter('');
   };
 
+  const allSelected = currentItems.length > 0 && currentItems.every(i => selectedItems.has(i.item_id));
+
+  const toggleSelectAll = () => {
+    const currentItemIds = currentItems.map(i => i.item_id);
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        currentItemIds.forEach(id => next.delete(id));
+      } else {
+        currentItemIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedItems.size === 0) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedItems.size} selected purchase item(s) and all their deliveries?`)) {
+      return;
+    }
+    setLoading(true);
+    try {
+      for (const itemId of selectedItems) {
+        await deleteIndentItem(itemId);
+      }
+      toast.success(`${selectedItems.size} purchase item(s) deleted successfully`);
+      setSelectedItems(new Set());
+      loadData();
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'Failed to delete selected purchase items');
+      loadData();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderCards = () => {
+    if (filteredItems.length === 0) {
+      return (
+        <div className="p-12 text-center text-slate-400">
+          <BadgeCheck size={36} className="mx-auto mb-2 text-slate-300" />
+          <p className="text-sm font-medium">No purchase indent items found.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+          {currentItems.map(item => {
+            const isSelected = selectedItems.has(item.item_id);
+            const hasLifts = item.lifts.length > 0;
+
+            return (
+              <div
+                key={item.item_id}
+                className={`bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2 transition-all ${isSelected ? 'ring-2 ring-primary/20 border-primary' : 'hover:border-slate-300 hover:shadow-md'
+                  }`}
+              >
+                {/* Card Header */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelect(item.item_id)}
+                      className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0 mt-0.5"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-slate-800 text-sm">{item.indent_number || '—'}</span>
+                        <IndentTypeBadge processType={item.indent_type === 'Direct' ? 'direct' : 'process'} />
+                      </div>
+                      <div className="text-xs text-slate-500 truncate">
+                        {item.product_name} <span className="uppercase text-[10px] text-slate-400">({item.unit || '—'})</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      type="button"
+                      title="Delete purchase item"
+                      disabled={deletingId === item.item_id}
+                      onClick={() => handleDeleteItem(item)}
+                      className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0 disabled:opacity-50"
+                    >
+                      <Trash2 size={13} />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* 2-Column Key-Value Grid */}
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+                  <div>
+                    <span className="text-slate-400">Date:</span>{' '}
+                    <span className="text-slate-700">{item.indent_date ? format(new Date(item.indent_date), 'dd/MM/yyyy') : '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Vendor:</span>{' '}
+                    <span className="text-slate-700 font-medium truncate inline-block max-w-[120px] align-bottom" title={item.vendor_name}>{item.vendor_name || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Total Qty:</span>{' '}
+                    <span className="text-slate-700 font-semibold">{formatNum(item.total_qty)}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Rate:</span>{' '}
+                    <span className="text-slate-700 font-medium">₹{formatMoney(item.rate)}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Total Amt:</span>{' '}
+                    <span className="text-slate-800 font-bold">₹{formatMoney(item.total_amount)}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Approve:</span>{' '}
+                    <span className="text-slate-700 font-semibold">{item.approve_qty !== null ? formatNum(item.approve_qty) : 'Pending'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">In Transit:</span>{' '}
+                    <span className="text-amber-600 font-semibold">{item.intransit_qty > 0 ? formatNum(item.intransit_qty) : '0'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">TPT GDN:</span>{' '}
+                    <span className="text-blue-600 font-semibold">{item.transporter_qty > 0 ? formatNum(item.transporter_qty) : '0'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Received:</span>{' '}
+                    <span className="text-emerald-700 font-bold">{item.received_qty > 0 ? formatNum(item.received_qty) : '0'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Godown:</span>{' '}
+                    <span className="text-slate-700 truncate inline-block max-w-[120px] align-bottom" title={item.received_godown_str}>{item.received_godown_str || '—'}</span>
+                  </div>
+                </div>
+
+                {/* Footer with Lifts Drilldown */}
+                <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
+                  <span className="text-[11px] text-slate-400 truncate max-w-[150px]" title={item.approved_by_name}>
+                    {item.approved_by_name ? `Approved: ${item.approved_by_name}` : ''}
+                  </span>
+                  {hasLifts ? (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedItem(item)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                    >
+                      <Truck size={12} />
+                      <span>Lifts ({item.lifts.length})</span>
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-slate-400">No lifts yet</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
@@ -214,18 +399,94 @@ const PurchaseCompleteTable = () => {
           )}
         </div>
 
-        <span className="text-xs text-slate-400 font-medium shrink-0">
-          {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
-        </span>
+        <div className="flex items-center gap-3">
+          {selectedItems.size > 0 && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDeleteSelected}
+              className="h-9 px-3 text-xs bg-red-600 hover:bg-red-700 text-white font-semibold flex items-center gap-1.5 shadow-sm animate-in fade-in"
+            >
+              <Trash2 size={14} />
+              Delete Selected ({selectedItems.size})
+            </Button>
+          )}
+
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+            <button
+              type="button"
+              onClick={() => handleViewModeChange('card')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'card'
+                ? 'bg-white text-primary shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+                }`}
+              title="Card View"
+            >
+              <LayoutGrid size={14} />
+              <span>Cards</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleViewModeChange('table')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'table'
+                ? 'bg-white text-primary shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+                }`}
+              title="Table View"
+            >
+              <LayoutList size={14} />
+              <span>Table</span>
+            </button>
+          </div>
+
+          <span className="text-xs text-slate-400 font-medium shrink-0">
+            {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
+          </span>
+        </div>
       </div>
 
-      {/* Main Table */}
+      {/* Main Table / Cards */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 min-h-0">
-        <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+        {/* ── Sub-header bar with Select All Checkbox & Count (same as Sales Dispatch Planning) ── */}
+        <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex-wrap shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-slate-600">
+              {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
+            </span>
+            {selectedItems.size > 0 && (
+              <span className="text-primary font-semibold">({selectedItems.size} selected)</span>
+            )}
+          </div>
+          <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+            />
+            <span>Select All</span>
+          </label>
+        </div>
+
+        {viewMode === 'card' ? (
+          renderCards()
+        ) : (
+          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
             <table className="w-full text-xs">
               <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                 <tr>
-                  <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
+                  <th className="w-16 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                    <div className="flex items-center justify-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={currentItems.length > 0 && currentItems.every(i => selectedItems.has(i.item_id))}
+                        onChange={toggleSelectAll}
+                        className="rounded border-slate-300 text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                        title="Select all on this page"
+                      />
+                      <span>Action</span>
+                    </div>
+                  </th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
@@ -259,18 +520,26 @@ const PurchaseCompleteTable = () => {
                       title={hasLifts ? 'Click to view all lifts for this item' : undefined}
                       className={`hover:bg-slate-50/60 transition-colors ${hasLifts ? 'cursor-pointer' : ''}`}>
                       <td className="px-2 py-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteItem(item);
-                          }}
-                          disabled={deletingId === item.item_id}
-                          title="Delete row"
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedItems.has(item.item_id)}
+                            onChange={() => toggleSelect(item.item_id)}
+                            className="rounded border-slate-300 text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteItem(item);
+                            }}
+                            disabled={deletingId === item.item_id}
+                            title="Delete row"
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {item.indent_date ? format(new Date(item.indent_date), 'dd/MM/yyyy') : '—'}
@@ -337,6 +606,7 @@ const PurchaseCompleteTable = () => {
               </tbody>
             </table>
           </div>
+        )}
 
         <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Save, ShoppingCart, Clock, History, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Search, Save, ShoppingCart, Clock, History, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAllIndentItemsForVendorSelection, updateVendorSelection, getPackagingSize, deleteIndentItem } from '../../../services/purchaseService';
@@ -42,6 +42,8 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
   const [savingAll, setSavingAll] = useState(false);
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [subTab, setSubTab] = useState('pending'); // 'pending' | 'history'
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('purchase_view_mode') || 'card');
+  const [deletingSelected, setDeletingSelected] = useState(false);
 
   const [edits, setEdits] = useState({});
 
@@ -317,6 +319,25 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
     }
   };
 
+  const handleDeleteSelected = async () => {
+    if (selectedCount === 0) { toast.error('No items selected.'); return; }
+    if (!window.confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    setDeletingSelected(true);
+    let successCount = 0;
+    for (const itemId of selectedItems) {
+      try {
+        await deleteIndentItem(itemId);
+        successCount++;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    toast.success(`${successCount} item${successCount !== 1 ? 's' : ''} deleted successfully`);
+    setSelectedItems(new Set());
+    setDeletingSelected(false);
+    loadItems();
+  };
+
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
@@ -335,34 +356,30 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
           <button
             type="button"
             onClick={() => { setSubTab('pending'); setCurrentPage(1); setSelectedItems(new Set()); }}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${
-              subTab === 'pending'
-                ? 'bg-primary/10 text-primary'
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-            }`}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${subTab === 'pending'
+              ? 'bg-primary/10 text-primary'
+              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+              }`}
           >
             <Clock size={14} />
             Pending
-            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-              subTab === 'pending' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
-            }`}>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${subTab === 'pending' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
+              }`}>
               {pendingItems.length}
             </span>
           </button>
           <button
             type="button"
             onClick={() => { setSubTab('history'); setCurrentPage(1); setSelectedItems(new Set()); }}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${
-              subTab === 'history'
-                ? 'bg-primary/10 text-primary'
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-            }`}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${subTab === 'history'
+              ? 'bg-primary/10 text-primary'
+              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+              }`}
           >
             <History size={14} />
             History
-            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-              subTab === 'history' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
-            }`}>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${subTab === 'history' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
+              }`}>
               {historyItems.length}
             </span>
           </button>
@@ -414,8 +431,44 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
           </Button>
         )}
 
+        {/* View Mode Switcher */}
+        <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
+          <button
+            type="button"
+            onClick={() => { setViewMode('card'); localStorage.setItem('purchase_view_mode', 'card'); }}
+            className={`px-2.5 py-1.5 rounded-md transition-all flex items-center gap-1 text-xs font-medium ${viewMode === 'card' ? 'bg-white text-primary shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            title="Card View"
+          >
+            <LayoutGrid size={14} />
+            <span className="hidden sm:inline">Cards</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setViewMode('table'); localStorage.setItem('purchase_view_mode', 'table'); }}
+            className={`px-2.5 py-1.5 rounded-md transition-all flex items-center gap-1 text-xs font-medium ${viewMode === 'table' ? 'bg-white text-primary shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            title="Table View"
+          >
+            <LayoutList size={14} />
+            <span className="hidden sm:inline">Table</span>
+          </button>
+        </div>
+
+        {selectedCount > 0 && (
+          <Button size="sm" variant="outline" onClick={handleDeleteSelected} disabled={deletingSelected || savingAll}
+            className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
+            {deletingSelected ? (
+              <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-red-600" />
+            ) : (
+              <Trash2 size={14} />
+            )}
+            Delete Selected ({selectedCount})
+          </Button>
+        )}
+
         <Button size="sm" onClick={saveAllSelected} disabled={savingAll || selectedCount === 0}
-          className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0 sm:ml-auto">
+          className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0">
           {savingAll ? (
             <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white" />
           ) : (
@@ -426,188 +479,364 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
-        <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
-          <table className="w-full text-sm">
-            <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
-              <tr>
-                <th className="w-10 px-2 py-3">
-                  <input type="checkbox"
-                    checked={allSelected}
-                    onChange={toggleSelectAll}
-                    className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-                </th>
-                <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approve Unit</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap">Approve Qty</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Expected Delivery Date</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
-                <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approval Remarks</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredItems.length === 0 && (
-                <tr>
-                  <td colSpan="15" className="p-12 text-center">
-                    <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
-                      <ShoppingCart size={32} className="text-slate-300" />
-                    </div>
-                    <h3 className="text-base font-semibold text-slate-600 mb-1">
-                      {subTab === 'pending' ? 'No Pending Items' : 'No History Found'}
-                    </h3>
-                    <p className="text-sm text-slate-400">
-                      {searchTerm
-                        ? 'No items match your search criteria.'
-                        : subTab === 'pending'
-                          ? 'All indents have been planned.'
-                          : 'Planned indents will appear here.'}
-                    </p>
-                  </td>
-                </tr>
+          {/* ── Sub-header bar with Select All Checkbox & Count (same as Sales Dispatch Planning) ── */}
+          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex-wrap shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-slate-600">
+                {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
+              </span>
+              {selectedCount > 0 && (
+                <span className="text-primary font-semibold">({selectedCount} selected)</span>
               )}
-              {currentItems.map(item => {
-                const indent = item.purchase_indents || {};
-                const hasDecision = !!edits[item.item_id]?.approval_action;
-                const selected = selectedItems.has(item.item_id);
-
-                return (
-                  <tr key={item.item_id} className={`hover:bg-slate-50 transition-colors ${hasDecision ? 'bg-green-50/30' : ''} ${selected ? 'bg-primary/5' : ''}`}>
-                    <td className="px-2 py-3 text-center">
-                      <input type="checkbox"
-                        checked={selected}
-                        onChange={() => toggleSelect(item.item_id)}
-                        className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-                    </td>
-                    <td className="px-2 py-3 text-center">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        type="button"
-                        title="Delete Row"
-                        onClick={() => handleDeleteRow(item)}
-                        className="p-1.5 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                      >
-                        <Trash2 size={14} />
-                      </Button>
-                    </td>
-                    <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
-                      {indent.indent_number || '—'}
-                    </td>
-                    <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap text-xs">
-                      {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
-                    </td>
-                    <td className="px-3 py-3 text-center whitespace-nowrap">
-                      <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>{' '}
-                      <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
-                    </td>
-                    <td className="px-3 py-3 text-center text-xs text-slate-500 font-medium whitespace-nowrap">
-                      {item.indent_qty ?? item.quantity ?? '—'}
-                    </td>
-                    <td className="px-3 py-3">
-                      <select
-                        disabled={subTab === 'history'}
-                        value={getValue(item, 'approve_unit')}
-                        onChange={(e) => handleApproveUnitChange(item, e.target.value)}
-                        className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
-                      >
-                        <option value="bag">BAG</option>
-                        <option value="kg">KG</option>
-                      </select>
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <div className="w-20 mx-auto">
-                        <Input type="text" inputMode="decimal" placeholder="Qty"
-                          disabled={subTab === 'history'}
-                          value={getValue(item, 'approve_unit_qty')}
-                          onChange={(e) => setEditValue(item.item_id, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
-                          className="h-8 text-xs font-semibold text-center" />
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-center font-semibold text-emerald-600 tabular-nums">
-                      {getApprovedQtyPreview(item) || <span className="text-slate-300">—</span>}
-                    </td>
-                    <td className="px-3 py-3 text-center text-slate-600 text-xs whitespace-nowrap">
-                      ₹{Number(item.rate || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="px-3 py-3 min-w-[160px]">
-                      <Dropdown value={getValue(item, 'vendor_id')}
-                        onValueChange={(v) => setEditValue(item.item_id, 'vendor_id', v)}
-                        options={vendorOptions} placeholder="Select vendor..."
-                        searchPlaceholder="Search vendors..." align="start" />
-                    </td>
-                    <td className="px-3 py-3 text-center text-slate-500 text-xs whitespace-nowrap">
-                      {item.planning_date ? format(new Date(item.planning_date), 'dd/MM/yyyy') : '—'}
-                    </td>
-                    <td className="px-3 py-3 text-center text-slate-600 text-xs min-w-[130px]">
-                      {item.vendor_remarks || '—'}
-                    </td>
-                    <td className="px-3 py-3 min-w-[130px]">
-                      <Dropdown value={getValue(item, 'approval_action')}
-                        onValueChange={(v) => setEditValue(item.item_id, 'approval_action', v)}
-                        options={STATUS_OPTIONS} placeholder="Select status..."
-                        disabled={subTab === 'history'} align="start" />
-                    </td>
-                    <td className="px-3 py-3 min-w-[140px]">
-                      <Input type="text" placeholder="Remarks"
-                        disabled={subTab === 'history'}
-                        value={getValue(item, 'approval_remarks')}
-                        onChange={(e) => setEditValue(item.item_id, 'approval_remarks', e.target.value)}
-                        className="h-8 text-xs text-center" />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500">Rows per page:</span>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              className="border border-slate-300 rounded-md px-2 py-1 focus:outline-none focus:border-primary bg-white font-medium text-xs shadow-sm"
-            >
-              {PAGE_SIZE_OPTIONS.map((val) => (
-                <option key={val} value={val}>{val}</option>
-              ))}
-            </select>
-            <span className="text-xs text-slate-500 whitespace-nowrap">
-              {filteredItems.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}-{Math.min(currentPage * pageSize, filteredItems.length)} of {filteredItems.length} items
-            </span>
+            </div>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+              />
+              <span>Select All</span>
+            </label>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
-            >
-              <ChevronLeft size={16} strokeWidth={2.5} />
-            </button>
-            <span className="text-xs font-semibold text-slate-600">
-              Page {currentPage} of {totalPages}
-            </span>
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
-            >
-              <ChevronRight size={16} strokeWidth={2.5} />
-            </button>
+          {viewMode === 'card' ? (
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
+              {filteredItems.length === 0 ? (
+                <div className="p-12 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                    <ShoppingCart size={32} className="text-slate-300" />
+                  </div>
+                  <h3 className="text-base font-semibold text-slate-600 mb-1">
+                    {subTab === 'pending' ? 'No Pending Items' : 'No History Found'}
+                  </h3>
+                  <p className="text-sm text-slate-400">
+                    {searchTerm
+                      ? 'No items match your search criteria.'
+                      : subTab === 'pending'
+                        ? 'All indents have been planned.'
+                        : 'Planned indents will appear here.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+                  {currentItems.map(item => {
+                    const indent = item.purchase_indents || {};
+                    const hasDecision = !!edits[item.item_id]?.approval_action;
+                    const selected = selectedItems.has(item.item_id);
+
+                    return (
+                      <div
+                        key={item.item_id}
+                        className={`bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2 ${selected ? 'ring-2 ring-primary/20 border-primary' : ''
+                          }`}
+                      >
+                        {/* Card Header */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => toggleSelect(item.item_id)}
+                              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer mt-0.5"
+                            />
+                            <div>
+                              <div className="font-semibold text-slate-800 text-sm">{indent.indent_number || '—'}</div>
+                              <div className="text-xs text-slate-500">
+                                {item.products?.name || '—'} <span className="uppercase text-[10px] text-slate-400">({item.products?.unit || '—'})</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {hasDecision && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                Decided
+                              </span>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Delete Row"
+                              onClick={() => handleDeleteRow(item)}
+                              className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Card Grid Info */}
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+                          <div><span className="text-slate-400">Date:</span> <span className="text-slate-700">{indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}</span></div>
+                          <div><span className="text-slate-400">Total Qty:</span> <span className="font-semibold text-slate-900">{item.indent_qty ?? item.quantity ?? '—'}</span></div>
+                          <div><span className="text-slate-400">Rate:</span> <span className="text-slate-700">₹{Number(item.rate || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
+                          <div><span className="text-slate-400">Appr. Qty:</span> <span className="font-semibold text-emerald-700">{getApprovedQtyPreview(item) || '—'}</span></div>
+                        </div>
+
+                        {/* Form Details */}
+                        <div className="space-y-2 pt-2 border-t border-slate-100">
+                          <div>
+                            <label className="block text-[10px] text-slate-400 mb-1">Vendor</label>
+                            <Dropdown
+                              value={getValue(item, 'vendor_id')}
+                              onValueChange={(v) => setEditValue(item.item_id, 'vendor_id', v)}
+                              options={vendorOptions}
+                              placeholder="Select vendor..."
+                              searchPlaceholder="Search vendors..."
+                              align="start"
+                              className="h-8 text-xs w-full"
+                            />
+                          </div>
+                          <div className="grid grid-cols-12 gap-2">
+                            <div className="col-span-6">
+                              <label className="block text-[10px] text-slate-400 mb-1">Approve Unit</label>
+                              <select
+                                disabled={subTab === 'history'}
+                                value={getValue(item, 'approve_unit')}
+                                onChange={(e) => handleApproveUnitChange(item, e.target.value)}
+                                className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                              >
+                                <option value="bag">BAG</option>
+                                <option value="kg">KG</option>
+                              </select>
+                            </div>
+                            <div className="col-span-6">
+                              <label className="block text-[10px] text-slate-400 mb-1">Qty</label>
+                              <Input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="Qty"
+                                disabled={subTab === 'history'}
+                                value={getValue(item, 'approve_unit_qty')}
+                                onChange={(e) => setEditValue(item.item_id, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
+                                className="h-8 text-xs font-semibold text-center"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-12 gap-2">
+                            <div className="col-span-6">
+                              <label className="block text-[10px] text-slate-400 mb-1">Status</label>
+                              <Dropdown
+                                value={getValue(item, 'approval_action')}
+                                onValueChange={(v) => setEditValue(item.item_id, 'approval_action', v)}
+                                options={STATUS_OPTIONS}
+                                placeholder="Select status..."
+                                disabled={subTab === 'history'}
+                                align="start"
+                                className="h-8 text-xs w-full"
+                              />
+                            </div>
+                            <div className="col-span-6">
+                              <label className="block text-[10px] text-slate-400 mb-1">Approval Remarks</label>
+                              <Input
+                                type="text"
+                                placeholder="Remarks..."
+                                disabled={subTab === 'history'}
+                                value={getValue(item, 'approval_remarks')}
+                                onChange={(e) => setEditValue(item.item_id, 'approval_remarks', e.target.value)}
+                                className="h-8 text-xs w-full"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+              <table className="w-full text-sm">
+                <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
+                  <tr>
+                    <th className="w-16 px-2 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                          title="Select all"
+                        />
+                        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Action</span>
+                      </div>
+                    </th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approve Unit</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap">Approve Qty</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Expected Delivery Date</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approval Remarks</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredItems.length === 0 && (
+                    <tr>
+                      <td colSpan="14" className="p-12 text-center">
+                        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                          <ShoppingCart size={32} className="text-slate-300" />
+                        </div>
+                        <h3 className="text-base font-semibold text-slate-600 mb-1">
+                          {subTab === 'pending' ? 'No Pending Items' : 'No History Found'}
+                        </h3>
+                        <p className="text-sm text-slate-400">
+                          {searchTerm
+                            ? 'No items match your search criteria.'
+                            : subTab === 'pending'
+                              ? 'All indents have been planned.'
+                              : 'Planned indents will appear here.'}
+                        </p>
+                      </td>
+                    </tr>
+                  )}
+                  {currentItems.map(item => {
+                    const indent = item.purchase_indents || {};
+                    const hasDecision = !!edits[item.item_id]?.approval_action;
+                    const selected = selectedItems.has(item.item_id);
+
+                    return (
+                      <tr key={item.item_id} className={`hover:bg-slate-50 transition-colors ${hasDecision ? 'bg-green-50/30' : ''} ${selected ? 'bg-primary/5' : ''}`}>
+                        <td className="px-2 py-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => toggleSelect(item.item_id)}
+                              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Delete Row"
+                              onClick={() => handleDeleteRow(item)}
+                              className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
+                          {indent.indent_number || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap text-xs">
+                          {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                          <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>{' '}
+                          <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
+                        </td>
+                        <td className="px-3 py-3 text-center text-xs text-slate-500 font-medium whitespace-nowrap">
+                          {item.indent_qty ?? item.quantity ?? '—'}
+                        </td>
+                        <td className="px-3 py-3">
+                          <select
+                            disabled={subTab === 'history'}
+                            value={getValue(item, 'approve_unit')}
+                            onChange={(e) => handleApproveUnitChange(item, e.target.value)}
+                            className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          >
+                            <option value="bag">BAG</option>
+                            <option value="kg">KG</option>
+                          </select>
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <div className="w-20 mx-auto">
+                            <Input type="text" inputMode="decimal" placeholder="Qty"
+                              disabled={subTab === 'history'}
+                              value={getValue(item, 'approve_unit_qty')}
+                              onChange={(e) => setEditValue(item.item_id, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
+                              className="h-8 text-xs font-semibold text-center" />
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-center font-semibold text-emerald-600 tabular-nums">
+                          {getApprovedQtyPreview(item) || <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-600 text-xs whitespace-nowrap">
+                          ₹{Number(item.rate || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-3 py-3 min-w-[160px]">
+                          <Dropdown value={getValue(item, 'vendor_id')}
+                            onValueChange={(v) => setEditValue(item.item_id, 'vendor_id', v)}
+                            options={vendorOptions} placeholder="Select vendor..."
+                            searchPlaceholder="Search vendors..." align="start" />
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-500 text-xs whitespace-nowrap">
+                          {item.planning_date ? format(new Date(item.planning_date), 'dd/MM/yyyy') : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-600 text-xs min-w-[130px]">
+                          {item.vendor_remarks || '—'}
+                        </td>
+                        <td className="px-3 py-3 min-w-[130px]">
+                          <Dropdown value={getValue(item, 'approval_action')}
+                            onValueChange={(v) => setEditValue(item.item_id, 'approval_action', v)}
+                            options={STATUS_OPTIONS} placeholder="Select status..."
+                            disabled={subTab === 'history'} align="start" />
+                        </td>
+                        <td className="px-3 py-3 min-w-[140px]">
+                          <Input type="text" placeholder="Remarks"
+                            disabled={subTab === 'history'}
+                            value={getValue(item, 'approval_remarks')}
+                            onChange={(e) => setEditValue(item.item_id, 'approval_remarks', e.target.value)}
+                            className="h-8 text-xs text-center" />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Rows per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="border border-slate-300 rounded-md px-2 py-1 focus:outline-none focus:border-primary bg-white font-medium text-xs shadow-sm"
+              >
+                {PAGE_SIZE_OPTIONS.map((val) => (
+                  <option key={val} value={val}>{val}</option>
+                ))}
+              </select>
+              <span className="text-xs text-slate-500 whitespace-nowrap">
+                {filteredItems.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}-{Math.min(currentPage * pageSize, filteredItems.length)} of {filteredItems.length} items
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
+              >
+                <ChevronLeft size={16} strokeWidth={2.5} />
+              </button>
+              <span className="text-xs font-semibold text-slate-600">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
+              >
+                <ChevronRight size={16} strokeWidth={2.5} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+      );
 };
 
-export default VendorSelectionTable;
+      export default VendorSelectionTable;
