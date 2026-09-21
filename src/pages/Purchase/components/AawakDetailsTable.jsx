@@ -3,6 +3,7 @@ import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, 
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAawakDeliveries, updateAawakLift, deleteDelivery } from '../../../services/purchaseService';
+import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -24,7 +25,7 @@ const IndentTypeBadge = ({ processType }) => (
   )
 );
 
-const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [], vendors = [] }) => {
+const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [], vendors = [], groups = [] }) => {
   const [activeSubTab, setActiveSubTab] = useState('pending'); // 'pending' ('In Transit') | 'history' ('AT TPT GDN', 'Arrived' & 'Received')
   const [deliveries, setDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -123,8 +124,10 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
       const lrNum = d.lr_number || '';
       const driverNum = d.driver_phone_number || d.transporters?.driver_phone_number || '';
       const vehicleNum = d.vehicle_number || d.transporters?.vehicle_number || '';
+      const gName = getGroupNameFromItem(d, groups) || getGroupNameFromItem(d.purchase_indent_items, groups);
       const matchSearch = !term ||
         pName.toLowerCase().includes(term) ||
+        (gName && gName !== '—' && gName.toLowerCase().includes(term)) ||
         tName.toLowerCase().includes(term) ||
         iNum.toLowerCase().includes(term) ||
         liftNum.toLowerCase().includes(term) ||
@@ -134,7 +137,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
       return matchDate && matchProduct && matchTransporter && matchExpDate && matchSearch;
     });
-  }, [activeDeliveriesList, dateFilter, productFilter, transporterFilter, expDateFilter, searchTerm]);
+  }, [activeDeliveriesList, dateFilter, productFilter, transporterFilter, expDateFilter, searchTerm, groups]);
 
   const totalPages = Math.max(1, Math.ceil(filteredDeliveries.length / pageSize));
   const currentDeliveries = useMemo(() => {
@@ -379,6 +382,11 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-bold text-slate-800 text-sm">{del.lifting_number || '—'}</span>
                         <IndentTypeBadge processType={indent.process_type} />
+                        {(getGroupNameFromItem(del, groups) !== '—' || getGroupNameFromItem(del.purchase_indent_items, groups) !== '—') && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            {getGroupNameFromItem(del, groups) !== '—' ? getGroupNameFromItem(del, groups) : getGroupNameFromItem(del.purchase_indent_items, groups)}
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-slate-500 truncate">
                         {prod.name || '—'} <span className="uppercase text-[10px] text-slate-400">({prod.unit || '—'})</span>
@@ -758,6 +766,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Group Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (KG)</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (Bags)</th>
@@ -775,7 +784,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
               <tbody className="divide-y divide-slate-100">
                 {filteredDeliveries.length === 0 && (
                   <tr>
-                    <td colSpan="16" className="p-12 text-center text-slate-400">
+                    <td colSpan="17" className="p-12 text-center text-slate-400">
                       <PackageOpen size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">
                         {activeSubTab === 'pending' ? 'No pending lifts found.' : 'No arrived lifts found.'}
@@ -818,6 +827,11 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       </td>
                       <td className="px-3 py-3 text-center">
                         <IndentTypeBadge processType={del.purchase_indent_items?.purchase_indents?.process_type} />
+                      </td>
+                      <td className="px-3 py-3 text-center whitespace-nowrap">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                          {getGroupNameFromItem(del, groups) !== '—' ? getGroupNameFromItem(del, groups) : getGroupNameFromItem(del.purchase_indent_items, groups)}
+                        </span>
                       </td>
                       <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
                         {prod.name || '—'}

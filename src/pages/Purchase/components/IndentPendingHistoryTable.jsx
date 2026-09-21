@@ -3,6 +3,7 @@ import { Search, Save, ShoppingCart, Clock, History as HistoryIcon, Zap, ArrowRi
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAllIndentItems, updateVendorSelection, getPackagingSize, deleteIndentItem } from '../../../services/purchaseService';
+import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -67,7 +68,7 @@ const buildItemNoMap = (allItems) => {
  * scoped to the Indent page, that also includes Direct-type items (which are
  * auto-approved/Planned right at creation, so they land straight in History).
  */
-const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarExtra, searchTerm = '', onSearchChange, onDelete }) => {
+const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarExtra, searchTerm = '', onSearchChange, onDelete, groups = [] }) => {
   // Same gating as the old Indent table: deletion is destructive (it removes
   // the whole indent + every item/delivery under it), so only Super Admin —
   // or a local dev build — gets the button at all.
@@ -129,13 +130,15 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
     if (!term) return baseList;
     return baseList.filter(item => {
       const indent = item.purchase_indents || {};
+      const groupName = getGroupNameFromItem(item, groups);
       return (
         indent.indent_number?.toLowerCase().includes(term) ||
         item.products?.name?.toLowerCase().includes(term) ||
+        (groupName && groupName !== '—' && groupName.toLowerCase().includes(term)) ||
         indent.vendors?.name?.toLowerCase().includes(term)
       );
     });
-  }, [baseList, searchTerm]);
+  }, [baseList, searchTerm, groups]);
 
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
   const currentItems = useMemo(() => {
@@ -510,7 +513,14 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                               className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer mt-0.5"
                             />
                             <div>
-                              <div className="font-semibold text-slate-800 text-sm">{indent.indent_number || '—'}</div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-semibold text-slate-800 text-sm">{indent.indent_number || '—'}</span>
+                                {getGroupNameFromItem(item, groups) !== '—' && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                    {getGroupNameFromItem(item, groups)}
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-xs text-slate-500">
                                 {item.products?.name || '—'} <span className="uppercase text-[10px] text-slate-400">({item.products?.unit || '—'})</span>
                               </div>
@@ -670,6 +680,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                     </th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Number</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Group Name</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">Product Name</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Indent Qty</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[160px]">Vendor Name</th>
@@ -686,7 +697,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                 <tbody className="divide-y divide-slate-100">
                   {isEmpty && (
                     <tr>
-                      <td colSpan="14" className="p-12 text-center">
+                      <td colSpan="15" className="p-12 text-center">
                         <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                           <ShoppingCart size={32} className="text-slate-300" />
                         </div>
@@ -735,6 +746,11 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                           {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
                         </td>
                         <td className="px-4 py-3 text-center font-medium text-slate-800">{indent.indent_number || '—'}</td>
+                        <td className="px-4 py-3 text-center whitespace-nowrap">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            {getGroupNameFromItem(item, groups)}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 text-center whitespace-nowrap">
                           <span className="font-medium text-slate-800">{item.products?.name || '—'}</span>{' '}
                           <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>

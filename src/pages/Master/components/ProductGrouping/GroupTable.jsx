@@ -43,7 +43,7 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, currentPage
           <FolderTree size={32} className="text-slate-300" />
         </div>
         <h3 className="text-base font-semibold text-slate-600 mb-1">No Product Groups</h3>
-        <p className="text-sm text-slate-400">Click "Add Group" above to create your first product group.</p>
+        <p className="text-sm text-slate-400">Product groups will automatically appear here when products are created.</p>
       </div>
     );
   }

@@ -85,14 +85,14 @@ const RateHistoryModal = ({ isOpen, onClose, group }) => {
           ) : (
             <div className="space-y-3">
               {history.map((record, index) => {
-                const userName = record.user?.full_name || record.user?.username || 'System / Admin';
-                const dateStr = record.created_at
-                  ? format(new Date(record.created_at), 'dd MMM yyyy, hh:mm a')
+                const timestamp = record.updated_at || record.created_at;
+                const dateStr = timestamp
+                  ? format(new Date(timestamp), 'dd MMM yyyy, hh:mm a')
                   : '—';
 
                 return (
                   <div
-                    key={record.history_id || index}
+                    key={record.id || index}
                     className="p-3.5 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-primary/30 transition-all flex flex-col gap-2.5"
                   >
                     <div className="flex items-center justify-between text-xs border-b border-slate-100 pb-2">
@@ -101,8 +101,7 @@ const RateHistoryModal = ({ isOpen, onClose, group }) => {
                         {dateStr}
                       </span>
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-medium text-[11px]">
-                        <User size={11} className="text-slate-400" />
-                        {userName}
+                        Log #{record.id}
                       </span>
                     </div>
 

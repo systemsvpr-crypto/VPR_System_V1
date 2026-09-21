@@ -122,3 +122,28 @@ export const deleteGroup = async (group_id) => {
     .eq('group_id', group_id);
   if (error) throw error;
 };
+
+/**
+ * Resolves the display group_name for any purchase/inventory record.
+ * Checks direct join (product_groups.group_name), products join,
+ * group_id lookup in groups array, and fallback to brand_name + category.
+ */
+export const getGroupNameFromItem = (item, groups = []) => {
+  if (!item) return '—';
+  if (item.group_name && item.group_name !== '—') return item.group_name;
+  if (item.product_groups?.group_name) return item.product_groups.group_name;
+  if (item.products?.product_groups?.group_name) return item.products.product_groups.group_name;
+  if (item.purchase_indents?.product_groups?.group_name) return item.purchase_indents.product_groups.group_name;
+
+  const gId = item.group_id || item.products?.group_id || item.purchase_indents?.group_id;
+  if (gId && groups && groups.length > 0) {
+    const matched = groups.find(g => String(g.group_id) === String(gId));
+    if (matched?.group_name) return matched.group_name;
+  }
+
+  const brand = item.products?.brand_name || item.brand_name;
+  const cat = item.products?.category || item.category;
+  if (brand && cat) return `${brand} ${cat}`.trim();
+
+  return '—';
+};

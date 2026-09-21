@@ -3,6 +3,7 @@ import { Search, Save, ShoppingCart, Clock, History, ChevronLeft, ChevronRight, 
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAllIndentItemsForVendorSelection, updateVendorSelection, getPackagingSize, deleteIndentItem } from '../../../services/purchaseService';
+import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
@@ -30,7 +31,7 @@ const convertApproveQty = (qty, fromUnit, targetUnit, pkgSize) => {
   return amount;
 };
 
-const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
+const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -110,17 +111,19 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
     return items.filter(item => {
       const indent = item.purchase_indents || {};
       const vendorName = getItemVendorName(item);
+      const groupName = getGroupNameFromItem(item, groups);
       const matchIndent = !indentFilter || indent.indent_number === indentFilter;
       const matchProduct = !productFilter || item.products?.name === productFilter;
       const matchVendor = !vendorFilter || vendorName === vendorFilter;
       const matchSearch = !term ||
         indent.indent_number?.toLowerCase().includes(term) ||
         item.products?.name?.toLowerCase().includes(term) ||
+        (groupName && groupName !== '—' && groupName.toLowerCase().includes(term)) ||
         vendorName.toLowerCase().includes(term);
 
       return matchIndent && matchProduct && matchVendor && matchSearch;
     });
-  }, [items, searchTerm, indentFilter, productFilter, vendorFilter]);
+  }, [items, searchTerm, indentFilter, productFilter, vendorFilter, groups, getItemVendorName]);
 
   const pendingItems = useMemo(() => {
     return filteredBySearch.filter(i =>
@@ -541,7 +544,14 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
                               className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer mt-0.5"
                             />
                             <div>
-                              <div className="font-semibold text-slate-800 text-sm">{indent.indent_number || '—'}</div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-semibold text-slate-800 text-sm">{indent.indent_number || '—'}</span>
+                                {getGroupNameFromItem(item, groups) !== '—' && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                    {getGroupNameFromItem(item, groups)}
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-xs text-slate-500">
                                 {item.products?.name || '—'} <span className="uppercase text-[10px] text-slate-400">({item.products?.unit || '—'})</span>
                               </div>
@@ -665,6 +675,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
                     </th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Group Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approve Unit</th>
@@ -679,9 +690,9 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredItems.length === 0 && (
+                  {isEmpty && (
                     <tr>
-                      <td colSpan="14" className="p-12 text-center">
+                      <td colSpan="15" className="p-12 text-center">
                         <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                           <ShoppingCart size={32} className="text-slate-300" />
                         </div>
@@ -730,6 +741,11 @@ const VendorSelectionTable = ({ vendors, godowns = [], user }) => {
                         </td>
                         <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap text-xs">
                           {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            {getGroupNameFromItem(item, groups)}
+                          </span>
                         </td>
                         <td className="px-3 py-3 text-center whitespace-nowrap">
                           <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>{' '}

@@ -11,6 +11,7 @@ import {
   deleteIndentItem,
   deleteDelivery,
 } from '../../../services/purchaseService';
+import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { sendPurchaseDeliveredWhatsapp } from '../../../services/whatsappService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,7 +47,7 @@ const IndentTypeBadge = ({ processType }) => (
   )
 );
 
-const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
+const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) => {
   const [activeSubTab, setActiveSubTab] = useState('pending'); // 'pending' | 'history'
   const [items, setItems] = useState([]);
   const [historyItems, setHistoryItems] = useState([]);
@@ -148,10 +149,11 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
       const pName = item.products?.name?.toLowerCase() || '';
       const vName = (item.approved_vendor?.name || item.item_vendor?.name || '').toLowerCase();
       const iNum = (indent.indent_number || '').toLowerCase();
-      const matchSearch = !term || iNum.includes(term) || pName.includes(term) || vName.includes(term);
+      const gName = getGroupNameFromItem(item, groups);
+      const matchSearch = !term || iNum.includes(term) || pName.includes(term) || (gName && gName !== '—' && gName.toLowerCase().includes(term)) || vName.includes(term);
       return matchIndent && matchProduct && matchVendor && matchSearch;
     });
-  }, [items, indentFilter, productFilter, vendorFilter, searchTerm]);
+  }, [items, indentFilter, productFilter, vendorFilter, searchTerm, groups]);
 
   const filteredHistoryItems = useMemo(() => {
     const term = searchTerm.toLowerCase();
@@ -164,10 +166,11 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
       const matchVendor = !vendorFilter || tName === vendorFilter;
       const vName = (h.purchase_indent_items?.approved_vendor?.name || h.purchase_indent_items?.item_vendor?.name || '').toLowerCase();
       const iNum = indent.indent_number || h.lifting_number || '';
-      const matchSearch = !term || iNum.toLowerCase().includes(term) || pName.toLowerCase().includes(term) || vName.toLowerCase().includes(term) || tName.toLowerCase().includes(term);
+      const gName = getGroupNameFromItem(h, groups) || getGroupNameFromItem(h.purchase_indent_items, groups);
+      const matchSearch = !term || iNum.toLowerCase().includes(term) || pName.toLowerCase().includes(term) || (gName && gName !== '—' && gName.toLowerCase().includes(term)) || vName.toLowerCase().includes(term) || tName.toLowerCase().includes(term);
       return matchIndent && matchProduct && matchVendor && matchSearch;
     });
-  }, [historyItems, indentFilter, productFilter, vendorFilter, searchTerm]);
+  }, [historyItems, indentFilter, productFilter, vendorFilter, searchTerm, groups]);
 
   const currentList = activeSubTab === 'pending' ? filteredItems : filteredHistoryItems;
   const totalPages = Math.max(1, Math.ceil(currentList.length / pageSize));
@@ -379,6 +382,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
           item_id: item.item_id,
           indent_id: item.purchase_indents?.indent_id,
           delivery_date: new Date().toISOString().slice(0, 10),
+          group_id: item.group_id || item.products?.group_id || item.purchase_indents?.group_id || null,
           expected_delivery_date: edit.exp_date !== undefined ? edit.exp_date : (fallbackExpDate || item.planning_date || null),
           godown_allocations: defaultGodownId ? [{ godown_id: defaultGodownId, qty: masterQty }] : [],
           transporter_id: tId,
@@ -620,7 +624,14 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer mt-0.5"
                     />
                     <div>
-                      <div className="font-semibold text-slate-800 text-sm">{indent.indent_number || '—'}</div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-semibold text-slate-800 text-sm">{indent.indent_number || '—'}</span>
+                        {getGroupNameFromItem(item, groups) !== '—' && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            {getGroupNameFromItem(item, groups)}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-slate-500">
                         {item.products?.name || '—'} <span className="uppercase text-[10px] text-slate-400">({item.products?.unit || '—'})</span>
                       </div>
@@ -797,7 +808,14 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer mt-0.5"
                     />
                     <div>
-                      <div className="font-semibold text-slate-800 text-sm">{del.lifting_number || '—'}</div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-semibold text-slate-800 text-sm">{del.lifting_number || '—'}</span>
+                        {(getGroupNameFromItem(del, groups) !== '—' || getGroupNameFromItem(del.purchase_indent_items, groups) !== '—') && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            {getGroupNameFromItem(del, groups) !== '—' ? getGroupNameFromItem(del, groups) : getGroupNameFromItem(del.purchase_indent_items, groups)}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-slate-500">
                         {prod.name || '—'} <span className="uppercase text-[10px] text-slate-400">({prod.unit || '—'})</span>
                       </div>
@@ -1056,6 +1074,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Group Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
@@ -1077,7 +1096,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
               <tbody className="divide-y divide-slate-100">
                 {currentList.length === 0 && (
                   <tr>
-                    <td colSpan="21" className="p-12 text-center text-slate-400">
+                    <td colSpan="22" className="p-12 text-center text-slate-400">
                       <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No approved deliveries available.</p>
                     </td>
@@ -1130,6 +1149,11 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       </td>
                       <td className="px-3 py-3 text-center font-medium text-slate-700 whitespace-nowrap">
                         {item.approved_vendor?.name || item.item_vendor?.name || '—'}
+                      </td>
+                      <td className="px-3 py-3 text-center whitespace-nowrap">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                          {getGroupNameFromItem(item, groups)}
+                        </span>
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
                         <span className="text-slate-800 font-medium">{item.products?.name || '—'}</span>
@@ -1276,6 +1300,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Group Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in BAG</th>
@@ -1290,7 +1315,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
               <tbody className="divide-y divide-slate-100">
                 {currentList.length === 0 && (
                   <tr>
-                    <td colSpan="15" className="p-12 text-center text-slate-400">
+                    <td colSpan="16" className="p-12 text-center text-slate-400">
                       <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No delivery history found.</p>
                     </td>
@@ -1338,6 +1363,11 @@ const DeliveryTable = ({ transporters = [], user, godowns = [] }) => {
                       </td>
                       <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
                         {vendorName}
+                      </td>
+                      <td className="px-3 py-3 text-center whitespace-nowrap">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                          {getGroupNameFromItem(del, groups) !== '—' ? getGroupNameFromItem(del, groups) : getGroupNameFromItem(del.purchase_indent_items, groups)}
+                        </span>
                       </td>
                       <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
                         {prod.name || '—'}

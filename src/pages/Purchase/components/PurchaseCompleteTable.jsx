@@ -3,6 +3,7 @@ import { Search, History, Download, X, Eye, Zap, ArrowRightLeft, BadgeCheck, Tru
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getPurchaseDashboardItems, deleteIndentItem, deleteDelivery } from '../../../services/purchaseService';
+import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalTitle } from '@/components/ui/modal';
@@ -32,7 +33,7 @@ const IndentTypeBadge = ({ processType }) => (
   )
 );
 
-const PurchaseCompleteTable = () => {
+const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = [], groups = [] }) => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('purchase_view_mode') || 'card');
@@ -148,14 +149,16 @@ const PurchaseCompleteTable = () => {
       const matchDate = !dateFilter || iYmd === dateFilter;
       const matchProduct = !productFilter || i.product_name === productFilter;
       const matchTransporter = !transporterFilter || i.lifts.some(l => l.transporter_name === transporterFilter);
+      const gName = i.group_name || getGroupNameFromItem(i, groups);
       const matchSearch = !term ||
         (i.indent_number || '').toLowerCase().includes(term) ||
         i.vendor_name.toLowerCase().includes(term) ||
+        (gName && gName !== '—' && gName.toLowerCase().includes(term)) ||
         i.product_name.toLowerCase().includes(term);
 
       return matchDate && matchProduct && matchTransporter && matchSearch;
     });
-  }, [items, dateFilter, productFilter, transporterFilter, searchTerm]);
+  }, [items, dateFilter, productFilter, transporterFilter, searchTerm, groups]);
 
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
   const currentItems = useMemo(() => {
@@ -243,6 +246,11 @@ const PurchaseCompleteTable = () => {
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-bold text-slate-800 text-sm">{item.indent_number || '—'}</span>
                         <IndentTypeBadge processType={item.indent_type === 'Direct' ? 'direct' : 'process'} />
+                        {(item.group_name && item.group_name !== '—') && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            {item.group_name}
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-slate-500 truncate">
                         {item.product_name} <span className="uppercase text-[10px] text-slate-400">({item.unit || '—'})</span>
@@ -477,7 +485,7 @@ const PurchaseCompleteTable = () => {
                 <tr>
                   <th className="w-16 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">
                     <div className="flex items-center justify-center gap-1">
-                      <input
+                      <Input
                         type="checkbox"
                         checked={currentItems.length > 0 && currentItems.every(i => selectedItems.has(i.item_id))}
                         onChange={toggleSelectAll}
@@ -490,6 +498,7 @@ const PurchaseCompleteTable = () => {
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Group Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
@@ -506,7 +515,7 @@ const PurchaseCompleteTable = () => {
               <tbody className="divide-y divide-slate-100">
                 {filteredItems.length === 0 && (
                   <tr>
-                    <td colSpan="15" className="p-12 text-center text-slate-400">
+                    <td colSpan="16" className="p-12 text-center text-slate-400">
                       <BadgeCheck size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No purchase indent items found.</p>
                     </td>
@@ -549,6 +558,11 @@ const PurchaseCompleteTable = () => {
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
                         <IndentTypeBadge processType={item.indent_type === 'Direct' ? 'direct' : 'process'} />
+                      </td>
+                      <td className="px-3 py-3 text-center whitespace-nowrap">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                          {item.group_name || getGroupNameFromItem(item, groups)}
+                        </span>
                       </td>
                       <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
                         {item.product_name}
@@ -657,7 +671,7 @@ const PurchaseCompleteTable = () => {
                   {selectedItem?.product_name} — All Lifts
                 </ModalTitle>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  {selectedItem?.indent_number} &nbsp;·&nbsp; {selectedItem?.vendor_name}
+                  {selectedItem?.indent_number} &nbsp;·&nbsp; {selectedItem?.vendor_name} {selectedItem?.group_name && selectedItem.group_name !== '—' && `· Group: ${selectedItem.group_name}`}
                 </p>
               </div>
             </div>

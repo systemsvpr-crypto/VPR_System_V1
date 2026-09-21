@@ -1,29 +1,45 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Users, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createCustomer, updateCustomer, deleteCustomer } from '../../../services/customerService';
+import { getAllRanks } from '../../../services/rankService';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 
-const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDelete }) => {
+const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDelete, ranks: propRanks = [] }) => {
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
   const [gstNumber, setGstNumber] = useState('');
+  const [rankId, setRankId] = useState('');
   const [crmFollowUp, setCrmFollowUp] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [ranksList, setRanksList] = useState(propRanks);
 
   const isEditing = !!editingCustomer;
   const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
 
   useEffect(() => {
+    if (propRanks && propRanks.length > 0) {
+      setRanksList(propRanks);
+    }
+  }, [propRanks]);
+
+  useEffect(() => {
+    if (isOpen && (!propRanks || propRanks.length === 0)) {
+      getAllRanks().then(setRanksList).catch(() => {});
+    }
+  }, [isOpen, propRanks]);
+
+  useEffect(() => {
     if (!isOpen) {
       if (!editingCustomer) {
-        setName(''); setLocation(''); setPhoneNumber(''); setEmail(''); setGstNumber(''); setCrmFollowUp('');
+        setName(''); setLocation(''); setPhoneNumber(''); setEmail(''); setGstNumber(''); setRankId(''); setCrmFollowUp('');
       }
     } else if (editingCustomer) {
       setName(editingCustomer.name || '');
@@ -31,9 +47,21 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDe
       setPhoneNumber(editingCustomer.phone_number || '');
       setEmail(editingCustomer.email || '');
       setGstNumber(editingCustomer.gst_number || '');
+      setRankId(editingCustomer.rank_id || '');
       setCrmFollowUp(editingCustomer.crm_follow_up || '');
     }
   }, [isOpen, editingCustomer]);
+
+  const rankOptions = useMemo(() => {
+    const list = (ranksList || []).map((r) => ({
+      value: r.rank_id,
+      label: r.rank_name,
+    }));
+    if (rankId) {
+      return [{ value: '', label: '— Clear / No Rank —' }, ...list];
+    }
+    return list;
+  }, [ranksList, rankId]);
 
   const validatePhone = (phone) => /^\d{10}$/.test(phone);
   const validateEmail = (email) => !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -45,7 +73,15 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDe
     if (email && !validateEmail(email)) { toast.error('Please enter a valid email address.'); return; }
     setSubmitting(true);
     try {
-      const payload = { name: name.trim(), location: location.trim(), phone_number: phoneNumber.trim(), email: email.trim(), gst_number: gstNumber.trim(), crm_follow_up: crmFollowUp.trim() };
+      const payload = {
+        name: name.trim(),
+        location: location.trim(),
+        phone_number: phoneNumber.trim(),
+        email: email.trim(),
+        gst_number: gstNumber.trim(),
+        rank_id: rankId || null,
+        crm_follow_up: crmFollowUp.trim(),
+      };
       if (isEditing) {
         const updated = await updateCustomer({ ...payload, customer_id: editingCustomer.customer_id });
         toast.success('Customer updated successfully');
@@ -108,6 +144,17 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDe
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">GST Number</label>
                 <Input value={gstNumber} onChange={(e) => setGstNumber(e.target.value)} placeholder="Enter GST number" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Rank</label>
+                <Dropdown
+                  value={rankId}
+                  onValueChange={(val) => setRankId(val)}
+                  placeholder="Select Rank (Optional)"
+                  options={rankOptions}
+                  searchPlaceholder="Search rank..."
+                  emptyText="No ranks found."
+                />
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-slate-700 mb-1">CRM Follow Up</label>

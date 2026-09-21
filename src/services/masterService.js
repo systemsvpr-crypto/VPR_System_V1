@@ -39,10 +39,26 @@ export const getAllProductStock = async () => {
 };
 
 export const getAllProducts = async () => {
-  return fetchAllRows(() => supabase
-    .from('products')
-    .select('*')
-    .order('name', { ascending: true }));
+  try {
+    const [products, groupsRes] = await Promise.all([
+      fetchAllRows(() => supabase.from('products').select('*').order('name', { ascending: true })),
+      supabase.from('product_groups').select('group_id, group_name, a_rate, b_rate, c_rate')
+    ]);
+    const groupsMap = new Map();
+    (groupsRes?.data || []).forEach(g => {
+      if (g.group_id) groupsMap.set(g.group_id, g);
+    });
+    return products.map(p => ({
+      ...p,
+      product_groups: p.group_id ? groupsMap.get(p.group_id) || null : null,
+    }));
+  } catch (err) {
+    console.warn('Fallback loading products without groups:', err);
+    return fetchAllRows(() => supabase
+      .from('products')
+      .select('*')
+      .order('name', { ascending: true }));
+  }
 };
 
 // The 4 fields that define a unique product: same Brand Name + Category + Product Type + Mux
@@ -122,7 +138,7 @@ const resolveProductGroupId = async (brand_name, category, created_by) => {
   return created.group_id;
 };
 
-export const createProduct = async ({ name, unit, allow_negative_stock, product_type, brand_name, category, mux, openingEntries, as_of_date, created_by }) => {
+export const createProduct = async ({ name, unit, allow_negative_stock, product_type, brand_name, category, mux, openingEntries, as_of_date, created_by, group_id }) => {
   const allProducts = await getAllProductKeys();
 
   // Lock Brand Name / Category to whichever casing is already on record
@@ -138,7 +154,7 @@ export const createProduct = async ({ name, unit, allow_negative_stock, product_
     throw duplicateProductError(duplicate.name);
   }
 
-  const group_id = await resolveProductGroupId(normalizedBrand, normalizedCategory, created_by);
+  const finalGroupId = group_id || await resolveProductGroupId(normalizedBrand, normalizedCategory, created_by);
   // Re-derived from the normalized Brand/Category rather than trusting the
   // popup's own live preview verbatim — that preview is built from whatever
   // was actually typed, which may not be the casing that ends up stored.
@@ -146,7 +162,7 @@ export const createProduct = async ({ name, unit, allow_negative_stock, product_
 
   const { data: product, error: productError } = await supabase
     .from('products')
-    .insert([{ name: resolvedName, unit, allow_negative_stock: !!allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id }])
+    .insert([{ name: resolvedName, unit, allow_negative_stock: !!allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id: finalGroupId }])
     .select()
     .single();
   if (productError) throw productError;
@@ -176,7 +192,7 @@ export const createProduct = async ({ name, unit, allow_negative_stock, product_
   return product;
 };
 
-export const updateProduct = async ({ product_id, name, unit, allow_negative_stock, product_type, brand_name, category, mux }) => {
+export const updateProduct = async ({ product_id, name, unit, allow_negative_stock, product_type, brand_name, category, mux, group_id }) => {
   const allProducts = await getAllProductKeys();
   const self = allProducts.find(p => p.product_id === product_id);
 
@@ -206,14 +222,16 @@ export const updateProduct = async ({ product_id, name, unit, allow_negative_sto
   // either one moves the product into the right group instead of leaving it
   // linked to its old one, without spending an extra lookup on every save.
   const oldGroupKey = self ? groupKey(self.brand_name, self.category) : null;
-  const group_id = groupKey(normalizedBrand, normalizedCategory) !== oldGroupKey
-    ? await resolveProductGroupId(normalizedBrand, normalizedCategory)
-    : self?.group_id ?? null;
+  const finalGroupId = group_id
+    ? group_id
+    : (groupKey(normalizedBrand, normalizedCategory) !== oldGroupKey || !self?.group_id
+        ? await resolveProductGroupId(normalizedBrand, normalizedCategory)
+        : self?.group_id ?? await resolveProductGroupId(normalizedBrand, normalizedCategory));
   const resolvedName = bulkImportProductName(normalizedBrand, normalizedCategory, product_type, mux) || name;
 
   const { data, error } = await supabase
     .from('products')
-    .update({ name: resolvedName, unit, allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id })
+    .update({ name: resolvedName, unit, allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id: finalGroupId })
     .eq('product_id', product_id)
     .select()
     .single();

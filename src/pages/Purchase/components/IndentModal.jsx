@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { ShoppingCart, X, Plus, ArrowRightLeft, Zap, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createIndent, updateIndent, generateNextIndentNumber, getPackagingSize } from '../../../services/purchaseService';
+import { getAllGroups } from '../../../services/productGroupingService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -27,7 +28,8 @@ const convertQty = (qty, fromUnit, targetUnit, pkgSize) => {
   return amount;
 };
 
-const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products, godowns, vendors, onImportProducts, onImportVendors }) => {
+const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products, godowns, vendors, groups: propGroups = [], onImportProducts, onImportVendors }) => {
+  const [groups, setGroups] = useState(propGroups);
   const [form, setForm] = useState({
     indent_date: new Date().toISOString().split('T')[0],
     indent_number: '',
@@ -39,6 +41,20 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   });
   const [submitting, setSubmitting] = useState(false);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
+
+  // Sync prop changes for groups
+  useEffect(() => {
+    if (propGroups && propGroups.length > 0) {
+      setGroups(propGroups);
+    }
+  }, [propGroups]);
+
+  // Fallback fetch if modal opened where parent didn't pass groups
+  useEffect(() => {
+    if (isOpen && (!propGroups || propGroups.length === 0)) {
+      getAllGroups().then(setGroups).catch(() => {});
+    }
+  }, [isOpen, propGroups]);
 
   // Products/vendors created on the fly (via the "+ Add New Product/Vendor"
   // row pinned inside their dropdowns) — kept alongside the lists loaded
@@ -65,6 +81,30 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     return Array.from(map.values());
   }, [vendors, extraVendors]);
 
+  // Map of product_id -> group_id (resolving FK via group_id, group membership, or fallback Brand+Category match)
+  const productToGroupMap = useMemo(() => {
+    const map = new Map();
+    // 1. Map from groups if groups contain members or allProducts
+    (groups || []).forEach(g => {
+      (g.allProducts || g.members || []).forEach(m => {
+        if (m.product_id) map.set(m.product_id, g.group_id);
+      });
+    });
+    // 2. Direct product.group_id or Brand+Category match
+    allProducts.forEach(p => {
+      if (p.group_id) {
+        map.set(p.product_id, p.group_id);
+      } else if (!map.has(p.product_id) && (p.brand_name || p.category)) {
+        const combined = `${(p.brand_name || '').trim()}${(p.category || '').trim()}`.toLowerCase();
+        const found = (groups || []).find(g => (g.group_name || '').trim().toLowerCase() === combined);
+        if (found) {
+          map.set(p.product_id, found.group_id);
+        }
+      }
+    });
+    return map;
+  }, [allProducts, groups]);
+
   const isEditing = !!editingIndent;
 
   useEffect(() => {
@@ -89,29 +129,50 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         vendor_id: editingIndent.vendor_id || '',
         remarks: editingIndent.remarks || '',
         process_type: editingIndent.process_type || 'direct',
-        items: (editingIndent.purchase_indent_items || []).map(item => ({
-          item_id: item.item_id,
-          product_id: item.product_id,
-          quantity: String(item.quantity),
-          rate: String(item.rate),
-          // Unit defaults to the product's master unit; Qty (raw, as typed
-          // in that unit) defaults to whatever was saved before, falling
-          // back to the item's current quantity for rows that predate this
-          // feature.
-          direct_indent_unit: item.direct_indent_unit || (item.products?.unit || '').toLowerCase(),
-          direct_indent_qty: item.direct_indent_qty != null ? String(item.direct_indent_qty) : String(item.quantity),
-        })),
+        items: (editingIndent.purchase_indent_items || []).map(item => {
+          const prod = allProducts.find(p => p.product_id === item.product_id);
+          const gid = prod?.group_id || item.products?.group_id || productToGroupMap.get(item.product_id) || '';
+          return {
+            item_id: item.item_id,
+            group_id: gid,
+            product_id: item.product_id,
+            quantity: String(item.quantity),
+            rate: String(item.rate),
+            direct_indent_unit: item.direct_indent_unit || (item.products?.unit || '').toLowerCase(),
+            direct_indent_qty: item.direct_indent_qty != null ? String(item.direct_indent_qty) : String(item.quantity),
+          };
+        }),
       });
     } else {
       setForm(prev => ({
         ...prev,
-        items: [{ product_id: '', quantity: '', rate: '', direct_indent_unit: '', direct_indent_qty: '' }],
+        items: [{ group_id: '', product_id: '', quantity: '', rate: '', direct_indent_unit: '', direct_indent_qty: '' }],
       }));
       generateNextIndentNumber().then(num => {
         setForm(prev => ({ ...prev, indent_number: num }));
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }, [isOpen, editingIndent]);
+
+  // Synchronize item group_id if productToGroupMap becomes populated after open
+  useEffect(() => {
+    if (form.items.length > 0 && productToGroupMap.size > 0) {
+      setForm(prev => {
+        let changed = false;
+        const nextItems = prev.items.map(item => {
+          if (!item.group_id && item.product_id) {
+            const gid = productToGroupMap.get(item.product_id);
+            if (gid) {
+              changed = true;
+              return { ...item, group_id: gid };
+            }
+          }
+          return item;
+        });
+        return changed ? { ...prev, items: nextItems } : prev;
+      });
+    }
+  }, [productToGroupMap]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -131,13 +192,17 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     const payloadItems = form.items.map(item => {
       const product = allProducts.find(p => p.product_id === item.product_id);
       const rawQty = getItemRawQty(item);
+      const resolvedGroupId = item.group_id || productToGroupMap.get(item.product_id) || product?.group_id || null;
       return {
         ...item,
+        group_id: resolvedGroupId,
         quantity: getComputedQty(item, product),
         direct_indent_unit: getItemUnit(item, product),
         direct_indent_qty: rawQty === '' ? null : Number(rawQty),
       };
     });
+    const headerGroupId = payloadItems.find(it => it.group_id)?.group_id || null;
+
     setSubmitting(true);
     try {
       if (isEditing) {
@@ -150,6 +215,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
           items: payloadItems,
           process_type: form.process_type,
           user_id: user?.user_id,
+          group_id: headerGroupId,
         });
         toast.success('Indent updated successfully');
       } else {
@@ -162,6 +228,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
           items: payloadItems,
           created_by: user?.user_id,
           process_type: form.process_type,
+          group_id: headerGroupId,
         });
         toast.success('Indent created successfully');
       }
@@ -172,7 +239,13 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   };
 
   const addItem = () => {
-    setForm({ ...form, items: [...form.items, { product_id: '', quantity: '', rate: '', direct_indent_unit: '', direct_indent_qty: '' }] });
+    setForm({
+      ...form,
+      items: [
+        ...form.items,
+        { group_id: '', product_id: '', quantity: '', rate: '', direct_indent_unit: '', direct_indent_qty: '' }
+      ],
+    });
   };
 
   const updateItem = (index, field, value) => {
@@ -210,7 +283,17 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   const handleProductChange = (index, productId) => {
     const product = allProducts.find(p => p.product_id === productId);
     const items = [...form.items];
-    items[index] = { ...items[index], product_id: productId, direct_indent_unit: (product?.unit || '').toLowerCase() };
+    const currentItem = items[index];
+
+    // Auto-resolve group_id in background for this product
+    const resolvedGroupId = product?.group_id || productToGroupMap.get(productId) || '';
+
+    items[index] = {
+      ...currentItem,
+      product_id: productId,
+      group_id: resolvedGroupId,
+      direct_indent_unit: (product?.unit || '').toLowerCase(),
+    };
     setForm({ ...form, items });
   };
 
@@ -293,7 +376,9 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   }, [form.items, allProducts]);
 
   const productOptions = useMemo(() => {
-    return allProducts.map(p => ({ value: p.product_id, label: p.name }));
+    return allProducts
+      .map(p => ({ value: p.product_id, label: p.name }))
+      .sort((a, b) => (a.label || '').localeCompare(b.label || ''));
   }, [allProducts]);
 
   // Only real (Own) godowns are valid delivery destinations for an indent —
@@ -311,7 +396,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   return (
     <>
       <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-        <ModalContent className="max-w-4xl">
+        <ModalContent className="max-w-5xl">
           <ModalHeader>
             <div className="flex items-center justify-between w-full pr-12">
               <div className="flex items-center gap-3">
@@ -327,11 +412,10 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                   { id: 'direct', label: 'Direct', icon: Zap },
                 ].map(t => (
                   <button key={t.id} type="button" onClick={() => setForm({ ...form, process_type: t.id })}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
-                      form.process_type === t.id
-                        ? 'bg-white text-slate-800 shadow-sm'
-                        : 'text-slate-400 hover:text-slate-600'
-                    }`}>
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${form.process_type === t.id
+                      ? 'bg-white text-slate-800 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-600'
+                      }`}>
                     <t.icon size={13} />{t.label}
                   </button>
                 ))}
@@ -375,46 +459,87 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                   {form.items.map((item, i) => {
                     const selectedProduct = allProducts.find(p => p.product_id === item.product_id);
                     const computedQty = getComputedQty(item, selectedProduct);
+
                     return (
-                      <div key={i} className="grid grid-cols-[repeat(13,minmax(0,1fr))] gap-2 items-end">
-                        <div className="col-span-4">
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
-                          <Dropdown value={item.product_id} onValueChange={(v) => handleProductChange(i, v)}
-                            options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
+                      <div key={i} className="grid grid-cols-[repeat(16,minmax(0,1fr))] gap-2 items-end">
+                        {/* 1. Product (Group Name dropdown hidden; group_id auto-resolved & submitted in background) */}
+                        <div className="col-span-7">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
+                            Product <span className="text-red-500">*</span>
+                          </label>
+                          <Dropdown
+                            value={item.product_id}
+                            onValueChange={(v) => handleProductChange(i, v)}
+                            options={productOptions}
+                            placeholder="Select product..."
+                            searchPlaceholder="Search products..."
                             align="start"
+                            className="w-full h-9 text-xs"
                             onAddNew={() => { setQuickAddProductRow(i); setProductQuickAddOpen(true); }}
-                            addNewLabel="+ Add New Product" />
+                            addNewLabel="+ Add New Product"
+                          />
                         </div>
+
+                        {/* 3. Unit */}
                         <div className="col-span-2">
                           <label className="block text-xs font-medium text-slate-500 mb-1">Unit</label>
                           <select
                             value={getItemUnit(item, selectedProduct)}
                             onChange={(e) => handleUnitChange(i, e.target.value)}
-                            className="w-full h-9 text-sm px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                            className="w-full h-9 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
                           >
                             <option value="bag">BAG</option>
                             <option value="kg">KG</option>
                           </select>
                         </div>
+
+                        {/* 4. Rate */}
                         <div className="col-span-2">
                           <label className="block text-xs font-medium text-slate-500 mb-1">Rate</label>
-                          <Input type="number" step="0.01" min="0" placeholder="0.00"
-                            value={item.rate} onChange={(e) => updateItem(i, 'rate', e.target.value)} />
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            value={item.rate}
+                            onChange={(e) => updateItem(i, 'rate', e.target.value)}
+                            className="h-9 text-xs"
+                          />
                         </div>
+
+                        {/* 5. Qty */}
                         <div className="col-span-2">
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
-                          <Input type="text" inputMode="decimal" placeholder="Qty"
-                            value={getItemRawQty(item)} onChange={(e) => handleQtyChange(i, e.target.value)} />
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
+                            Qty <span className="text-red-500">*</span>
+                          </label>
+                          <Input
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="Qty"
+                            value={getItemRawQty(item)}
+                            onChange={(e) => handleQtyChange(i, e.target.value)}
+                            className="h-9 text-xs"
+                          />
                         </div>
+
+                        {/* 6. Indent Qty */}
                         <div className="col-span-2">
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Indent Qty</label>
-                          <div className="h-9 flex items-center justify-center text-sm font-semibold text-emerald-600 bg-emerald-50/50 border border-emerald-100 rounded-md">
+                          <label className="block text-xs font-medium text-slate-500 mb-1 truncate" title="Indent Qty">
+                            Indent Qty
+                          </label>
+                          <div className="h-9 flex items-center justify-center text-xs font-semibold text-emerald-600 bg-emerald-50/50 border border-emerald-100 rounded-md">
                             {computedQty || <span className="text-slate-300">—</span>}
                           </div>
                         </div>
-                        <div className="col-span-1 flex items-end pb-0.5">
-                          <button type="button" onClick={() => removeItem(i)}
-                            className="p-1.5 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-all">
+
+                        {/* 7. Remove Button */}
+                        <div className="col-span-1 flex items-end pb-0.5 justify-center">
+                          <button
+                            type="button"
+                            onClick={() => removeItem(i)}
+                            className="p-1.5 rounded-md text-red-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                            title="Remove item"
+                          >
                             <X size={18} />
                           </button>
                         </div>
@@ -475,6 +600,9 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         onClose={() => setProductQuickAddOpen(false)}
         onSuccess={handleProductQuickAdded}
         user={user}
+        groups={groups}
+        products={allProducts}
+        initialValues={quickAddProductRow !== null && form.items[quickAddProductRow]?.group_id ? { group_id: form.items[quickAddProductRow].group_id } : null}
         quickAdd
       />
       <VendorModal

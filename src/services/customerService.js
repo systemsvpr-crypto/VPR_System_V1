@@ -3,26 +3,55 @@ import { supabase } from '../supabase';
 export const getAllCustomers = async () => {
   const { data, error } = await supabase
     .from('customers')
-    .select('*')
+    .select(`
+      *,
+      ranks (
+        rank_id,
+        rank_name
+      )
+    `)
     .order('name', { ascending: true });
-  if (error) throw error;
+  if (error) {
+    const fallback = await supabase
+      .from('customers')
+      .select('*')
+      .order('name', { ascending: true });
+    if (fallback.error) throw error;
+    return fallback.data || [];
+  }
   return data || [];
 };
 
-export const createCustomer = async ({ name, location, phone_number, email, gst_number, crm_follow_up }) => {
+export const createCustomer = async ({ name, location, phone_number, email, gst_number, crm_follow_up, rank_id }) => {
   const { data, error } = await supabase
     .from('customers')
-    .insert([{ name, location, phone_number, email, gst_number, crm_follow_up }])
+    .insert([{
+      name,
+      location,
+      phone_number,
+      email,
+      gst_number,
+      crm_follow_up,
+      rank_id: rank_id || null,
+    }])
     .select()
     .single();
   if (error) throw error;
   return data;
 };
 
-export const updateCustomer = async ({ customer_id, name, location, phone_number, email, gst_number, crm_follow_up }) => {
+export const updateCustomer = async ({ customer_id, name, location, phone_number, email, gst_number, crm_follow_up, rank_id }) => {
   const { data, error } = await supabase
     .from('customers')
-    .update({ name, location, phone_number, email, gst_number, crm_follow_up })
+    .update({
+      name,
+      location,
+      phone_number,
+      email,
+      gst_number,
+      crm_follow_up,
+      rank_id: rank_id || null,
+    })
     .eq('customer_id', customer_id)
     .select()
     .single();
@@ -55,6 +84,7 @@ export const bulkImportCustomers = async (rows) => {
         location: row.location || null,
         gst_number: row.gst_number || null,
         crm_follow_up: row.crm_follow_up || null,
+        rank_id: row.rank_id || null,
       }]);
       if (error) throw error;
       results.successCount++;

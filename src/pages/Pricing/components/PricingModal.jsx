@@ -148,11 +148,14 @@ const PricingModal = ({ isOpen, onClose, editingGroup, onSuccess, user }) => {
                     Rate A (₹)
                   </label>
                   <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
+                    type="text"
                     value={formData.a_rate}
-                    onChange={(e) => setFormData(prev => ({ ...prev, a_rate: e.target.value }))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setFormData((prev) => ({ ...prev, a_rate: val }));
+                      }
+                    }}
                     placeholder="0.00"
                     className={`text-xs h-9 bg-white ${errors.a_rate ? 'border-red-500' : ''}`}
                   />
@@ -165,11 +168,14 @@ const PricingModal = ({ isOpen, onClose, editingGroup, onSuccess, user }) => {
                     Rate B (₹)
                   </label>
                   <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
+                    type="text"
                     value={formData.b_rate}
-                    onChange={(e) => setFormData(prev => ({ ...prev, b_rate: e.target.value }))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setFormData((prev) => ({ ...prev, b_rate: val }));
+                      }
+                    }}
                     placeholder="0.00"
                     className={`text-xs h-9 bg-white ${errors.b_rate ? 'border-red-500' : ''}`}
                   />
@@ -182,11 +188,14 @@ const PricingModal = ({ isOpen, onClose, editingGroup, onSuccess, user }) => {
                     Rate C (₹)
                   </label>
                   <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
+                    type="text"
                     value={formData.c_rate}
-                    onChange={(e) => setFormData(prev => ({ ...prev, c_rate: e.target.value }))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setFormData((prev) => ({ ...prev, c_rate: val }));
+                      }
+                    }}
                     placeholder="0.00"
                     className={`text-xs h-9 bg-white ${errors.c_rate ? 'border-red-500' : ''}`}
                   />

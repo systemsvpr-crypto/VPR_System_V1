@@ -450,6 +450,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
             const rawQty = getRowRawQty(item);
             return {
               product_id: item.product_id,
+              group_id: product?.group_id || null,
               quantity: getRowComputedQty(item, product),
               rate: item.rate,
               direct_indent_unit: getRowUnit(item, product),
@@ -530,311 +531,311 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
 
   return (
     <>
-    <Modal open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
-      <ModalContent className="max-w-4xl">
-        <ModalHeader>
-          <div className="flex items-center gap-3">
-            <div className="bg-primary/10 p-2 rounded-lg">
-              <FileSpreadsheet size={20} className="text-primary" />
+      <Modal open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
+        <ModalContent className="max-w-4xl">
+          <ModalHeader>
+            <div className="flex items-center gap-3">
+              <div className="bg-primary/10 p-2 rounded-lg">
+                <FileSpreadsheet size={20} className="text-primary" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-slate-800">Bulk Upload Indent / Orders</h2>
+                <p className="text-xs text-slate-500">Import orders via Excel or CSV. Order numbers will be auto-generated for each unique date & vendor.</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-800">Bulk Upload Indent / Orders</h2>
-              <p className="text-xs text-slate-500">Import orders via Excel or CSV. Order numbers will be auto-generated for each unique date & vendor.</p>
-            </div>
-          </div>
-        </ModalHeader>
+          </ModalHeader>
 
-        {step === 'upload' && (
-          <>
-            <ModalBody className="space-y-4">
-              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 shadow-2xs">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-                      <FileText size={16} />
-                    </div>
-                    <span className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
-                      <Info size={15} className="text-primary" /> Document Format & Auto Order-Number Guidelines
-                    </span>
-                  </div>
-
-                </div>
-                <div className="mt-2 text-xs text-slate-600 space-y-1 pl-8">
-                  <p>• <strong>Order Numbers are auto-generated:</strong> Do not include Order/Indent Number in your file.</p>
-                  <p>• <strong>Process Type is auto-set to Direct:</strong> Do not include Process Type in your file.</p>
-                  <p>• <strong>Unit is optional (Bag/Kg):</strong> when given, Quantity is read in that unit and converted to Indent Qty in the product's own master unit; otherwise Quantity is read as already being in the product's master unit.</p>
-                  <p>• <strong>Grouping Logic:</strong> Rows with the <em>same Indent Date and Vendor Name</em> will be assigned the <strong>same auto-generated order number</strong>.</p>
-                </div>
-              </div>
-
-              <div
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all group"
-              >
-                <div className="w-12 h-12 rounded-2xl bg-slate-100 group-hover:bg-white flex items-center justify-center mx-auto mb-3 border border-slate-200 shadow-2xs transition-all">
-                  <Upload size={24} className="text-slate-500 group-hover:text-primary transition-colors" />
-                </div>
-                <p className="text-sm font-semibold text-slate-700 mb-1">Click to upload document or drag and drop</p>
-                <p className="text-xs text-slate-400">Excel spreadsheets (.xlsx, .xls) or CSV files</p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={(e) => handleFile(e.target.files[0])}
-                  className="hidden"
-                />
-              </div>
-
-              <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
-                <span className="text-slate-600 font-medium">Need a sample document format?</span>
-                <button
-                  type="button"
-                  onClick={handleDownloadTemplate}
-                  className="text-primary hover:underline flex items-center gap-1.5 font-semibold transition-colors"
-                >
-                  <Download size={14} /> Download Sample Template
-                </button>
-              </div>
-            </ModalBody>
-            <ModalFooter>
-              <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
-            </ModalFooter>
-          </>
-        )}
-
-        {step === 'preview' && (
-          <>
-            <ModalBody className="space-y-4 max-h-[70vh] overflow-y-auto">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <div>
-                  <p className="text-sm text-slate-700">
-                    Document: <span className="font-semibold text-slate-800">{fileName}</span>
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Detected <span className="font-semibold text-slate-800">{groupedOrders.length} Order Group(s)</span> across <span className="font-semibold text-slate-800">{rawRows.length} item(s)</span> ({validRowsCount} fully matched)
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setStep('upload')}
-                    className="text-xs text-slate-600 hover:text-primary flex items-center gap-1 font-medium"
-                  >
-                    <ArrowLeft size={12} /> Change Document
-                  </button>
-                </div>
-              </div>
-
-              {/* Grouped Orders Preview */}
-              <div className="space-y-4">
-                {groupedOrders.map((group, gIdx) => (
-                  <div key={group.key} className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="bg-primary/10 text-primary font-bold text-xs px-2.5 py-1 rounded-md flex items-center gap-1">
-                          <Layers size={13} /> Order Group #{gIdx + 1}
-                        </span>
-                        <span className="text-xs font-semibold text-slate-600">
-                          System Order No: <span className="text-primary font-mono italic">VPR/IN-AUTO-{String(gIdx + 1).padStart(2, '0')}</span>
-                        </span>
-                        <span className="bg-slate-200/70 text-slate-700 text-[11px] font-semibold px-2 py-0.5 rounded">
-                          Direct
-                        </span>
+          {step === 'upload' && (
+            <>
+              <ModalBody className="space-y-4">
+                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 shadow-2xs">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+                        <FileText size={16} />
                       </div>
-                      <span className="text-xs text-slate-500 font-medium">
-                        {group.items.length} product(s) in this order
+                      <span className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
+                        <Info size={15} className="text-primary" /> Document Format & Auto Order-Number Guidelines
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
-                      <div>
-                        <label className="block text-slate-500 font-medium mb-1">Order Date</label>
-                        <DatePicker
-                          value={group.indent_date}
-                          onChange={(e) => handleGroupHeaderChange(group.key, 'indent_date', e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-slate-500 font-medium mb-1">Vendor <span className="text-slate-400 font-normal">(optional)</span></label>
-                        <Dropdown
-                          value={group.vendor_id}
-                          onValueChange={(val) => handleGroupHeaderChange(group.key, 'vendor_id', val)}
-                          options={vendorOptions}
-                          placeholder={group.vendor_name ? `Match "${group.vendor_name}"...` : "Decide later..."}
-                          searchPlaceholder="Search vendors..."
-                          align="start"
-                          onAddNew={() => { setQuickAddVendorGroup(group.key); setVendorQuickAddOpen(true); }}
-                          addNewLabel="+ Add New Vendor"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-slate-500 font-medium mb-1">Godown <span className="text-slate-400 font-normal">(optional)</span></label>
-                        <Dropdown
-                          value={group.godown_id}
-                          onValueChange={(val) => handleGroupHeaderChange(group.key, 'godown_id', val)}
-                          options={godownOptions}
-                          placeholder="Decide later..."
-                          searchPlaceholder="Search godowns..."
-                          align="start"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-slate-500 font-medium mb-1">Remarks</label>
-                        <input
-                          type="text"
-                          value={group.remarks}
-                          onChange={(e) => handleGroupHeaderChange(group.key, 'remarks', e.target.value)}
-                          placeholder="Remarks..."
-                          className="w-full h-8 px-2.5 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Products Table for this group */}
-                    <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-                      <table className="w-full text-xs text-left">
-                        <thead className="bg-slate-100 border-b border-slate-200 font-semibold text-slate-700">
-                          <tr>
-                            <th className="px-3 py-1.5">#</th>
-                            <th className="px-3 py-1.5 w-4/12">Product <span className="text-red-500">*</span></th>
-                            <th className="px-3 py-1.5 w-2/12">Rate</th>
-                            <th className="px-3 py-1.5 w-2/12">Unit</th>
-                            <th className="px-3 py-1.5 w-2/12 text-right">Qty <span className="text-red-500">*</span></th>
-                            <th className="px-3 py-1.5 w-2/12 text-right text-emerald-700">Indent Qty</th>
-                            <th className="px-2 py-1.5 text-center w-1/12"></th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {group.items.map((row, i) => {
-                            const origIdx = row.id;
-                            const isMatched = !!row.product_id;
-                            const rowProduct = allProducts.find(p => p.product_id === row.product_id);
-                            const computedQty = getRowComputedQty(row, rowProduct);
-                            return (
-                              <tr key={origIdx} className={isMatched ? 'hover:bg-slate-50' : 'bg-amber-50/40 hover:bg-amber-50/70'}>
-                                <td className="px-3 py-1.5 text-slate-400 font-mono">{i + 1}</td>
-                                <td className="px-3 py-1.5">
-                                  <Dropdown
-                                    value={row.product_id}
-                                    onValueChange={(val) => handleUpdateRow(origIdx, 'product_id', val)}
-                                    options={productOptions}
-                                    placeholder={row.rawProductName ? `Match "${row.rawProductName}"...` : "Select product..."}
-                                    searchPlaceholder="Search products..."
-                                    align="start"
-                                    onAddNew={() => { setQuickAddProductRow(origIdx); setProductQuickAddOpen(true); }}
-                                    addNewLabel="+ Add New Product"
-                                  />
-                                  {!row.product_id && row.rawProductName && (
-                                    <div className="mt-0.5">
-                                      <span className="text-[10px] text-amber-600 font-medium block">
-                                        File value: "{row.rawProductName}" (Not matched)
-                                      </span>
-                                      {productSuggestionsMap[row.rawProductName]?.length > 0 && (
-                                        <div className="flex flex-wrap items-center gap-1 mt-1">
-                                          <span className="text-[10px] text-slate-400">Did you mean:</span>
-                                          {productSuggestionsMap[row.rawProductName].map(p => (
-                                            <button
-                                              key={p.product_id}
-                                              type="button"
-                                              onClick={() => handleUpdateRow(origIdx, 'product_id', p.product_id)}
-                                              className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 font-medium transition-colors"
-                                            >
-                                              {p.name}
-                                            </button>
-                                          ))}
-                                        </div>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() => { setQuickAddProductRow(origIdx); setProductQuickAddOpen(true); }}
-                                        className="mt-1 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-primary/5 text-primary border border-primary/30 hover:bg-primary/10 font-semibold transition-colors"
-                                      >
-                                        <PlusCircle size={11} /> Add New Product
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
-                                <td className="px-3 py-1.5">
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    value={row.rate}
-                                    onChange={(e) => handleUpdateRow(origIdx, 'rate', e.target.value)}
-                                    placeholder="0.00"
-                                    className="w-full h-7 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
-                                  />
-                                </td>
-                                <td className="px-3 py-1.5">
-                                  <select
-                                    value={getRowUnit(row, rowProduct)}
-                                    onChange={(e) => handleUnitChange(origIdx, e.target.value)}
-                                    className="w-full h-7 px-1.5 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
-                                  >
-                                    <option value="bag">BAG</option>
-                                    <option value="kg">KG</option>
-                                  </select>
-                                </td>
-                                <td className="px-3 py-1.5 text-right">
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    min="1"
-                                    value={row.quantity}
-                                    onChange={(e) => handleUpdateRow(origIdx, 'quantity', sanitizeQtyInput(e.target.value))}
-                                    placeholder="1"
-                                    className="w-20 h-7 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary bg-white"
-                                  />
-                                </td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-emerald-600 tabular-nums">
-                                  {computedQty || <span className="text-slate-300">—</span>}
-                                </td>
-                                <td className="px-2 py-1.5 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveRow(origIdx)}
-                                    className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
-                                    title="Remove row"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
                   </div>
-                ))}
-              </div>
-            </ModalBody>
-            <ModalFooter>
-              <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button type="button" onClick={handleConfirmImport} disabled={validRowsCount === 0 || submitting}>
-                {submitting ? 'Generating Orders...' : `Import & Create ${groupedOrders.length} Order(s)`}
-              </Button>
-            </ModalFooter>
-          </>
-        )}
-      </ModalContent>
-    </Modal>
+                  <div className="mt-2 text-xs text-slate-600 space-y-1 pl-8">
+                    <p>• <strong>Order Numbers are auto-generated:</strong> Do not include Order/Indent Number in your file.</p>
+                    <p>• <strong>Process Type is auto-set to Direct:</strong> Do not include Process Type in your file.</p>
+                    <p>• <strong>Unit is optional (Bag/Kg):</strong> when given, Quantity is read in that unit and converted to Indent Qty in the product's own master unit; otherwise Quantity is read as already being in the product's master unit.</p>
+                    <p>• <strong>Grouping Logic:</strong> Rows with the <em>same Indent Date and Vendor Name</em> will be assigned the <strong>same auto-generated order number</strong>.</p>
+                  </div>
+                </div>
 
-    <ProductModal
-      isOpen={productQuickAddOpen}
-      onClose={() => setProductQuickAddOpen(false)}
-      onSuccess={handleProductQuickAdded}
-      user={user}
-      quickAdd
-    />
-    <VendorModal
-      isOpen={vendorQuickAddOpen}
-      onClose={() => setVendorQuickAddOpen(false)}
-      onSuccess={handleVendorQuickAdded}
-      user={user}
-    />
+                <div
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all group"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-slate-100 group-hover:bg-white flex items-center justify-center mx-auto mb-3 border border-slate-200 shadow-2xs transition-all">
+                    <Upload size={24} className="text-slate-500 group-hover:text-primary transition-colors" />
+                  </div>
+                  <p className="text-sm font-semibold text-slate-700 mb-1">Click to upload document or drag and drop</p>
+                  <p className="text-xs text-slate-400">Excel spreadsheets (.xlsx, .xls) or CSV files</p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={(e) => handleFile(e.target.files[0])}
+                    className="hidden"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
+                  <span className="text-slate-600 font-medium">Need a sample document format?</span>
+                  <button
+                    type="button"
+                    onClick={handleDownloadTemplate}
+                    className="text-primary hover:underline flex items-center gap-1.5 font-semibold transition-colors"
+                  >
+                    <Download size={14} /> Download Sample Template
+                  </button>
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
+              </ModalFooter>
+            </>
+          )}
+
+          {step === 'preview' && (
+            <>
+              <ModalBody className="space-y-4 max-h-[70vh] overflow-y-auto">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <div>
+                    <p className="text-sm text-slate-700">
+                      Document: <span className="font-semibold text-slate-800">{fileName}</span>
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Detected <span className="font-semibold text-slate-800">{groupedOrders.length} Order Group(s)</span> across <span className="font-semibold text-slate-800">{rawRows.length} item(s)</span> ({validRowsCount} fully matched)
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setStep('upload')}
+                      className="text-xs text-slate-600 hover:text-primary flex items-center gap-1 font-medium"
+                    >
+                      <ArrowLeft size={12} /> Change Document
+                    </button>
+                  </div>
+                </div>
+
+                {/* Grouped Orders Preview */}
+                <div className="space-y-4">
+                  {groupedOrders.map((group, gIdx) => (
+                    <div key={group.key} className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="bg-primary/10 text-primary font-bold text-xs px-2.5 py-1 rounded-md flex items-center gap-1">
+                            <Layers size={13} /> Order Group #{gIdx + 1}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-600">
+                            System Order No: <span className="text-primary font-mono italic">VPR/IN-AUTO-{String(gIdx + 1).padStart(2, '0')}</span>
+                          </span>
+                          <span className="bg-slate-200/70 text-slate-700 text-[11px] font-semibold px-2 py-0.5 rounded">
+                            Direct
+                          </span>
+                        </div>
+                        <span className="text-xs text-slate-500 font-medium">
+                          {group.items.length} product(s) in this order
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1">Order Date</label>
+                          <DatePicker
+                            value={group.indent_date}
+                            onChange={(e) => handleGroupHeaderChange(group.key, 'indent_date', e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1">Vendor <span className="text-slate-400 font-normal">(optional)</span></label>
+                          <Dropdown
+                            value={group.vendor_id}
+                            onValueChange={(val) => handleGroupHeaderChange(group.key, 'vendor_id', val)}
+                            options={vendorOptions}
+                            placeholder={group.vendor_name ? `Match "${group.vendor_name}"...` : "Decide later..."}
+                            searchPlaceholder="Search vendors..."
+                            align="start"
+                            onAddNew={() => { setQuickAddVendorGroup(group.key); setVendorQuickAddOpen(true); }}
+                            addNewLabel="+ Add New Vendor"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1">Godown <span className="text-slate-400 font-normal">(optional)</span></label>
+                          <Dropdown
+                            value={group.godown_id}
+                            onValueChange={(val) => handleGroupHeaderChange(group.key, 'godown_id', val)}
+                            options={godownOptions}
+                            placeholder="Decide later..."
+                            searchPlaceholder="Search godowns..."
+                            align="start"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1">Remarks</label>
+                          <input
+                            type="text"
+                            value={group.remarks}
+                            onChange={(e) => handleGroupHeaderChange(group.key, 'remarks', e.target.value)}
+                            placeholder="Remarks..."
+                            className="w-full h-8 px-2.5 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Products Table for this group */}
+                      <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-slate-100 border-b border-slate-200 font-semibold text-slate-700">
+                            <tr>
+                              <th className="px-3 py-1.5">#</th>
+                              <th className="px-3 py-1.5 w-4/12">Product <span className="text-red-500">*</span></th>
+                              <th className="px-3 py-1.5 w-2/12">Rate</th>
+                              <th className="px-3 py-1.5 w-2/12">Unit</th>
+                              <th className="px-3 py-1.5 w-2/12 text-right">Qty <span className="text-red-500">*</span></th>
+                              <th className="px-3 py-1.5 w-2/12 text-right text-emerald-700">Indent Qty</th>
+                              <th className="px-2 py-1.5 text-center w-1/12"></th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {group.items.map((row, i) => {
+                              const origIdx = row.id;
+                              const isMatched = !!row.product_id;
+                              const rowProduct = allProducts.find(p => p.product_id === row.product_id);
+                              const computedQty = getRowComputedQty(row, rowProduct);
+                              return (
+                                <tr key={origIdx} className={isMatched ? 'hover:bg-slate-50' : 'bg-amber-50/40 hover:bg-amber-50/70'}>
+                                  <td className="px-3 py-1.5 text-slate-400 font-mono">{i + 1}</td>
+                                  <td className="px-3 py-1.5">
+                                    <Dropdown
+                                      value={row.product_id}
+                                      onValueChange={(val) => handleUpdateRow(origIdx, 'product_id', val)}
+                                      options={productOptions}
+                                      placeholder={row.rawProductName ? `Match "${row.rawProductName}"...` : "Select product..."}
+                                      searchPlaceholder="Search products..."
+                                      align="start"
+                                      onAddNew={() => { setQuickAddProductRow(origIdx); setProductQuickAddOpen(true); }}
+                                      addNewLabel="+ Add New Product"
+                                    />
+                                    {!row.product_id && row.rawProductName && (
+                                      <div className="mt-0.5">
+                                        <span className="text-[10px] text-amber-600 font-medium block">
+                                          File value: "{row.rawProductName}" (Not matched)
+                                        </span>
+                                        {productSuggestionsMap[row.rawProductName]?.length > 0 && (
+                                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                                            <span className="text-[10px] text-slate-400">Did you mean:</span>
+                                            {productSuggestionsMap[row.rawProductName].map(p => (
+                                              <button
+                                                key={p.product_id}
+                                                type="button"
+                                                onClick={() => handleUpdateRow(origIdx, 'product_id', p.product_id)}
+                                                className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 font-medium transition-colors"
+                                              >
+                                                {p.name}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => { setQuickAddProductRow(origIdx); setProductQuickAddOpen(true); }}
+                                          className="mt-1 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-primary/5 text-primary border border-primary/30 hover:bg-primary/10 font-semibold transition-colors"
+                                        >
+                                          <PlusCircle size={11} /> Add New Product
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-1.5">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={row.rate}
+                                      onChange={(e) => handleUpdateRow(origIdx, 'rate', e.target.value)}
+                                      placeholder="0.00"
+                                      className="w-full h-7 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-1.5">
+                                    <select
+                                      value={getRowUnit(row, rowProduct)}
+                                      onChange={(e) => handleUnitChange(origIdx, e.target.value)}
+                                      className="w-full h-7 px-1.5 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
+                                    >
+                                      <option value="bag">BAG</option>
+                                      <option value="kg">KG</option>
+                                    </select>
+                                  </td>
+                                  <td className="px-3 py-1.5 text-right">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="1"
+                                      value={row.quantity}
+                                      onChange={(e) => handleUpdateRow(origIdx, 'quantity', sanitizeQtyInput(e.target.value))}
+                                      placeholder="1"
+                                      className="w-20 h-7 px-2 rounded-md border border-slate-200 text-xs text-right outline-none focus:border-primary bg-white"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-1.5 text-right font-semibold text-emerald-600 tabular-nums">
+                                    {computedQty || <span className="text-slate-300">—</span>}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveRow(origIdx)}
+                                      className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
+                                      title="Remove row"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
+                <Button type="button" onClick={handleConfirmImport} disabled={validRowsCount === 0 || submitting}>
+                  {submitting ? 'Generating Orders...' : `Import & Create ${groupedOrders.length} Order(s)`}
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      <ProductModal
+        isOpen={productQuickAddOpen}
+        onClose={() => setProductQuickAddOpen(false)}
+        onSuccess={handleProductQuickAdded}
+        user={user}
+        quickAdd
+      />
+      <VendorModal
+        isOpen={vendorQuickAddOpen}
+        onClose={() => setVendorQuickAddOpen(false)}
+        onSuccess={handleVendorQuickAdded}
+        user={user}
+      />
     </>
   );
 };

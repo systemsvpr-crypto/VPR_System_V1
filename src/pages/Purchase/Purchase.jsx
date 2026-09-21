@@ -7,6 +7,7 @@ import { getAllIndents, deleteIndent, deleteIndentItem } from '../../services/pu
 import { getAllProducts, getAllGodowns } from '../../services/masterService';
 import { getAllVendors } from '../../services/vendorService';
 import { getAllTransporters } from '../../services/transporterService';
+import { getAllGroups } from '../../services/productGroupingService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import IndentPendingHistoryTable from './components/IndentPendingHistoryTable';
@@ -44,6 +45,7 @@ const Purchase = () => {
   const [godowns, setGodowns] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [transporters, setTransporters] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
@@ -108,10 +110,10 @@ const Purchase = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [p, g, v, t] = await Promise.all([
-        getAllProducts(), getAllGodowns(), getAllVendors(), getAllTransporters(),
+      const [p, g, v, t, grps] = await Promise.all([
+        getAllProducts(), getAllGodowns(), getAllVendors(), getAllTransporters(), getAllGroups(),
       ]);
-      setProducts(p); setGodowns(g); setVendors(v); setTransporters(t);
+      setProducts(p); setGodowns(g); setVendors(v); setTransporters(t); setGroups(grps || []);
     } catch (err) { toast.error('Failed to load reference data'); }
     try {
       const ind = await getAllIndents();
@@ -226,6 +228,9 @@ const Purchase = () => {
             searchTerm={searchTerm}
             onSearchChange={setSearchTerm}
             onDelete={handleDeleteSelectedItems}
+            groups={groups}
+            products={products}
+            godowns={godowns}
             toolbarExtra={
               <>
                 <select
@@ -264,7 +269,7 @@ const Purchase = () => {
 
           <IndentModal isOpen={modalOpen} onClose={handleCloseModal}
             user={user} onSuccess={loadData} editingIndent={editingIndent}
-            products={products} godowns={godowns} vendors={vendors}
+            products={products} godowns={godowns} vendors={vendors} groups={groups}
             onImportProducts={(product) => setProducts(prev => [...prev, product])}
             onImportVendors={(vendor) => setVendors(prev => [...prev, vendor])} />
 
@@ -283,23 +288,23 @@ const Purchase = () => {
       )}
 
       {activeTab === 'vendor-selection' && (
-        <VendorSelectionTable vendors={vendors} godowns={godowns} user={user} />
+        <VendorSelectionTable vendors={vendors} godowns={godowns} user={user} groups={groups} products={products} />
       )}
 
       {activeTab === 'approval' && (
-        <VendorApprovalTable vendors={vendors} godowns={godowns} user={user} />
+        <VendorApprovalTable vendors={vendors} godowns={godowns} user={user} groups={groups} products={products} />
       )}
 
       {(activeTab === 'in-transit' || activeTab === 'delivery') && (
-        <DeliveryTable tabMode="in-transit" transporters={transporters} user={user} godowns={godowns} />
+        <DeliveryTable tabMode="in-transit" transporters={transporters} user={user} godowns={godowns} groups={groups} products={products} />
       )}
 
       {activeTab === 'aawak-details' && (
-        <AawakDetailsTable transporters={transporters} user={user} godowns={godowns} products={products} vendors={vendors} />
+        <AawakDetailsTable transporters={transporters} user={user} godowns={godowns} products={products} vendors={vendors} groups={groups} />
       )}
 
       {activeTab === 'purchase-complete' && (
-        <PurchaseCompleteTable user={user} godowns={godowns} products={products} vendors={vendors} />
+        <PurchaseCompleteTable user={user} godowns={godowns} products={products} vendors={vendors} groups={groups} />
       )}
       </div>
       )}

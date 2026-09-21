@@ -11,6 +11,7 @@ import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 import { parseFileDate } from '@/lib/parseFileDate';
 import ProductModal from '../../Master/components/ProductModal';
 import CustomerModal from '../../Master/components/CustomerModal';
+import { getProductRateForCustomer } from '@/lib/pricingCategoryHelper';
 
 const COLUMN_ALIASES = {
   'Order Date': ['order date', 'orderdate', 'date', 'order_date'],
@@ -301,6 +302,12 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
           const matchedCust = customers.find(c => c.name.trim().toLowerCase() === rawCust.toLowerCase());
           const matchedGodown = activeGodowns.find(g => g.name.trim().toLowerCase() === rawGodown.toLowerCase());
 
+          let effectivePrice = rawPrice;
+          if (!effectivePrice && matchedProd && matchedCust) {
+            const suggestedRate = getProductRateForCustomer(matchedProd, matchedCust);
+            if (suggestedRate !== null) effectivePrice = String(suggestedRate);
+          }
+
           return {
             id: idx,
             order_date: parsedDate,
@@ -310,7 +317,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
             godown_id: matchedGodown ? matchedGodown.godown_id : '',
             rawProductName: rawProd,
             product_id: matchedProd ? matchedProd.product_id : '',
-            unit_price: rawPrice,
+            unit_price: effectivePrice,
             quantity: rawQty > 0 ? String(rawQty) : '1',
             Selected_Unit: fileUnit || (matchedProd?.unit || '').toLowerCase(),
             process_type: processType,
@@ -349,15 +356,36 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
 
   const handleUpdateRow = (index, field, value) => {
     const updated = [...rawRows];
-    // Picking/changing the product defaults Unit to that product's own
-    // master unit — but only when the row doesn't already have one (e.g.
-    // from the file's own Unit column), so that pick isn't silently
-    // overwritten.
+    const row = updated[index];
     if (field === 'product_id') {
       const product = allProducts.find(p => p.product_id === value);
-      updated[index] = { ...updated[index], product_id: value, Selected_Unit: updated[index].Selected_Unit || (product?.unit || '').toLowerCase() };
+      const customer = allCustomers.find(c => c.customer_id === row.customer_id);
+      let newPrice = row.unit_price;
+      if (!newPrice && product && customer) {
+        const rate = getProductRateForCustomer(product, customer);
+        if (rate !== null) newPrice = String(rate);
+      }
+      updated[index] = {
+        ...row,
+        product_id: value,
+        unit_price: newPrice,
+        Selected_Unit: row.Selected_Unit || (product?.unit || '').toLowerCase(),
+      };
+    } else if (field === 'customer_id') {
+      const customer = allCustomers.find(c => c.customer_id === value);
+      const product = allProducts.find(p => p.product_id === row.product_id);
+      let newPrice = row.unit_price;
+      if (!newPrice && product && customer) {
+        const rate = getProductRateForCustomer(product, customer);
+        if (rate !== null) newPrice = String(rate);
+      }
+      updated[index] = {
+        ...row,
+        customer_id: value,
+        unit_price: newPrice,
+      };
     } else {
-      updated[index] = { ...updated[index], [field]: value };
+      updated[index] = { ...row, [field]: value };
     }
     setRawRows(updated);
   };
@@ -431,6 +459,16 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
       const cKey = row.customer_id || row.rawCustomerName || 'unassigned';
       const k = `${row.order_date}_${cKey}`;
       if (k === groupKey) {
+        if (field === 'customer_id') {
+          const customer = allCustomers.find(c => c.customer_id === value);
+          const product = allProducts.find(p => p.product_id === row.product_id);
+          let newPrice = row.unit_price;
+          if (!newPrice && product && customer) {
+            const rate = getProductRateForCustomer(product, customer);
+            if (rate !== null) newPrice = String(rate);
+          }
+          return { ...row, customer_id: value, unit_price: newPrice };
+        }
         return { ...row, [field]: value };
       }
       return row;

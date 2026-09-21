@@ -59,11 +59,11 @@ const Login = () => {
             style={{ backgroundImage: 'radial-gradient(var(--primary) 1px, transparent 1px)', backgroundSize: '32px 32px' }}
           />
           <div className="relative z-10 flex items-center justify-center w-full max-w-sm">
-            <img 
-              src={vprLogo} 
-              alt="VPR Logo" 
+            <img
+              src={vprLogo}
+              alt="VPR Logo"
               draggable="false"
-              className="w-full h-auto max-h-[400px] object-contain select-none pointer-events-none" 
+              className="w-full h-auto max-h-[400px] object-contain select-none pointer-events-none"
             />
           </div>
         </div>
@@ -74,11 +74,11 @@ const Login = () => {
             <div className="flex flex-col items-center justify-center text-center">
               <div className="flex items-center gap-4 bg-primary/10 px-5 py-3.5 rounded-2xl border border-primary/20 mb-6">
                 <div className="rounded-lg border border-primary/20 p-1 bg-white shadow-sm flex items-center justify-center">
-                  <img 
-                    src={vprLogo} 
-                    alt="VPR Logo" 
+                  <img
+                    src={vprLogo}
+                    alt="VPR Logo"
                     draggable="false"
-                    className="h-12 w-12 rounded-md object-contain select-none pointer-events-none" 
+                    className="h-12 w-12 rounded-md object-contain select-none pointer-events-none"
                   />
                 </div>
                 <div className="flex flex-col text-left">
@@ -130,10 +130,10 @@ const Login = () => {
 
           <div className="flex items-center justify-center gap-1.5 text-sm font-medium text-slate-500">
             <span>Powered by</span>
-            <a 
-              href="https://www.botivate.in" 
-              target="_blank" 
-              rel="noopener noreferrer" 
+            <a
+              href="https://www.botivate.in"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-primary font-bold tracking-tight hover:underline"
             >
               Botivate

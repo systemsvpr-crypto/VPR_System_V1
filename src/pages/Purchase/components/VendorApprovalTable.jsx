@@ -3,8 +3,9 @@ import { Search, ShoppingCart, ChevronDown, ChevronLeft, ChevronRight, CheckCirc
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getIndentsForApproval, approveIndentItem, deleteIndent, deleteIndentItem } from '../../../services/purchaseService';
-import { Input } from '@/components/ui/input';
+import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Dropdown } from '@/components/ui/dropdown';
 import { sanitizeQtyInput } from '@/lib/qty';
 
@@ -22,7 +23,7 @@ const IndentTypeBadge = ({ processType }) => (
   )
 );
 
-const VendorApprovalTable = ({ vendors, godowns, user }) => {
+const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
   const [indents, setIndents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -78,12 +79,16 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
       return (
         indent.indent_number?.toLowerCase().includes(term) ||
         indent.vendors?.name?.toLowerCase().includes(term) ||
-        (indent.purchase_indent_items || []).some(item =>
-          item.products?.name?.toLowerCase().includes(term)
-        )
+        (indent.purchase_indent_items || []).some(item => {
+          const gName = getGroupNameFromItem(item, groups);
+          return (
+            item.products?.name?.toLowerCase().includes(term) ||
+            (gName && gName !== '—' && gName.toLowerCase().includes(term))
+          );
+        })
       );
     });
-  }, [indents, searchTerm]);
+  }, [indents, searchTerm, groups]);
 
   const totalPages = Math.max(1, Math.ceil(filteredIndents.length / pageSize));
   const currentIndents = useMemo(() => {
@@ -498,7 +503,7 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
                                 }`}
                               >
                                 <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     {!approved && (
                                       <input
                                         type="checkbox"
@@ -506,6 +511,11 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
                                         onChange={() => toggleSelect(item.item_id)}
                                         className="w-3.5 h-3.5 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                                       />
+                                    )}
+                                    {getGroupNameFromItem(item, groups) !== '—' && (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                        {getGroupNameFromItem(item, groups)}
+                                      </span>
                                     )}
                                     <span className="font-semibold text-slate-900">{item.products?.name}</span>
                                     <span className="text-[10px] text-slate-400 uppercase">({item.products?.unit})</span>
@@ -685,6 +695,7 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
                               <thead>
                                 <tr className="border-b border-slate-200">
                                   <th className="w-10 px-2 py-2" />
+                                  <th className="text-left px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Group</th>
                                   <th className="text-left px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Product</th>
                                   <th className="text-center px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Qty</th>
                                   <th className="text-left px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Rate</th>
@@ -710,6 +721,11 @@ const VendorApprovalTable = ({ vendors, godowns, user }) => {
                                             onChange={() => toggleSelect(item.item_id)}
                                             className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                                         )}
+                                      </td>
+                                      <td className="px-3 py-2.5 whitespace-nowrap">
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                          {getGroupNameFromItem(item, groups)}
+                                        </span>
                                       </td>
                                       <td className="px-3 py-2.5">
                                         <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>

@@ -22,7 +22,8 @@ const DataTable = ({
   totalResults,
   itemsPerPageOptions = [50, 100, 150, 200],
   emptyState = null,
-  viewMode = 'responsive' // 'responsive' | 'card' | 'table'
+  viewMode = 'responsive', // 'responsive' | 'card' | 'table'
+  hidePagination = false,
 }) => {
   const isCardView = viewMode === 'card';
   const isTableView = viewMode === 'table';
@@ -104,50 +105,53 @@ const DataTable = ({
       </div>
 
       {/* Footer - Unified for both views */}
-      <div className="px-4 py-2.5 border-t border-royal-600/25 bg-blue-50 flex items-center justify-between gap-4 rounded-b-[24px]">
-        {/* Left Side: Row Dropdown */}
-        <div className="flex items-center gap-2">
-          <select
-            value={itemsPerPage}
-            onChange={(e) => onItemsPerPageChange(Number(e.target.value))}
-            className="ring-1 ring-royal-600/25 rounded-xl px-2 py-1 focus:outline-none focus:ring-2 focus:ring-royal-500/30 bg-white font-medium text-xs md:text-sm"
-          >
-            {itemsPerPageOptions.map(val => (
-              <option key={val} value={val}>{val}</option>
-            ))}
-          </select>
-          <span className="text-[10px] md:text-sm text-ink-body whitespace-nowrap font-medium hidden sm:inline">
-            {totalResults > 0 ? ((currentPage - 1) * itemsPerPage) + 1 : 0}-{Math.min(currentPage * itemsPerPage, totalResults)} of {totalResults}
-          </span>
-        </div>
-
-        {/* Right Side: Pagination Controls */}
-        <div className="flex items-center gap-2 md:gap-4 text-gray-700">
-          <button
-            onClick={() => onPageChange(currentPage - 1)}
-            disabled={currentPage === 1}
-            className="p-1.5 md:px-2 md:py-1 ring-1 ring-royal-600/25 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-royal-50 transition flex items-center justify-center text-royal-600"
-          >
-            <ChevronLeft size={16} strokeWidth={2.5} />
-          </button>
-          <div className="flex items-center text-xs md:text-sm font-semibold text-gray-600">
-            {currentPage} / {totalPages || 1}
+      {!hidePagination && (
+        <div className="px-4 py-2.5 border-t border-royal-600/25 bg-blue-50 flex items-center justify-between gap-4 rounded-b-[24px]">
+          {/* Left Side: Row Dropdown */}
+          <div className="flex items-center gap-2">
+            <select
+              value={itemsPerPage}
+              onChange={(e) => onItemsPerPageChange(Number(e.target.value))}
+              className="ring-1 ring-royal-600/25 rounded-xl px-2 py-1 focus:outline-none focus:ring-2 focus:ring-royal-500/30 bg-white font-medium text-xs md:text-sm"
+            >
+              {itemsPerPageOptions.map(val => (
+                <option key={val} value={val}>{val}</option>
+              ))}
+            </select>
+            <span className="text-[10px] md:text-sm text-ink-body whitespace-nowrap font-medium hidden sm:inline">
+              {totalResults > 0 ? ((currentPage - 1) * itemsPerPage) + 1 : 0}-{Math.min(currentPage * itemsPerPage, totalResults)} of {totalResults}
+            </span>
           </div>
-          <button
-            onClick={() => onPageChange(currentPage + 1)}
-            disabled={currentPage === totalPages || totalPages === 0}
-            className="p-1.5 md:px-2 md:py-1 ring-1 ring-royal-600/25 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-royal-50 transition flex items-center justify-center text-royal-600"
-          >
-            <ChevronRight size={16} strokeWidth={2.5} />
-          </button>
+
+          {/* Right Side: Pagination Controls */}
+          <div className="flex items-center gap-2 md:gap-4 text-gray-700">
+            <button
+              onClick={() => onPageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="p-1.5 md:px-2 md:py-1 ring-1 ring-royal-600/25 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-royal-50 transition flex items-center justify-center text-royal-600"
+            >
+              <ChevronLeft size={16} strokeWidth={2.5} />
+            </button>
+            <div className="flex items-center text-xs md:text-sm font-semibold text-gray-600">
+              {currentPage} / {totalPages || 1}
+            </div>
+            <button
+              onClick={() => onPageChange(currentPage + 1)}
+              disabled={currentPage === totalPages || totalPages === 0}
+              className="p-1.5 md:px-2 md:py-1 ring-1 ring-royal-600/25 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-royal-50 transition flex items-center justify-center text-royal-600"
+            >
+              <ChevronRight size={16} strokeWidth={2.5} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
 
 const areEqual = (prevProps, nextProps) => {
   // Compare scalar props
+  if (prevProps.hidePagination !== nextProps.hidePagination) return false;
   if (prevProps.currentPage !== nextProps.currentPage) return false;
   if (prevProps.itemsPerPage !== nextProps.itemsPerPage) return false;
   if (prevProps.totalResults !== nextProps.totalResults) return false;

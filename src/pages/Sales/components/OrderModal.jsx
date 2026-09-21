@@ -11,6 +11,7 @@ import BulkOrderProductsModal from './BulkOrderProductsModal';
 import ProductModal from '../../Master/components/ProductModal';
 import CustomerModal from '../../Master/components/CustomerModal';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
+import { getProductRateForCustomer } from '@/lib/pricingCategoryHelper';
 
 const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, godowns, customers, onImportProducts, onImportCustomers }) => {
   const [form, setForm] = useState({
@@ -210,9 +211,36 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
 
   const handleProductChange = (index, productId) => {
     const product = allProducts.find(p => p.product_id === productId);
+    const customer = allCustomers.find(c => c.customer_id === form.customer_id);
+    const suggestedRate = getProductRateForCustomer(product, customer);
     const items = [...form.items];
-    items[index] = { ...items[index], product_id: productId, Selected_Unit: (product?.unit || '').toLowerCase() };
+    items[index] = {
+      ...items[index],
+      product_id: productId,
+      Selected_Unit: (product?.unit || '').toLowerCase(),
+      unit_price: suggestedRate !== null ? String(suggestedRate) : (items[index].unit_price || ''),
+    };
     setForm({ ...form, items });
+  };
+
+  const handleCustomerChange = (customerId) => {
+    const customer = allCustomers.find(c => c.customer_id === customerId);
+    setForm(prev => {
+      const updatedItems = prev.items.map(item => {
+        if (!item.product_id) return item;
+        const product = allProducts.find(p => p.product_id === item.product_id);
+        const rate = getProductRateForCustomer(product, customer);
+        return {
+          ...item,
+          unit_price: rate !== null ? String(rate) : item.unit_price,
+        };
+      });
+      return {
+        ...prev,
+        customer_id: customerId,
+        items: updatedItems,
+      };
+    });
   };
 
   // Switching Unit re-bases whatever Qty is currently showing into the
@@ -252,7 +280,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
   // applied straight to the form.
   const handleCustomerQuickAdded = (customer) => {
     setExtraCustomers(prev => [...prev, customer]);
-    setForm(prev => ({ ...prev, customer_id: customer.customer_id }));
+    handleCustomerChange(customer.customer_id);
     onImportCustomers?.(customer);
   };
 
@@ -360,7 +388,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Customer <span className="text-red-500">*</span></label>
-                  <Dropdown value={form.customer_id} onValueChange={(v) => setForm({ ...form, customer_id: v })}
+                  <Dropdown value={form.customer_id} onValueChange={(v) => handleCustomerChange(v)}
                     options={allCustomers.map(c => ({ value: c.customer_id, label: c.name }))}
                     placeholder="Select customer..." searchPlaceholder="Search customers..."
                     align="start" disabled={anyItemLocked}

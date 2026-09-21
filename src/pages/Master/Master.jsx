@@ -118,6 +118,7 @@ const Master = () => {
   const [transporterFilter, setTransporterFilter] = useState('all');
   const [groupingFilter, setGroupingFilter] = useState('all');
   const [godownTypeFilter, setGodownTypeFilter] = useState('Own');
+  const [customerRankFilter, setCustomerRankFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
 
@@ -187,15 +188,27 @@ const Master = () => {
     );
   }, [godowns, searchTerm, godownTypeFilter]);
 
+  const rankNameMap = useMemo(() => {
+    const map = {};
+    ranks.forEach(r => { map[r.rank_id] = r.rank_name; });
+    return map;
+  }, [ranks]);
+
   const filteredCustomers = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    return customers.filter(c =>
+    let result = customers.filter(c =>
       c.name?.toLowerCase().includes(term) ||
       c.location?.toLowerCase().includes(term) ||
       c.phone_number?.toLowerCase().includes(term) ||
-      c.email?.toLowerCase().includes(term)
+      c.email?.toLowerCase().includes(term) ||
+      c.ranks?.rank_name?.toLowerCase().includes(term) ||
+      (c.rank_id && rankNameMap[c.rank_id]?.toLowerCase().includes(term))
     );
-  }, [customers, searchTerm]);
+    if (customerRankFilter !== 'all') {
+      result = result.filter(c => c.rank_id === customerRankFilter);
+    }
+    return result;
+  }, [customers, searchTerm, customerRankFilter, rankNameMap]);
 
   const filteredVendors = useMemo(() => {
     const term = searchTerm.toLowerCase();
@@ -292,7 +305,7 @@ const Master = () => {
   }, [visibleTabs, activeTab]);
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter, transporterFilter, groupingFilter, godownTypeFilter]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter, transporterFilter, groupingFilter, godownTypeFilter, customerRankFilter]);
 
   const loadData = async () => {
     setLoading(true);
@@ -492,6 +505,18 @@ const Master = () => {
                     />
                   </div>
                 )}
+                {activeTab === 'customers' && ranks.length > 0 && (
+                  <div className="w-36 shrink-0">
+                    <FilterSelect
+                      value={customerRankFilter}
+                      onValueChange={setCustomerRankFilter}
+                      options={ranks.map(r => ({ id: r.rank_id, name: r.rank_name }))}
+                      placeholder="All Ranks"
+                      label="Filter by Rank"
+                      allLabel="All Ranks"
+                    />
+                  </div>
+                )}
                 {activeTab === 'godowns' && (
                   <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 w-fit shrink-0">
                     <button type="button" onClick={() => setGodownTypeFilter('Own')}
@@ -521,14 +546,13 @@ const Master = () => {
                         <PackagePlus size={15} /><span>Opening Stock</span>
                       </Button>
                     )}
-                    {!(activeTab === 'godowns' && godownTypeFilter === 'Transporter') && (
+                    {activeTab !== 'product-grouping' && !(activeTab === 'godowns' && godownTypeFilter === 'Transporter') && (
                       <Button onClick={() => {
                         if (activeTab === 'products') { setEditingProduct(null); setProductModalOpen(true); }
                         else if (activeTab === 'godowns') setGodownModalOpen(true);
                         else if (activeTab === 'customers') { setEditingCustomer(null); setCustomerModalOpen(true); }
                         else if (activeTab === 'vendors') { setEditingVendor(null); setVendorModalOpen(true); }
                         else if (activeTab === 'transporters') { setEditingTransporter(null); setTransporterModalOpen(true); }
-                        else if (activeTab === 'product-grouping') { setEditingGroup(null); setGroupModalOpen(true); }
                         else if (activeTab === 'ranks') { setEditingRank(null); setRankModalOpen(true); }
                       }} className="gap-2 px-3 h-8 text-sm font-medium shrink-0">
                         <Plus size={15} />
@@ -538,8 +562,7 @@ const Master = () => {
                               activeTab === 'customers' ? 'Customer' :
                                 activeTab === 'vendors' ? 'Vendor' :
                                   activeTab === 'transporters' ? 'Transporter' :
-                                    activeTab === 'ranks' ? 'Rank' :
-                                      'Group'
+                                    'Rank'
                         }</span>
                       </Button>
                     )}
@@ -567,7 +590,8 @@ const Master = () => {
                 <div className="flex flex-col flex-1 min-h-0">
                   <CustomerTable customers={currentCustomers} totalItems={filteredCustomers.length} loading={loading} onEdit={handleEditCustomer} searchTerm={searchTerm}
                     currentPage={currentPage} totalPages={totalCustomerPages} itemsPerPage={itemsPerPage}
-                    onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+                    onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage}
+                    ranks={ranks} />
                 </div>
               )}
               {activeTab === 'vendors' && (
@@ -604,7 +628,7 @@ const Master = () => {
       </div>
 
       <ProductModal isOpen={productModalOpen} onClose={handleCloseProductModal}
-        godowns={godowns} user={user} onSuccess={loadData} editingProduct={editingProduct} />
+        godowns={godowns} groups={groups} products={products} user={user} onSuccess={loadData} editingProduct={editingProduct} />
       <GodownModal isOpen={godownModalOpen} onClose={() => setGodownModalOpen(false)}
         onSuccess={loadData} />
       <BulkImportModal isOpen={importModalOpen} onClose={() => setImportModalOpen(false)}
@@ -612,7 +636,7 @@ const Master = () => {
       <BulkImportOpeningStockModal isOpen={openingStockImportOpen} onClose={() => setOpeningStockImportOpen(false)}
         godowns={godowns} products={products} user={user} onSuccess={loadData} />
       <CustomerModal isOpen={customerModalOpen} onClose={handleCloseCustomerModal}
-        onSuccess={loadData} editingCustomer={editingCustomer} user={user} />
+        onSuccess={loadData} editingCustomer={editingCustomer} user={user} ranks={ranks} />
       <VendorModal isOpen={vendorModalOpen} onClose={handleCloseVendorModal}
         onSuccess={loadData} editingVendor={editingVendor} user={user} />
       <TransporterModal isOpen={transporterModalOpen} onClose={handleCloseTransporterModal}

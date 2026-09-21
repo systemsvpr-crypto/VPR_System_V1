@@ -122,7 +122,12 @@ export const getAllIndents = async () => {
     .from('purchase_indents')
     .select(`
       *,
-      purchase_indent_items(*, products:product_id(name, unit))
+      product_groups:group_id(group_name),
+      purchase_indent_items(
+        *,
+        product_groups:group_id(group_name),
+        products:product_id(name, unit, group_id, brand_name, category, product_groups:group_id(group_name))
+      )
     `)
     .order('created_at', { ascending: false }));
 
@@ -158,7 +163,7 @@ export const getAllIndents = async () => {
   }));
 };
 
-export const createIndent = async ({ indent_date, indent_number, godown_id, vendor_id, remarks, items, created_by, process_type }) => {
+export const createIndent = async ({ indent_date, indent_number, godown_id, vendor_id, remarks, items, created_by, process_type, group_id }) => {
   // Direct indents skip the Dispatch Day / Vendor Approval workflow entirely —
   // the vendor is already fixed at indent creation, so items go straight to
   // Delivery's Pending list instead of waiting to be planned/approved first.
@@ -172,6 +177,8 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
   const total = isDirect
     ? items.reduce((sum, item) => sum + (Number(item.rate) || 0) * (Number(item.quantity) || 0), 0)
     : 0;
+
+  const headerGroupId = group_id !== undefined ? (group_id || null) : (items?.find(i => i.group_id)?.group_id || null);
 
   // vendor_id and godown_id are both optional at the header level — a
   // Process-type indent (e.g. the "Reorder" quick action on Ultimate IMS) can
@@ -189,7 +196,14 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
   for (let attempt = 0; ; attempt++) {
     const { data, error: indentErr } = await supabase
       .from('purchase_indents')
-      .insert([{ indent_date, indent_number: attemptNumber, total_amount: total, created_by, process_type: process_type || 'process' }])
+      .insert([{
+        indent_date,
+        indent_number: attemptNumber,
+        total_amount: total,
+        created_by,
+        process_type: process_type || 'process',
+        group_id: headerGroupId,
+      }])
       .select()
       .single();
     if (!indentErr) { indent = data; break; }
@@ -201,6 +215,7 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
     const itemRows = items.map(item => ({
       indent_id: indent.indent_id,
       product_id: item.product_id,
+      group_id: item.group_id || headerGroupId || null,
       quantity: Number(item.quantity),
       // indent_qty is the originally-requested amount, kept as-is even after
       // quantity itself gets overwritten with the Approved Qty later.
@@ -233,7 +248,7 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
 
 
 
-export const updateIndent = async (indent_id, { indent_date, indent_number, godown_id, vendor_id, remarks, items, process_type, user_id }) => {
+export const updateIndent = async (indent_id, { indent_date, indent_number, godown_id, vendor_id, remarks, items, process_type, user_id, group_id }) => {
   // Direct indents skip the Dispatch Day / Vendor Approval workflow entirely —
   // resolve the indent's effective process_type (it may not have been passed
   // in this call) so items land in the right place either way.
@@ -248,10 +263,13 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
   }
   const isDirect = effectiveProcessType === 'direct';
 
+  const headerGroupId = group_id !== undefined ? (group_id || null) : (items?.find(i => i.group_id)?.group_id || null);
+
   // Godown and vendor are optional — '' (cleared in the UI) has to become
   // null rather than being sent as-is, since '' isn't a valid uuid.
   const updateFields = { indent_date, indent_number };
   if (process_type !== undefined) updateFields.process_type = process_type;
+  if (headerGroupId !== undefined) updateFields.group_id = headerGroupId;
   // total_amount only ever counts Planned items. Direct items are Planned
   // immediately, so recompute it here for them; Process items still get it
   // exclusively from updateVendorSelection's planned-only recompute as each
@@ -276,11 +294,13 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
   const incomingIds = new Set(items.filter(i => i.item_id).map(i => i.item_id));
 
   for (const item of items) {
+    const itemGroupId = item.group_id || headerGroupId || null;
     if (item.item_id && incomingIds.has(item.item_id)) {
       const { error: updErr } = await supabase
         .from('purchase_indent_items')
         .update({
           product_id: item.product_id,
+          group_id: itemGroupId,
           quantity: Number(item.quantity),
           // Still editing the indent itself (pre-approval), so indent_qty
           // tracks quantity here too — it only stops following quantity once
@@ -301,6 +321,7 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
         .insert({
           indent_id,
           product_id: item.product_id,
+          group_id: itemGroupId,
           quantity: Number(item.quantity),
           indent_qty: Number(item.quantity),
           rate: Number(item.rate),
@@ -512,9 +533,10 @@ export const getAllIndentItemsForVendorSelection = async () => {
     .from('purchase_indent_items')
     .select(`
       *,
-      products:product_id(name, unit),
+      product_groups:group_id(group_name),
+      products:product_id(name, unit, group_id, brand_name, category, product_groups:group_id(group_name)),
       purchase_indents!inner(
-        indent_id, indent_date, indent_number, process_type
+        indent_id, indent_date, indent_number, process_type, group_id, product_groups:group_id(group_name)
       )
     `)
     .eq('purchase_indents.process_type', 'process')
@@ -531,9 +553,10 @@ export const getAllIndentItems = async () => {
     .from('purchase_indent_items')
     .select(`
       *,
-      products:product_id(name, unit),
+      product_groups:group_id(group_name),
+      products:product_id(name, unit, group_id, brand_name, category, product_groups:group_id(group_name)),
       purchase_indents!inner(
-        indent_id, indent_date, indent_number, process_type
+        indent_id, indent_date, indent_number, process_type, group_id, product_groups:group_id(group_name)
       )
     `)
     .order('created_at', { ascending: false }));
@@ -606,9 +629,11 @@ export const getIndentsForApproval = async () => {
     .from('purchase_indents')
     .select(`
       *,
+      product_groups:group_id(group_name),
       purchase_indent_items(
         *,
-        products:product_id(name, unit),
+        product_groups:group_id(group_name),
+        products:product_id(name, unit, group_id, brand_name, category, product_groups:group_id(group_name)),
         item_vendor:vendor_id(name)
       )
     `)
@@ -653,10 +678,11 @@ export const getApprovedItemsForDelivery = async () => {
     .from('purchase_indent_items')
     .select(`
       *,
-      products:product_id(name, unit),
+      product_groups:group_id(group_name),
+      products:product_id(name, unit, group_id, brand_name, category, product_groups:group_id(group_name)),
       item_vendor:vendor_id(name),
       purchase_indents!inner(
-        indent_id, indent_date, indent_number, is_void, process_type
+        indent_id, indent_date, indent_number, is_void, process_type, group_id, product_groups:group_id(group_name)
       )
     `)
     .eq('approval_status', 'Approved')
@@ -755,10 +781,11 @@ export const getDirectItemsForAawak = async () => {
     .from('purchase_indent_items')
     .select(`
       *,
-      products:product_id(name, unit),
+      product_groups:group_id(group_name),
+      products:product_id(name, unit, group_id, brand_name, category, product_groups:group_id(group_name)),
       item_vendor:vendor_id(name),
       purchase_indents!inner(
-        indent_id, indent_date, indent_number, is_void, process_type
+        indent_id, indent_date, indent_number, is_void, process_type, group_id, product_groups:group_id(group_name)
       )
     `)
     .eq('purchase_indents.is_void', false)
@@ -844,10 +871,86 @@ export const generateNextLiftingNumber = async () => {
   return `LIFT-${String(next).padStart(4, '0')}`;
 };
 
-export const createDelivery = async ({ item_id, indent_id, delivery_date, expected_delivery_date, godown_allocations, transporter_id, lr_number, vehicle_number, driver_phone_number, remarks, created_by, status, packaging_size, dispatch_unit, dispatch_qty_bag, dispatch_qty_kg }) => {
+/**
+ * Updates last_purchase and second_last_purchase in product_groups
+ * based on group_id and delivery_date.
+ * 
+ * Rules:
+ * 1. If any item is purchasing first time (!group.last_purchase):
+ *    stores delivery_date on both product_groups.last_purchase and product_groups.second_last_purchase
+ * 2. If it's not first purchase:
+ *    second_last_purchase = previous last_purchase
+ *    last_purchase = delivery_date
+ */
+export const updateProductGroupPurchaseDates = async (groupId, deliveryDate) => {
+  if (!groupId || !deliveryDate) return;
+
+  const formattedDate = typeof deliveryDate === 'string'
+    ? deliveryDate.split('T')[0]
+    : new Date(deliveryDate).toISOString().split('T')[0];
+
+  try {
+    const { data: group, error: fetchErr } = await supabase
+      .from('product_groups')
+      .select('group_id, last_purchase, second_last_purchase')
+      .eq('group_id', groupId)
+      .maybeSingle();
+
+    if (fetchErr || !group) return;
+
+    let updates = null;
+
+    if (!group.last_purchase) {
+      // First time purchase: store delivery_date on both last_purchase and second_last_purchase
+      updates = {
+        last_purchase: formattedDate,
+        second_last_purchase: formattedDate,
+      };
+    } else if (group.last_purchase !== formattedDate) {
+      // Not first purchase: update last_purchase with delivery_date and second_last_purchase with previous last_purchase
+      updates = {
+        second_last_purchase: group.last_purchase,
+        last_purchase: formattedDate,
+      };
+    } else if (!group.second_last_purchase) {
+      // If last_purchase was already this date but second_last_purchase was null
+      updates = {
+        second_last_purchase: formattedDate,
+      };
+    }
+
+    if (updates) {
+      const { error: updErr } = await supabase
+        .from('product_groups')
+        .update(updates)
+        .eq('group_id', groupId);
+
+      if (updErr) {
+        console.error('Failed to update product_groups purchase dates:', updErr);
+      }
+
+      // Also record into product_group_history if available
+      try {
+        await supabase
+          .from('product_group_history')
+          .insert([{
+            group_id: groupId,
+            last_purchase: updates.last_purchase || group.last_purchase,
+            second_last_purchase: updates.second_last_purchase || group.second_last_purchase,
+          }]);
+      } catch {
+        // Ignored if RLS or triggers handle product_group_history
+      }
+    }
+  } catch (err) {
+    console.error('Error in updateProductGroupPurchaseDates:', err);
+  }
+};
+
+export const createDelivery = async ({ item_id, indent_id, delivery_date, expected_delivery_date, godown_allocations, transporter_id, lr_number, vehicle_number, driver_phone_number, remarks, created_by, status, packaging_size, dispatch_unit, dispatch_qty_bag, dispatch_qty_kg, group_id }) => {
   const { data: item, error: itemErr } = await supabase
     .from('purchase_indent_items')
-    .select(`product_id, products(name)`)
+    .select(`product_id, group_id, products(name, group_id, brand_name, category)`)
     .eq('item_id', item_id)
     .single();
   if (itemErr) throw new Error('Item not found.');
@@ -856,6 +959,17 @@ export const createDelivery = async ({ item_id, indent_id, delivery_date, expect
   const lifting_number = await generateNextLiftingNumber();
   const totalQty = godown_allocations.reduce((s, a) => s + Number(a.qty), 0);
   const deliveryStatus = status || 'In Transit';
+  let resolvedGroupId = group_id || item.group_id || item.products?.group_id || null;
+
+  if (!resolvedGroupId && (item.products?.brand_name || item.products?.category)) {
+    const combined = `${(item.products.brand_name || '').trim()}${(item.products.category || '').trim()}`.toLowerCase();
+    const { data: grp } = await supabase
+      .from('product_groups')
+      .select('group_id')
+      .ilike('group_name', combined)
+      .maybeSingle();
+    if (grp?.group_id) resolvedGroupId = grp.group_id;
+  }
 
   if (deliveryStatus === 'Arrived') {
     const today = getTodayLocal();
@@ -868,6 +982,7 @@ export const createDelivery = async ({ item_id, indent_id, delivery_date, expect
     .from('purchase_deliveries')
     .insert([{
       item_id, indent_id, delivery_date,
+      group_id: resolvedGroupId,
       expected_delivery_date: expected_delivery_date || null,
       received_quantity: totalQty,
       transporter_id: transporter_id || null,
@@ -898,6 +1013,7 @@ export const createDelivery = async ({ item_id, indent_id, delivery_date, expect
     delivery_id: delivery.delivery_id,
     godown_id: a.godown_id,
     qty: Number(a.qty),
+    group_id: resolvedGroupId,
   }));
   const { error: gdErr } = await supabase
     .from('purchase_delivery_godowns')
@@ -931,14 +1047,22 @@ export const createDelivery = async ({ item_id, indent_id, delivery_date, expect
     });
   }
 
+  if (resolvedGroupId && delivery_date) {
+    try {
+      await updateProductGroupPurchaseDates(resolvedGroupId, delivery_date);
+    } catch (err) {
+      console.error('Failed to update product group purchase dates:', err);
+    }
+  }
+
   return { ...delivery, lifting_number };
 };
 
 
-export const updateDelivery = async ({ delivery_id, delivery_date, expected_delivery_date, godown_allocations, transporter_id, lr_number, vehicle_number, remarks, status, user_id }) => {
+export const updateDelivery = async ({ delivery_id, delivery_date, expected_delivery_date, godown_allocations, transporter_id, lr_number, vehicle_number, remarks, status, user_id, group_id }) => {
   const { data: delivery, error: fetchErr } = await supabase
     .from('purchase_deliveries')
-    .select(`status, item_id, indent_id, lifting_number`)
+    .select(`status, item_id, indent_id, lifting_number, group_id`)
     .eq('delivery_id', delivery_id)
     .single();
   if (fetchErr) throw new Error('Delivery not found.');
@@ -955,28 +1079,49 @@ export const updateDelivery = async ({ delivery_id, delivery_date, expected_deli
 
   const { data: item, error: itemErr } = await supabase
     .from('purchase_indent_items')
-    .select(`product_id`)
+    .select(`product_id, group_id, products(group_id, brand_name, category)`)
     .eq('item_id', delivery.item_id)
     .single();
   if (itemErr) throw new Error('Item not found.');
 
+  let resolvedGroupId = group_id || delivery.group_id || item?.group_id || item?.products?.group_id || null;
+  if (!resolvedGroupId && (item?.products?.brand_name || item?.products?.category)) {
+    const combined = `${(item.products.brand_name || '').trim()}${(item.products.category || '').trim()}`.toLowerCase();
+    const { data: grp } = await supabase
+      .from('product_groups')
+      .select('group_id')
+      .ilike('group_name', combined)
+      .maybeSingle();
+    if (grp?.group_id) resolvedGroupId = grp.group_id;
+  }
   const totalQty = godown_allocations.reduce((s, a) => s + Number(a.qty), 0);
+
+  const updateFields = {
+    delivery_date,
+    expected_delivery_date: expected_delivery_date || null,
+    received_quantity: totalQty,
+    transporter_id: transporter_id || null,
+    lr_number: lr_number || null,
+    vehicle_number: vehicle_number || null,
+    remarks: remarks || null,
+    status,
+    status_updated_at: status !== oldStatus ? new Date().toISOString() : undefined,
+  };
+  if (resolvedGroupId) updateFields.group_id = resolvedGroupId;
 
   const { error: updErr } = await supabase
     .from('purchase_deliveries')
-    .update({
-      delivery_date,
-      expected_delivery_date: expected_delivery_date || null,
-      received_quantity: totalQty,
-      transporter_id: transporter_id || null,
-      lr_number: lr_number || null,
-      vehicle_number: vehicle_number || null,
-      remarks: remarks || null,
-      status,
-      status_updated_at: status !== oldStatus ? new Date().toISOString() : undefined,
-    })
+    .update(updateFields)
     .eq('delivery_id', delivery_id);
   if (updErr) throw updErr;
+
+  if (resolvedGroupId && delivery_date) {
+    try {
+      await updateProductGroupPurchaseDates(resolvedGroupId, delivery_date);
+    } catch (err) {
+      console.error('Failed to update product group purchase dates on updateDelivery:', err);
+    }
+  }
 
   const { error: delAllocErr } = await supabase
     .from('purchase_delivery_godowns')
@@ -988,6 +1133,7 @@ export const updateDelivery = async ({ delivery_id, delivery_date, expected_deli
     delivery_id,
     godown_id: a.godown_id,
     qty: Number(a.qty),
+    group_id: resolvedGroupId,
   }));
   const { error: gdErr } = await supabase
     .from('purchase_delivery_godowns')
@@ -1085,9 +1231,19 @@ export const updateDeliveryStatus = async ({ delivery_id, status, user_id, recei
       .eq('delivery_id', delivery_id);
     if (delAllocErr) throw delAllocErr;
 
+    let resolvedGroupId = delivery.group_id;
+    if (!resolvedGroupId) {
+      const { data: itm } = await supabase
+        .from('purchase_indent_items')
+        .select('group_id, products(group_id)')
+        .eq('item_id', delivery.item_id)
+        .maybeSingle();
+      resolvedGroupId = itm?.group_id || itm?.products?.group_id || null;
+    }
+
     const { error: gdInsErr } = await supabase
       .from('purchase_delivery_godowns')
-      .insert([{ delivery_id, godown_id, qty: targetQty }]);
+      .insert([{ delivery_id, godown_id, qty: targetQty, group_id: resolvedGroupId }]);
     if (gdInsErr) throw gdInsErr;
   } else if (received_quantity !== undefined) {
     const { data: godownAllocs, error: gdFetchErr } = await supabase
@@ -1156,10 +1312,13 @@ export const getDeliveriesForItem = async (itemId) => {
     .from('purchase_deliveries')
     .select(`
       *,
+      product_groups:group_id(group_name),
       transporters:transporter_id(name),
       purchase_delivery_godowns(
         godown_id,
         qty,
+        group_id,
+        product_groups:group_id(group_name),
         godowns:godown_id(name)
       )
     `)
@@ -1259,22 +1418,27 @@ export const getAawakDeliveries = async (statusFilter = null) => {
       .from('purchase_deliveries')
       .select(`
         *,
+        product_groups:group_id(group_name),
         transporters:transporter_id(transporter_id, name, vehicle_number, driver_phone_number),
         purchase_indent_items(
           item_id,
           quantity,
           rate,
+          group_id,
           approved_godown_id,
           approved_vendor_id,
-          products:product_id(name, unit, mux),
+          product_groups:group_id(group_name),
+          products:product_id(name, unit, mux, group_id, brand_name, category, product_groups:group_id(group_name)),
           item_vendor:vendor_id(name),
           purchase_indents(
-            indent_id, indent_number, indent_date, process_type
+            indent_id, indent_number, indent_date, process_type, group_id, product_groups:group_id(group_name)
           )
         ),
         purchase_delivery_godowns(
           godown_id,
           qty,
+          group_id,
+          product_groups:group_id(group_name),
           godowns:godown_id(name)
         )
       `)
@@ -1301,16 +1465,17 @@ export const getPurchaseDashboardItems = async () => {
     .from('purchase_indent_items')
     .select(`
       *,
-      products:product_id(name, unit),
+      product_groups:group_id(group_name),
+      products:product_id(name, unit, group_id, brand_name, category, product_groups:group_id(group_name)),
       item_vendor:vendor_id(name),
       purchase_indents!inner(
-        indent_id, indent_date, indent_number, process_type, is_void
+        indent_id, indent_date, indent_number, process_type, is_void, group_id, product_groups:group_id(group_name)
       ),
       purchase_deliveries(
-        delivery_id, lifting_number, delivery_date, status, received_quantity,
+        delivery_id, lifting_number, delivery_date, status, received_quantity, group_id, product_groups:group_id(group_name),
         transporter_id, lr_number, vehicle_number, driver_phone_number,
         transporters:transporter_id(name, vehicle_number, driver_phone_number),
-        purchase_delivery_godowns(godown_id, qty, godowns:godown_id(name))
+        purchase_delivery_godowns(godown_id, qty, group_id, product_groups:group_id(group_name), godowns:godown_id(name))
       )
     `)
     .eq('purchase_indents.is_void', false)
@@ -1326,63 +1491,75 @@ export const getPurchaseDashboardItems = async () => {
       .from('users')
       .select('user_id, full_name')
       .in('user_id', approverIds);
-    approverMap = Object.fromEntries((approvers || []).map(u => [u.user_id, u.full_name]));
+    (approvers || []).forEach(u => {
+      approverMap[u.user_id] = u.full_name;
+    });
   }
 
   // Same reasoning as approved_by above — approved_vendor_id has no FK to
   // vendors, so it can't be embedded via `approved_vendor:approved_vendor_id(name)`.
   // Resolved against the Vendor Master with one lookup query instead.
-  const approvedVendorIds = Array.from(new Set((items || []).map(i => i.approved_vendor_id).filter(Boolean)));
+  const approvedVendorIds = Array.from(
+    new Set((items || []).map(i => i.approved_vendor_id).filter(Boolean)),
+  );
   let approvedVendorMap = {};
   if (approvedVendorIds.length > 0) {
-    const { data: approvedVendors } = await supabase
+    const { data: vendors } = await supabase
       .from('vendors')
       .select('vendor_id, name')
       .in('vendor_id', approvedVendorIds);
-    approvedVendorMap = Object.fromEntries((approvedVendors || []).map(v => [v.vendor_id, v.name]));
+    (vendors || []).forEach(v => {
+      approvedVendorMap[v.vendor_id] = v.name;
+    });
   }
 
   return (items || []).map(item => {
     const indent = item.purchase_indents || {};
     const deliveries = item.purchase_deliveries || [];
-    const receivedGodowns = new Set();
+
     let intransitQty = 0;
     let transporterQty = 0;
     let receivedQty = 0;
+    const receivedGodowns = new Set();
 
     const lifts = deliveries.map(del => {
-      const qty = Number(del.received_quantity || 0);
-      const isReceived = del.status === 'Arrived' || del.status === 'Received';
-      // "AT TPT GDN" isn't still moving — it's parked at a real, trackable
-      // place (the transporter's own linked godown), distinct from genuinely
-      // in-transit qty that has no fixed location yet.
-      const isAtTransporterGodown = del.status === 'In Transport Godown' || del.status === 'AT TPT GDN';
-      if (isReceived) receivedQty += qty;
-      else if (isAtTransporterGodown) transporterQty += qty;
-      else intransitQty += qty;
+      const recQty = Number(del.received_quantity || 0);
+      const isArrived = del.status === 'Arrived' || del.status === 'Received';
+      const isTransporter = del.status === 'In Transport Godown';
+      const isInTransit = del.status === 'In Transit';
+
+      if (isArrived) {
+        receivedQty += recQty;
+        (del.purchase_delivery_godowns || []).forEach(g => {
+          if (g.godowns?.name) receivedGodowns.add(g.godowns.name);
+        });
+      } else if (isTransporter) {
+        transporterQty += recQty;
+      } else if (isInTransit) {
+        intransitQty += recQty;
+      }
 
       const godownName = del.purchase_delivery_godowns?.[0]?.godowns?.name || '—';
-      // Surface the transporter's godown here too, just like a final Received
-      // godown — otherwise this column stays blank for the entire time stock
-      // sits AT TPT GDN, even though it's genuinely sitting somewhere known.
-      if ((isReceived || isAtTransporterGodown) && godownName !== '—') receivedGodowns.add(godownName);
 
       return {
         delivery_id: del.delivery_id,
         lifting_number: del.lifting_number,
         delivery_date: del.delivery_date,
         status: del.status,
+        received_quantity: recQty,
+        group_id: del.group_id,
+        group_name: del.product_groups?.group_name || '—',
         transporter_name: del.transporters?.name || '—',
-        lr_number: del.lr_number,
-        vehicle_number: del.vehicle_number || del.transporters?.vehicle_number,
-        driver_phone_number: del.driver_phone_number || del.transporters?.driver_phone_number,
-        received_quantity: qty,
+        lr_number: del.lr_number || '—',
+        vehicle_number: del.vehicle_number || del.transporters?.vehicle_number || '—',
+        driver_phone_number: del.driver_phone_number || del.transporters?.driver_phone_number || '—',
         godown_name: godownName,
       };
     });
 
     const quantity = Number(item.quantity || 0);
     const rate = Number(item.rate || 0);
+    const groupName = item.product_groups?.group_name || item.products?.product_groups?.group_name || (item.products?.brand_name && item.products?.category ? `${item.products.brand_name} ${item.products.category}`.trim() : null) || '—';
 
     return {
       item_id: item.item_id,
@@ -1391,6 +1568,8 @@ export const getPurchaseDashboardItems = async () => {
       indent_type: indent.process_type === 'direct' ? 'Direct' : 'Process',
       product_name: item.products?.name || '—',
       unit: item.products?.unit || '—',
+      group_id: item.group_id || item.products?.group_id || null,
+      group_name: groupName,
       vendor_name: approvedVendorMap[item.approved_vendor_id] || item.item_vendor?.name || indent.vendors?.name || '—',
       total_qty: quantity,
       rate,
@@ -1508,6 +1687,16 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
   const effectiveGodownId = newStatus === 'In Transport Godown' && transporter_id ? transporter_id : godown_id;
 
   if (effectiveGodownId) {
+    let resolvedGroupId = existing.group_id;
+    if (!resolvedGroupId) {
+      const { data: itemRow } = await supabase
+        .from('purchase_indent_items')
+        .select('group_id, products(group_id)')
+        .eq('item_id', existing.item_id)
+        .maybeSingle();
+      resolvedGroupId = itemRow?.group_id || itemRow?.products?.group_id || null;
+    }
+
     await supabase
       .from('purchase_delivery_godowns')
       .delete()
@@ -1515,7 +1704,7 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
 
     await supabase
       .from('purchase_delivery_godowns')
-      .insert([{ delivery_id, godown_id: effectiveGodownId, qty: data.received_quantity || 0 }]);
+      .insert([{ delivery_id, godown_id: effectiveGodownId, qty: data.received_quantity || 0, group_id: resolvedGroupId }]);
   }
 
   // Keep the real stock ledger in sync: "AT TPT GDN" is a genuine stock-in at

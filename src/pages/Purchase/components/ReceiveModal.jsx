@@ -351,6 +351,7 @@ const ReceiveModal = ({
           delivery_id: editingLift.delivery_id,
           delivery_date: form.delivery_date,
           expected_delivery_date: form.expected_delivery_date || null,
+          group_id: item.group_id || item.products?.group_id || null,
           godown_allocations: [
             { godown_id: form.godown_id, qty: Number(form.received_quantity) },
           ],
@@ -369,6 +370,7 @@ const ReceiveModal = ({
           indent_id: indent.indent_id,
           delivery_date: form.delivery_date,
           expected_delivery_date: form.expected_delivery_date || null,
+          group_id: item.group_id || item.products?.group_id || null,
           godown_allocations: [
             { godown_id: form.godown_id, qty: Number(form.received_quantity) },
           ],
