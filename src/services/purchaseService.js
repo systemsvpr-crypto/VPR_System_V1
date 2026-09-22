@@ -892,7 +892,7 @@ export const updateProductGroupPurchaseDates = async (groupId, deliveryDate) => 
   try {
     const { data: group, error: fetchErr } = await supabase
       .from('product_groups')
-      .select('group_id, last_purchase, second_last_purchase')
+      .select('group_id, last_purchase, second_last_purchase, rank_rates')
       .eq('group_id', groupId)
       .maybeSingle();
 
@@ -937,6 +937,8 @@ export const updateProductGroupPurchaseDates = async (groupId, deliveryDate) => 
             group_id: groupId,
             last_purchase: updates.last_purchase || group.last_purchase,
             second_last_purchase: updates.second_last_purchase || group.second_last_purchase,
+            rank_rates: group.rank_rates || null,
+            updated_at: new Date().toISOString(),
           }]);
       } catch {
         // Ignored if RLS or triggers handle product_group_history

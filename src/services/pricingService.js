@@ -15,9 +15,7 @@ export const getAllPricingGroups = async () => {
           created_by,
           second_last_purchase,
           last_purchase,
-          a_rate,
-          b_rate,
-          c_rate,
+          rank_rates,
           created_by_user:created_by(user_id, full_name, username)
         `)
         .order('group_name', { ascending: true }),
@@ -56,12 +54,12 @@ export const getAllPricingGroups = async () => {
     const items = indentItemsRes?.data || [];
     const historyList = historyRes?.data || [];
 
-    // Map history to get the latest ABC update timestamp per group
+    // Map history to get the latest update timestamp per group
     const groupHistoryMap = new Map();
     for (const h of historyList) {
       if (!h.group_id) continue;
       if (!groupHistoryMap.has(h.group_id)) {
-        groupHistoryMap.set(h.group_id, h.updated_at || h.created_at);
+        groupHistoryMap.set(h.group_id, h.created_at || h.updated_at);
       }
     }
 
@@ -126,21 +124,21 @@ export const getAllPricingGroups = async () => {
 
       // Only show "Rate Changed On" if there is an actual last purchase date
       const rateChangedOn = lastPurchaseDate ? (currentPurchaseDate || lastPurchaseDate) : null;
-      const abcUpdatedOn = groupHistoryMap.get(g.group_id) || (g.a_rate !== null || g.b_rate !== null || g.c_rate !== null ? g.created_at : null);
+      const hasAnyConfiguredRates = Boolean(
+        g.rank_rates &&
+        typeof g.rank_rates === 'object' &&
+        Object.values(g.rank_rates).some(v => v !== null && v !== undefined && String(v).trim() !== '')
+      );
+      const abcUpdatedOn = groupHistoryMap.get(g.group_id) || (hasAnyConfiguredRates ? g.created_at : null);
 
       const hasRateChanged =
         currentPurchaseRate !== null &&
         lastPurchaseRate !== null &&
         Number(currentPurchaseRate) !== Number(lastPurchaseRate);
 
-      const hasAllThreeRates =
-        g.a_rate !== null && g.a_rate !== undefined && g.a_rate !== '' &&
-        g.b_rate !== null && g.b_rate !== undefined && g.b_rate !== '' &&
-        g.c_rate !== null && g.c_rate !== undefined && g.c_rate !== '';
-
       let needsReview = false;
       if (hasRateChanged) {
-        if (!hasAllThreeRates || !abcUpdatedOn) {
+        if (!hasAnyConfiguredRates || !abcUpdatedOn) {
           needsReview = true;
         } else if (rateChangedOn) {
           const rateChangedTime = new Date(rateChangedOn).getTime();
@@ -170,13 +168,11 @@ export const getAllPricingGroups = async () => {
 };
 
 /**
- * Create a new product group with rates
+ * Create a new product group with rank_rates jsonb
  */
 export const createPricingGroup = async ({
   group_name,
-  a_rate,
-  b_rate,
-  c_rate,
+  rank_rates,
   second_last_purchase,
   last_purchase,
   created_by,
@@ -184,9 +180,7 @@ export const createPricingGroup = async ({
   try {
     const payload = {
       group_name: group_name?.trim(),
-      a_rate: a_rate !== '' && a_rate !== null && a_rate !== undefined ? parseFloat(a_rate) : null,
-      b_rate: b_rate !== '' && b_rate !== null && b_rate !== undefined ? parseFloat(b_rate) : null,
-      c_rate: c_rate !== '' && c_rate !== null && c_rate !== undefined ? parseFloat(c_rate) : null,
+      rank_rates: rank_rates || {},
       second_last_purchase: second_last_purchase || null,
       last_purchase: last_purchase || null,
       created_by: created_by || null,
@@ -201,19 +195,20 @@ export const createPricingGroup = async ({
     if (error) throw error;
 
     // Record initial rates in product_group_history
-    if (data?.group_id && (payload.a_rate !== null || payload.b_rate !== null || payload.c_rate !== null)) {
+    if (data?.group_id && payload.rank_rates && Object.keys(payload.rank_rates).length > 0) {
       try {
-        await supabase.from('product_group_history').insert([
+        const { error: histErr } = await supabase.from('product_group_history').insert([
           {
             group_id: data.group_id,
-            a_rate: payload.a_rate,
-            b_rate: payload.b_rate,
-            c_rate: payload.c_rate,
+            rank_rates: payload.rank_rates,
             second_last_purchase: payload.second_last_purchase,
             last_purchase: payload.last_purchase,
             updated_at: new Date().toISOString(),
           },
         ]);
+        if (histErr) {
+          console.warn('Initial product_group_history insert failed:', histErr.message, histErr);
+        }
       } catch (err) {
         console.warn('Initial product_group_history insert note:', err.message);
       }
@@ -233,23 +228,26 @@ export const updatePricingGroup = async (
   group_id,
   {
     group_name,
-    a_rate,
-    b_rate,
-    c_rate,
+    rank_rates,
     second_last_purchase,
     last_purchase,
     updated_by,
   }
 ) => {
   try {
-    const payload = {
-      group_name: group_name?.trim(),
-      a_rate: a_rate !== '' && a_rate !== null && a_rate !== undefined ? parseFloat(a_rate) : null,
-      b_rate: b_rate !== '' && b_rate !== null && b_rate !== undefined ? parseFloat(b_rate) : null,
-      c_rate: c_rate !== '' && c_rate !== null && c_rate !== undefined ? parseFloat(c_rate) : null,
-      second_last_purchase: second_last_purchase || null,
-      last_purchase: last_purchase || null,
-    };
+    const payload = {};
+    if (group_name !== undefined) {
+      payload.group_name = group_name?.trim();
+    }
+    if (rank_rates !== undefined) {
+      payload.rank_rates = rank_rates || {};
+    }
+    if (second_last_purchase !== undefined) {
+      payload.second_last_purchase = second_last_purchase || null;
+    }
+    if (last_purchase !== undefined) {
+      payload.last_purchase = last_purchase || null;
+    }
 
     const { data, error } = await supabase
       .from('product_groups')
@@ -260,19 +258,20 @@ export const updatePricingGroup = async (
 
     if (error) throw error;
 
-    // Log the change in product_group_history
+    // Log the change in product_group_history with foreign key group_id and rank_rates
     try {
-      await supabase.from('product_group_history').insert([
+      const { error: histErr } = await supabase.from('product_group_history').insert([
         {
-          group_id,
-          a_rate: payload.a_rate,
-          b_rate: payload.b_rate,
-          c_rate: payload.c_rate,
-          second_last_purchase: payload.second_last_purchase,
-          last_purchase: payload.last_purchase,
+          group_id: data?.group_id || group_id,
+          rank_rates: data?.rank_rates || payload.rank_rates || {},
+          second_last_purchase: data?.second_last_purchase || null,
+          last_purchase: data?.last_purchase || null,
           updated_at: new Date().toISOString(),
         },
       ]);
+      if (histErr) {
+        console.warn('product_group_history insert failed:', histErr.message, histErr);
+      }
     } catch (historyErr) {
       console.warn('product_group_history insert note:', historyErr.message);
     }
@@ -329,11 +328,9 @@ export const bulkUpdatePricingGroups = async (updates) => {
     if (!updates || updates.length === 0) return [];
 
     const results = await Promise.all(
-      updates.map(async ({ group_id, a_rate, b_rate, c_rate, group_name }) => {
+      updates.map(async ({ group_id, rank_rates, group_name }) => {
         const payload = {
-          a_rate: a_rate !== '' && a_rate !== null && a_rate !== undefined ? parseFloat(a_rate) : null,
-          b_rate: b_rate !== '' && b_rate !== null && b_rate !== undefined ? parseFloat(b_rate) : null,
-          c_rate: c_rate !== '' && c_rate !== null && c_rate !== undefined ? parseFloat(c_rate) : null,
+          rank_rates: rank_rates || {},
         };
         if (group_name?.trim()) {
           payload.group_name = group_name.trim();
@@ -350,17 +347,18 @@ export const bulkUpdatePricingGroups = async (updates) => {
 
         // Log the change in product_group_history
         try {
-          await supabase.from('product_group_history').insert([
+          const { error: histErr } = await supabase.from('product_group_history').insert([
             {
-              group_id,
-              a_rate: payload.a_rate,
-              b_rate: payload.b_rate,
-              c_rate: payload.c_rate,
+              group_id: data?.group_id || group_id,
+              rank_rates: data?.rank_rates || payload.rank_rates,
               second_last_purchase: data?.second_last_purchase || null,
               last_purchase: data?.last_purchase || null,
               updated_at: new Date().toISOString(),
             },
           ]);
+          if (histErr) {
+            console.warn('product_group_history bulk insert failed:', histErr.message, histErr);
+          }
         } catch (historyErr) {
           console.warn('product_group_history insert note:', historyErr.message);
         }
@@ -383,17 +381,7 @@ export const getGroupRateHistory = async (group_id) => {
   try {
     const { data, error } = await supabase
       .from('product_group_history')
-      .select(`
-        id,
-        group_id,
-        a_rate,
-        b_rate,
-        c_rate,
-        second_last_purchase,
-        last_purchase,
-        created_at,
-        updated_at
-      `)
+      .select('*')
       .eq('group_id', group_id)
       .order('created_at', { ascending: false });
 

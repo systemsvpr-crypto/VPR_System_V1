@@ -18,6 +18,7 @@ import {
   bulkDeletePricingGroups,
   updatePricingGroup,
 } from '../../services/pricingService';
+import { getAllRanks } from '../../services/rankService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
@@ -29,6 +30,7 @@ import { TabSwitcher } from '../../components/StandardButtons';
 const Pricing = () => {
   const { user } = useAuthStore();
   const [groups, setGroups] = useState([]);
+  const [ranks, setRanks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'needs_review'
@@ -64,8 +66,15 @@ const Pricing = () => {
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
 
-      const data = await getAllPricingGroups();
-      setGroups(data || []);
+      const [ranksData, groupsData] = await Promise.all([
+        getAllRanks().catch((err) => {
+          console.error('Failed to load ranks:', err);
+          return [];
+        }),
+        getAllPricingGroups(),
+      ]);
+      setRanks(ranksData || []);
+      setGroups(groupsData || []);
     } catch (err) {
       console.error('Failed to load pricing groups:', err);
       toast.error('Failed to load product group pricing data');
@@ -75,7 +84,7 @@ const Pricing = () => {
     }
   };
 
-  // Automatic Pricing Alert: Groups whose purchase rate has changed and need ABC rate review
+  // Automatic Pricing Alert: Groups whose purchase rate has changed and need rank rate review
   const needsReviewGroups = useMemo(() => {
     return groups.filter((g) => {
       // 1. Purchase rate has changed: both last_purchase_rate and current_purchase_rate must exist and differ
@@ -88,13 +97,17 @@ const Pricing = () => {
 
       if (!hasRateChanged) return false;
 
-      // 2. Once the pricing person updates and saves all three A, B, and C rates, the alert disappears
-      const hasAllThreeRates =
-        g.a_rate !== null && g.a_rate !== undefined && g.a_rate !== '' &&
-        g.b_rate !== null && g.b_rate !== undefined && g.b_rate !== '' &&
-        g.c_rate !== null && g.c_rate !== undefined && g.c_rate !== '';
+      // 2. Once the pricing person updates and saves all active rank rates, the alert disappears
+      const hasAllRankRates = ranks.length > 0 && ranks.every((r) => {
+        const val = g.rank_rates?.[r.rank_name] ?? (
+          r.rank_name === 'A' ? g.a_rate :
+            r.rank_name === 'B' ? g.b_rate :
+              r.rank_name === 'C' ? g.c_rate : null
+        );
+        return val !== null && val !== undefined && String(val).trim() !== '';
+      });
 
-      if (!hasAllThreeRates || !g.abc_updated_on) return true;
+      if (!hasAllRankRates || !g.abc_updated_on) return true;
 
       if (g.rate_changed_on) {
         const rateChangedTime = new Date(g.rate_changed_on).getTime();
@@ -104,7 +117,7 @@ const Pricing = () => {
 
       return false;
     });
-  }, [groups]);
+  }, [groups, ranks]);
 
   // Filtered groups based on activeTab ('all' or 'needs_review')
   const displayedGroups = useMemo(() => {
@@ -114,21 +127,42 @@ const Pricing = () => {
       if (!matchesSearch) return false;
 
       if (activeTab === 'all') {
-        const hasAnyRate = g.a_rate !== null || g.b_rate !== null || g.c_rate !== null;
+        const hasAnyRate = ranks.length > 0
+          ? ranks.some((r) => {
+            const val = g.rank_rates?.[r.rank_name] ?? (
+              r.rank_name === 'A' ? g.a_rate :
+                r.rank_name === 'B' ? g.b_rate :
+                  r.rank_name === 'C' ? g.c_rate : null
+            );
+            return val !== null && val !== undefined && String(val).trim() !== '';
+          })
+          : Boolean(g.rank_rates && Object.values(g.rank_rates).some(v => v !== null && v !== undefined && String(v).trim() !== ''));
+
         if (rateFilter === 'configured') return hasAnyRate;
         if (rateFilter === 'missing') return !hasAnyRate;
       }
       return true;
     });
-  }, [groups, needsReviewGroups, activeTab, searchTerm, rateFilter]);
+  }, [groups, needsReviewGroups, activeTab, searchTerm, rateFilter, ranks]);
 
   // Counts for filters
   const counts = useMemo(() => {
     const total = groups.length;
-    const configured = groups.filter((g) => g.a_rate !== null || g.b_rate !== null || g.c_rate !== null).length;
+    const configured = groups.filter((g) => {
+      return ranks.length > 0
+        ? ranks.some((r) => {
+          const val = g.rank_rates?.[r.rank_name] ?? (
+            r.rank_name === 'A' ? g.a_rate :
+              r.rank_name === 'B' ? g.b_rate :
+                r.rank_name === 'C' ? g.c_rate : null
+          );
+          return val !== null && val !== undefined && String(val).trim() !== '';
+        })
+        : Boolean(g.rank_rates && Object.values(g.rank_rates).some(v => v !== null && v !== undefined && String(v).trim() !== ''));
+    }).length;
     const missing = total - configured;
     return { total, configured, missing, needsReview: needsReviewGroups.length };
-  }, [groups, needsReviewGroups]);
+  }, [groups, needsReviewGroups, ranks]);
 
   // Paginated slice for current active tab
   const paginatedGroups = useMemo(() => {
@@ -149,13 +183,18 @@ const Pricing = () => {
         // Initialize editedRates for this group if not set
         const g = groups.find((item) => item.group_id === groupId);
         if (g && !editedRates[groupId]) {
+          const initialRates = {};
+          ranks.forEach((r) => {
+            const val = g.rank_rates?.[r.rank_name] ?? (
+              r.rank_name === 'A' ? g.a_rate :
+                r.rank_name === 'B' ? g.b_rate :
+                  r.rank_name === 'C' ? g.c_rate : ''
+            );
+            initialRates[r.rank_name] = val !== null && val !== undefined ? String(val) : '';
+          });
           setEditedRates((r) => ({
             ...r,
-            [groupId]: {
-              a_rate: g.a_rate !== null && g.a_rate !== undefined ? g.a_rate : '',
-              b_rate: g.b_rate !== null && g.b_rate !== undefined ? g.b_rate : '',
-              c_rate: g.c_rate !== null && g.c_rate !== undefined ? g.c_rate : '',
-            },
+            [groupId]: initialRates,
           }));
         }
       }
@@ -183,11 +222,16 @@ const Pricing = () => {
       const next = { ...prev };
       targetList.forEach((g) => {
         if (!next[g.group_id]) {
-          next[g.group_id] = {
-            a_rate: g.a_rate !== null && g.a_rate !== undefined ? g.a_rate : '',
-            b_rate: g.b_rate !== null && g.b_rate !== undefined ? g.b_rate : '',
-            c_rate: g.c_rate !== null && g.c_rate !== undefined ? g.c_rate : '',
-          };
+          const initialRates = {};
+          ranks.forEach((r) => {
+            const val = g.rank_rates?.[r.rank_name] ?? (
+              r.rank_name === 'A' ? g.a_rate :
+                r.rank_name === 'B' ? g.b_rate :
+                  r.rank_name === 'C' ? g.c_rate : ''
+            );
+            initialRates[r.rank_name] = val !== null && val !== undefined ? String(val) : '';
+          });
+          next[g.group_id] = initialRates;
         }
       });
       return next;
@@ -223,24 +267,20 @@ const Pricing = () => {
       const rates = editedRates[gid];
       if (!rates) continue;
 
-      if (rates.a_rate !== '' && (isNaN(rates.a_rate) || Number(rates.a_rate) < 0)) {
-        toast.error('Rate A must be a valid positive number');
-        return;
-      }
-      if (rates.b_rate !== '' && (isNaN(rates.b_rate) || Number(rates.b_rate) < 0)) {
-        toast.error('Rate B must be a valid positive number');
-        return;
-      }
-      if (rates.c_rate !== '' && (isNaN(rates.c_rate) || Number(rates.c_rate) < 0)) {
-        toast.error('Rate C must be a valid positive number');
-        return;
+      const cleanedRankRates = {};
+      for (const [rankName, val] of Object.entries(rates)) {
+        if (val !== '' && val !== null && val !== undefined) {
+          if (isNaN(val) || Number(val) < 0) {
+            toast.error(`Rate for Rank ${rankName} must be a valid positive number`);
+            return;
+          }
+          cleanedRankRates[rankName] = String(val).trim();
+        }
       }
 
       updates.push({
         group_id: gid,
-        a_rate: rates.a_rate,
-        b_rate: rates.b_rate,
-        c_rate: rates.c_rate,
+        rank_rates: cleanedRankRates,
       });
     }
 
@@ -262,9 +302,7 @@ const Pricing = () => {
           if (!u) return g;
           return {
             ...g,
-            a_rate: u.a_rate !== '' ? parseFloat(u.a_rate) : null,
-            b_rate: u.b_rate !== '' ? parseFloat(u.b_rate) : null,
-            c_rate: u.c_rate !== '' ? parseFloat(u.c_rate) : null,
+            rank_rates: u.rank_rates,
             abc_updated_on: nowIso,
           };
         })
@@ -286,22 +324,20 @@ const Pricing = () => {
     const rates = editedRates[groupId];
     if (!rates) return;
 
-    if (rates.a_rate !== '' && (isNaN(rates.a_rate) || Number(rates.a_rate) < 0)) {
-      toast.error('Rate A must be a valid positive number');
-      return;
-    }
-    if (rates.b_rate !== '' && (isNaN(rates.b_rate) || Number(rates.b_rate) < 0)) {
-      toast.error('Rate B must be a valid positive number');
-      return;
-    }
-    if (rates.c_rate !== '' && (isNaN(rates.c_rate) || Number(rates.c_rate) < 0)) {
-      toast.error('Rate C must be a valid positive number');
-      return;
+    const cleanedRankRates = {};
+    for (const [rankName, val] of Object.entries(rates)) {
+      if (val !== '' && val !== null && val !== undefined) {
+        if (isNaN(val) || Number(val) < 0) {
+          toast.error(`Rate for Rank ${rankName} must be a valid positive number`);
+          return;
+        }
+        cleanedRankRates[rankName] = String(val).trim();
+      }
     }
 
     try {
       await updatePricingGroup(groupId, {
-        ...rates,
+        rank_rates: cleanedRankRates,
         updated_by: user?.user_id,
       });
       toast.success('Rates updated successfully!');
@@ -311,9 +347,7 @@ const Pricing = () => {
           g.group_id === groupId
             ? {
               ...g,
-              a_rate: rates.a_rate !== '' ? parseFloat(rates.a_rate) : null,
-              b_rate: rates.b_rate !== '' ? parseFloat(rates.b_rate) : null,
-              c_rate: rates.c_rate !== '' ? parseFloat(rates.c_rate) : null,
+              rank_rates: cleanedRankRates,
               abc_updated_on: new Date().toISOString(),
             }
             : g
@@ -536,6 +570,7 @@ const Pricing = () => {
               ? 'All product purchase rate changes have been reviewed and saved.'
               : undefined
           }
+          ranks={ranks}
         />
       </div>
 
@@ -549,6 +584,7 @@ const Pricing = () => {
         editingGroup={editingGroup}
         onSuccess={() => loadGroups()}
         user={user}
+        ranks={ranks}
       />
 
       {/* Rate History Modal */}
@@ -559,6 +595,7 @@ const Pricing = () => {
           setHistoryGroup(null);
         }}
         group={historyGroup}
+        ranks={ranks}
       />
 
       {/* Single Delete Confirmation Modal */}

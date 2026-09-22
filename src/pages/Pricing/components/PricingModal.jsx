@@ -8,14 +8,24 @@ import { Button } from '@/components/ui/button';
 
 const INITIAL_FORM_STATE = {
   group_name: '',
-  a_rate: '',
-  b_rate: '',
-  c_rate: '',
   second_last_purchase: '',
   last_purchase: '',
+  rank_rates: {},
 };
 
-const PricingModal = ({ isOpen, onClose, editingGroup, onSuccess, user }) => {
+const toDateInputValue = (str) => {
+  if (!str) return '';
+  const s = String(str).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
+  if (/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/.test(s)) {
+    const [, d, m, y] = s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
+    return `${y}-${m}-${d}`;
+  }
+  return s;
+};
+
+const PricingModal = ({ isOpen, onClose, editingGroup, onSuccess, user, ranks = [] }) => {
   const [formData, setFormData] = useState(INITIAL_FORM_STATE);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
@@ -24,21 +34,34 @@ const PricingModal = ({ isOpen, onClose, editingGroup, onSuccess, user }) => {
 
   useEffect(() => {
     if (isOpen) {
+      const initialRankRates = {};
+      (ranks || []).forEach((r) => {
+        const existing = editingGroup?.rank_rates?.[r.rank_name] ?? (
+          r.rank_name === 'A' ? editingGroup?.a_rate :
+          r.rank_name === 'B' ? editingGroup?.b_rate :
+          r.rank_name === 'C' ? editingGroup?.c_rate : ''
+        );
+        initialRankRates[r.rank_name] = existing !== null && existing !== undefined ? String(existing) : '';
+      });
+
       if (editingGroup) {
         setFormData({
           group_name: editingGroup.group_name || '',
-          a_rate: editingGroup.a_rate !== null && editingGroup.a_rate !== undefined ? editingGroup.a_rate : '',
-          b_rate: editingGroup.b_rate !== null && editingGroup.b_rate !== undefined ? editingGroup.b_rate : '',
-          c_rate: editingGroup.c_rate !== null && editingGroup.c_rate !== undefined ? editingGroup.c_rate : '',
-          second_last_purchase: editingGroup.second_last_purchase || '',
-          last_purchase: editingGroup.last_purchase || '',
+          second_last_purchase: toDateInputValue(editingGroup.second_last_purchase),
+          last_purchase: toDateInputValue(editingGroup.last_purchase),
+          rank_rates: initialRankRates,
         });
       } else {
-        setFormData(INITIAL_FORM_STATE);
+        setFormData({
+          group_name: '',
+          second_last_purchase: '',
+          last_purchase: '',
+          rank_rates: initialRankRates,
+        });
       }
       setErrors({});
     }
-  }, [isOpen, editingGroup]);
+  }, [isOpen, editingGroup, ranks]);
 
   const validate = () => {
     const newErrors = {};
@@ -46,15 +69,14 @@ const PricingModal = ({ isOpen, onClose, editingGroup, onSuccess, user }) => {
       newErrors.group_name = 'Group Name is required';
     }
 
-    if (formData.a_rate !== '' && (isNaN(formData.a_rate) || Number(formData.a_rate) < 0)) {
-      newErrors.a_rate = 'Rate A must be a valid positive number';
-    }
-    if (formData.b_rate !== '' && (isNaN(formData.b_rate) || Number(formData.b_rate) < 0)) {
-      newErrors.b_rate = 'Rate B must be a valid positive number';
-    }
-    if (formData.c_rate !== '' && (isNaN(formData.c_rate) || Number(formData.c_rate) < 0)) {
-      newErrors.c_rate = 'Rate C must be a valid positive number';
-    }
+    (ranks || []).forEach((r) => {
+      const val = formData.rank_rates?.[r.rank_name];
+      if (val !== undefined && val !== null && String(val).trim() !== '') {
+        if (isNaN(val) || Number(val) < 0) {
+          newErrors[r.rank_name] = `Rate for ${r.rank_name} must be a valid positive number`;
+        }
+      }
+    });
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -66,15 +88,29 @@ const PricingModal = ({ isOpen, onClose, editingGroup, onSuccess, user }) => {
 
     setSubmitting(true);
     try {
+      const cleanedRankRates = {};
+      for (const [key, val] of Object.entries(formData.rank_rates || {})) {
+        if (val !== '' && val !== null && val !== undefined) {
+          cleanedRankRates[key] = String(val).trim();
+        }
+      }
+
+      const payload = {
+        group_name: formData.group_name,
+        second_last_purchase: formData.second_last_purchase || null,
+        last_purchase: formData.last_purchase || null,
+        rank_rates: cleanedRankRates,
+      };
+
       if (isEditing) {
         await updatePricingGroup(editingGroup.group_id, {
-          ...formData,
+          ...payload,
           updated_by: user?.user_id,
         });
         toast.success(`Pricing for "${formData.group_name}" updated successfully!`);
       } else {
         await createPricingGroup({
-          ...formData,
+          ...payload,
           created_by: user?.user_id,
         });
         toast.success(`Product group "${formData.group_name}" created successfully!`);
@@ -102,7 +138,7 @@ const PricingModal = ({ isOpen, onClose, editingGroup, onSuccess, user }) => {
                 {isEditing ? 'Edit Group Rates & Pricing' : 'Add New Product Group'}
               </ModalTitle>
               <p className="text-xs text-slate-500">
-                {isEditing ? 'Update group name, tier rates (A, B, C) and purchase dates' : 'Create a new group and assign base tier rates'}
+                {isEditing ? 'Update group name, rank rates and purchase dates' : 'Create a new group and assign rank rates'}
               </p>
               <ModalDescription className="sr-only">
                 Modal for managing product group pricing and rates
@@ -137,71 +173,44 @@ const PricingModal = ({ isOpen, onClose, editingGroup, onSuccess, user }) => {
               <div className="flex items-center gap-1.5 mb-3">
                 <IndianRupee size={15} className="text-primary font-bold" />
                 <h4 className="text-xs font-semibold text-slate-800 uppercase tracking-wider">
-                  Tier Rates (₹)
+                  Rank Rates (₹)
                 </h4>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {/* Rate A */}
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                    Rate A (₹)
-                  </label>
-                  <Input
-                    type="text"
-                    value={formData.a_rate}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                        setFormData((prev) => ({ ...prev, a_rate: val }));
-                      }
-                    }}
-                    placeholder="0.00"
-                    className={`text-xs h-9 bg-white ${errors.a_rate ? 'border-red-500' : ''}`}
-                  />
-                  {errors.a_rate && <p className="text-[10px] text-red-500 mt-0.5">{errors.a_rate}</p>}
+              {ranks && ranks.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {ranks.map((r) => (
+                    <div key={r.rank_id || r.rank_name}>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        {r.rank_name} Rank Rate (₹)
+                      </label>
+                      <Input
+                        type="text"
+                        value={formData.rank_rates?.[r.rank_name] || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                            setFormData((prev) => ({
+                              ...prev,
+                              rank_rates: {
+                                ...(prev.rank_rates || {}),
+                                [r.rank_name]: val,
+                              },
+                            }));
+                          }
+                        }}
+                        placeholder="0.00"
+                        className={`text-xs h-9 bg-white ${errors[r.rank_name] ? 'border-red-500' : ''}`}
+                      />
+                      {errors[r.rank_name] && (
+                        <p className="text-[10px] text-red-500 mt-0.5">{errors[r.rank_name]}</p>
+                      )}
+                    </div>
+                  ))}
                 </div>
-
-                {/* Rate B */}
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                    Rate B (₹)
-                  </label>
-                  <Input
-                    type="text"
-                    value={formData.b_rate}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                        setFormData((prev) => ({ ...prev, b_rate: val }));
-                      }
-                    }}
-                    placeholder="0.00"
-                    className={`text-xs h-9 bg-white ${errors.b_rate ? 'border-red-500' : ''}`}
-                  />
-                  {errors.b_rate && <p className="text-[10px] text-red-500 mt-0.5">{errors.b_rate}</p>}
-                </div>
-
-                {/* Rate C */}
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                    Rate C (₹)
-                  </label>
-                  <Input
-                    type="text"
-                    value={formData.c_rate}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                        setFormData((prev) => ({ ...prev, c_rate: val }));
-                      }
-                    }}
-                    placeholder="0.00"
-                    className={`text-xs h-9 bg-white ${errors.c_rate ? 'border-red-500' : ''}`}
-                  />
-                  {errors.c_rate && <p className="text-[10px] text-red-500 mt-0.5">{errors.c_rate}</p>}
-                </div>
-              </div>
+              ) : (
+                <p className="text-xs text-slate-400">No ranks defined in the ranks table.</p>
+              )}
             </div>
 
             {/* Purchase Dates */}

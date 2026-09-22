@@ -1159,16 +1159,23 @@ export const getCustomerDashboardData = async (signal) => {
       order_id,
       order_number,
       order_date,
+      customer_id,
       created_by,
       is_void,
       users:created_by(full_name),
-      customers:customer_id(name),
+      customers:customer_id(customer_id, name, rank_id, ranks:rank_id(rank_id, rank_name)),
       sales_order_items(
         item_id,
         quantity,
         cancelled_quantity,
         unit_price,
-        products:product_id(product_id, name, unit),
+        products:product_id(
+          product_id,
+          name,
+          unit,
+          group_id,
+          product_groups:group_id(group_id, group_name, rank_rates)
+        ),
         dispatch_plans(
           plan_id,
           quantity,
@@ -1186,13 +1193,19 @@ export const getCustomerDashboardData = async (signal) => {
   for (const order of data || []) {
     const orderNo = order.order_number || '—';
     const orderDate = order.order_date ? String(order.order_date).split('T')[0] : '—';
+    const customerId = order.customer_id || order.customers?.customer_id || null;
     const customerName = order.customers?.name || 'Unassigned Customer';
+    const customerRank = order.customers?.ranks?.rank_name || null;
     const createdBy = order.users?.full_name || 'Admin';
 
     for (const item of order.sales_order_items || []) {
-      const productId = item.products?.product_id || item.product_id;
-      const productName = item.products?.name || 'Unassigned Product';
-      const unit = item.products?.unit || 'Kg';
+      const prod = item.products;
+      const productId = prod?.product_id || item.product_id;
+      const productName = prod?.name || 'Unassigned Product';
+      const unit = prod?.unit || 'Kg';
+      const groupId = prod?.group_id || prod?.product_groups?.group_id || null;
+      const groupName = prod?.product_groups?.group_name || null;
+      const rankRates = prod?.product_groups?.rank_rates || null;
       const totalQty = Number(item.quantity || 0);
       const cancelledQty = Number(item.cancelled_quantity || 0);
       const netQty = Math.max(0, totalQty - cancelledQty);
@@ -1225,9 +1238,15 @@ export const getCustomerDashboardData = async (signal) => {
         orderId: order.order_id,
         orderNo,
         orderDate,
+        customerId,
         customerName,
+        customerRank,
         productName,
         unit,
+        groupId,
+        groupName,
+        rankRates,
+        product: prod || null,
         totalQty,
         netQty,
         createdBy,

@@ -15,14 +15,61 @@ const formatRate = (rate) => {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '—';
-  if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+  if (typeof dateStr !== 'string') dateStr = String(dateStr);
+  dateStr = dateStr.trim();
+  if (!dateStr) return '—';
+
+  // Already in dd/mm/yyyy or dd-mm-yyyy format
+  if (/^\d{2}[\/-]\d{2}[\/-]\d{4}$/.test(dateStr)) {
+    return dateStr.replace(/-/g, '/');
+  }
+  // In yyyy-mm-dd format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     const [y, m, d] = dateStr.split('-');
     return `${d}/${m}/${y}`;
   }
   try {
-    return format(new Date(dateStr), 'dd/MM/yyyy');
+    let s = dateStr;
+    if (!s.includes('Z') && !s.includes('+') && !/-\d{2}(:\d{2})?$/.test(s)) {
+      s = s.replace(' ', 'T') + 'Z';
+    }
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      return new Intl.DateTimeFormat('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }).format(parsed);
+    }
   } catch {
-    return dateStr;
+    // fallback
+  }
+  return dateStr;
+};
+
+const formatISTDateTime = (dateStr) => {
+  if (!dateStr) return null;
+  try {
+    let s = typeof dateStr === 'string' ? dateStr.trim() : String(dateStr);
+    if (!s) return null;
+    if (!s.includes('Z') && !s.includes('+') && !/-\d{2}(:\d{2})?$/.test(s)) {
+      s = s.replace(' ', 'T') + 'Z';
+    }
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return null;
+    const formatted = new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    }).format(d).replace(/\b(am|pm)\b/i, (m) => m.toUpperCase());
+    return `${formatted} IST`;
+  } catch {
+    return null;
   }
 };
 
@@ -37,6 +84,7 @@ const PricingTableRow = ({
   onRateChange,
   onSaveSingleRow,
   onViewHistory,
+  ranks = [],
 }) => {
   return (
     <tr
@@ -99,98 +147,63 @@ const PricingTableRow = ({
         )}
       </td>
 
-      {/* 5. A Rate */}
-      <td className="px-3 py-2 text-center" onClick={(e) => isSelected && e.stopPropagation()}>
-        {isSelected ? (
-          <div className="relative w-36 sm:w-40 mx-auto">
-            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none font-semibold">₹</span>
-            <Input
-              type="text"
-              value={rowRates.a_rate}
-              onChange={(e) => onRateChange(g.group_id, 'a_rate', e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onSaveSingleRow?.(g.group_id);
-              }}
-              placeholder="0.00"
-              className="h-8 pl-6 pr-2 text-xs font-semibold text-center bg-white border-emerald-300 focus:border-emerald-600 shadow-2xs"
-            />
-          </div>
-        ) : (
-          g.a_rate !== null && g.a_rate !== undefined ? (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              {formatRate(g.a_rate)}
-            </span>
-          ) : (
-            <span className="text-slate-300 text-xs">—</span>
-          )
-        )}
-      </td>
+      {/* Dynamic Rank Rate Columns */}
+      {ranks.map((r) => {
+        const rankName = r.rank_name;
+        const rateVal = rowRates?.[rankName] ?? '';
+        const savedRate = g.rank_rates?.[rankName] ?? (
+          rankName === 'A' ? g.a_rate :
+          rankName === 'B' ? g.b_rate :
+          rankName === 'C' ? g.c_rate : null
+        );
 
-      {/* 6. B Rate */}
-      <td className="px-3 py-2 text-center" onClick={(e) => isSelected && e.stopPropagation()}>
-        {isSelected ? (
-          <div className="relative w-36 sm:w-40 mx-auto">
-            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none font-semibold">₹</span>
-            <Input
-              type="text"
-              value={rowRates.b_rate}
-              onChange={(e) => onRateChange(g.group_id, 'b_rate', e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onSaveSingleRow?.(g.group_id);
-              }}
-              placeholder="0.00"
-              className="h-8 pl-6 pr-2 text-xs font-semibold text-center bg-white border-blue-300 focus:border-blue-600 shadow-2xs"
-            />
-          </div>
-        ) : (
-          g.b_rate !== null && g.b_rate !== undefined ? (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-              {formatRate(g.b_rate)}
-            </span>
-          ) : (
-            <span className="text-slate-300 text-xs">—</span>
-          )
-        )}
-      </td>
+        return (
+          <td
+            key={r.rank_id || rankName}
+            className="px-3 py-2 text-center"
+            onClick={(e) => isSelected && e.stopPropagation()}
+          >
+            {isSelected ? (
+              <div className="relative w-32 sm:w-36 mx-auto">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none font-semibold">₹</span>
+                <Input
+                  type="text"
+                  value={rateVal}
+                  onChange={(e) => onRateChange(g.group_id, rankName, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') onSaveSingleRow?.(g.group_id);
+                  }}
+                  placeholder="0.00"
+                  className="h-8 pl-6 pr-2 text-xs font-semibold text-center bg-white border-primary/40 focus:border-primary shadow-2xs"
+                />
+              </div>
+            ) : (
+              savedRate !== null && savedRate !== undefined && String(savedRate).trim() !== '' ? (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  {formatRate(savedRate)}
+                </span>
+              ) : (
+                <span className="text-slate-300 text-xs">—</span>
+              )
+            )}
+          </td>
+        );
+      })}
 
-      {/* 7. C Rate */}
-      <td className="px-3 py-2 text-center" onClick={(e) => isSelected && e.stopPropagation()}>
-        {isSelected ? (
-          <div className="relative w-36 sm:w-40 mx-auto">
-            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none font-semibold">₹</span>
-            <Input
-              type="text"
-              value={rowRates.c_rate}
-              onChange={(e) => onRateChange(g.group_id, 'c_rate', e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onSaveSingleRow?.(g.group_id);
-              }}
-              placeholder="0.00"
-              className="h-8 pl-6 pr-2 text-xs font-semibold text-center bg-white border-purple-300 focus:border-purple-600 shadow-2xs"
-            />
-          </div>
-        ) : (
-          g.c_rate !== null && g.c_rate !== undefined ? (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">
-              {formatRate(g.c_rate)}
-            </span>
-          ) : (
-            <span className="text-slate-300 text-xs">—</span>
-          )
-        )}
-      </td>
-
-      {/* 8. Rate Changed On */}
+      {/* Rate Changed On */}
       <td className="px-4 py-3 text-center text-slate-600 text-xs font-medium">
         {g.rate_changed_on ? formatDate(g.rate_changed_on) : '—'}
       </td>
 
-      {/* 9. ABC Updated On */}
-      <td className="px-4 py-3 text-center text-slate-600 text-xs font-medium">
+      {/* Rates Updated On */}
+      <td
+        className="px-4 py-3 text-center text-slate-600 text-xs font-medium"
+        title={g.abc_updated_on ? formatISTDateTime(g.abc_updated_on) : undefined}
+      >
         {formatDate(g.abc_updated_on)}
       </td>
 
-      {/* 10. History Column (Last of Table) */}
+      {/* History Column */}
       <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
         <Button
           variant="ghost"
@@ -217,6 +230,7 @@ const PricingCardRow = ({
   rowRates,
   onRateChange,
   onViewHistory,
+  ranks = [],
 }) => {
   return (
     <div
@@ -251,52 +265,37 @@ const PricingCardRow = ({
 
       {/* Rates Section */}
       {isSelected ? (
-        <div className="grid grid-cols-3 gap-2">
-          <div>
-            <label className="text-[10px] font-semibold text-emerald-700 block uppercase mb-1">A Rate (₹)</label>
-            <Input
-              type="text"
-              value={rowRates.a_rate}
-              onChange={(e) => onRateChange(g.group_id, 'a_rate', e.target.value)}
-              placeholder="0.00"
-              className="h-8 text-xs font-semibold bg-white border-emerald-300"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-semibold text-blue-700 block uppercase mb-1">B Rate (₹)</label>
-            <Input
-              type="text"
-              value={rowRates.b_rate}
-              onChange={(e) => onRateChange(g.group_id, 'b_rate', e.target.value)}
-              placeholder="0.00"
-              className="h-8 text-xs font-semibold bg-white border-blue-300"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-semibold text-purple-700 block uppercase mb-1">C Rate (₹)</label>
-            <Input
-              type="text"
-              value={rowRates.c_rate}
-              onChange={(e) => onRateChange(g.group_id, 'c_rate', e.target.value)}
-              placeholder="0.00"
-              className="h-8 text-xs font-semibold bg-white border-purple-300"
-            />
-          </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {ranks.map((r) => (
+            <div key={r.rank_id || r.rank_name}>
+              <label className="text-[10px] font-semibold text-slate-700 block uppercase mb-1">
+                {r.rank_name} Rate (₹)
+              </label>
+              <Input
+                type="text"
+                value={rowRates?.[r.rank_name] ?? ''}
+                onChange={(e) => onRateChange(g.group_id, r.rank_name, e.target.value)}
+                placeholder="0.00"
+                className="h-8 text-xs font-semibold bg-white border-slate-300"
+              />
+            </div>
+          ))}
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="p-2 bg-emerald-50/60 rounded-lg border border-emerald-100">
-            <span className="text-[10px] text-emerald-600 font-semibold block uppercase">A Rate</span>
-            <span className="font-bold text-emerald-800">{formatRate(g.a_rate)}</span>
-          </div>
-          <div className="p-2 bg-blue-50/60 rounded-lg border border-blue-100">
-            <span className="text-[10px] text-blue-600 font-semibold block uppercase">B Rate</span>
-            <span className="font-bold text-blue-800">{formatRate(g.b_rate)}</span>
-          </div>
-          <div className="p-2 bg-purple-50/60 rounded-lg border border-purple-100">
-            <span className="text-[10px] text-purple-600 font-semibold block uppercase">C Rate</span>
-            <span className="font-bold text-purple-800">{formatRate(g.c_rate)}</span>
-          </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center text-xs">
+          {ranks.map((r) => {
+            const savedRate = g.rank_rates?.[r.rank_name] ?? (
+              r.rank_name === 'A' ? g.a_rate :
+              r.rank_name === 'B' ? g.b_rate :
+              r.rank_name === 'C' ? g.c_rate : null
+            );
+            return (
+              <div key={r.rank_id || r.rank_name} className="p-2 bg-slate-50 rounded-lg border border-slate-100">
+                <span className="text-[10px] text-slate-500 font-semibold block uppercase">{r.rank_name} Rate</span>
+                <span className="font-bold text-slate-800">{formatRate(savedRate)}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -304,7 +303,9 @@ const PricingCardRow = ({
       <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1.5 border-t border-slate-100">
         <div className="flex flex-col gap-0.5">
           <span>Rate Changed: <strong>{g.rate_changed_on ? formatDate(g.rate_changed_on) : '—'}</strong></span>
-          <span>ABC Updated: <strong>{formatDate(g.abc_updated_on)}</strong></span>
+          <span title={g.abc_updated_on ? formatISTDateTime(g.abc_updated_on) : undefined}>
+            Rates Updated: <strong>{formatDate(g.abc_updated_on)}</strong>
+          </span>
         </div>
         <Button
           variant="outline"
@@ -344,23 +345,29 @@ const PricingTable = ({
   hidePagination = false,
   emptyTitle,
   emptyMessage,
+  ranks = [],
 }) => {
   // Map groups to new row objects containing _isSelected and _rowRates for fast memoized rendering
   const rows = useMemo(() => {
     return groups.map((g) => {
       const isSelected = selectedGroupIds?.has(g.group_id) || false;
-      const rates = editedRates?.[g.group_id] || {
-        a_rate: g.a_rate !== null && g.a_rate !== undefined ? g.a_rate : '',
-        b_rate: g.b_rate !== null && g.b_rate !== undefined ? g.b_rate : '',
-        c_rate: g.c_rate !== null && g.c_rate !== undefined ? g.c_rate : '',
-      };
+      const defaultRates = {};
+      (ranks || []).forEach((r) => {
+        const val = g.rank_rates?.[r.rank_name] ?? (
+          r.rank_name === 'A' ? g.a_rate :
+          r.rank_name === 'B' ? g.b_rate :
+          r.rank_name === 'C' ? g.c_rate : ''
+        );
+        defaultRates[r.rank_name] = val !== null && val !== undefined ? String(val) : '';
+      });
+      const rates = editedRates?.[g.group_id] || defaultRates;
       return {
         ...g,
         _isSelected: isSelected,
         _rowRates: rates,
       };
     });
-  }, [groups, selectedGroupIds, editedRates]);
+  }, [groups, selectedGroupIds, editedRates, ranks]);
 
   const allPageSelected = groups.length > 0 && groups.every((g) => selectedGroupIds?.has(g.group_id));
   const somePageSelected = groups.some((g) => selectedGroupIds?.has(g.group_id));
@@ -386,7 +393,7 @@ const PricingTable = ({
         <p className="text-xs text-slate-400 max-w-sm mx-auto">
           {emptyMessage || (searchTerm
             ? 'No product groups match your search criteria. Try a different search keyword.'
-            : 'Get started by creating your first product group and defining its tier rates (A, B, C).')}
+            : 'Get started by creating your first product group and defining its rank rates.')}
         </p>
       </div>
     );
@@ -413,20 +420,12 @@ const PricingTable = ({
     'Product Name',
     'Last Purchase Rate',
     'Current Purchase Rate',
-    {
-      label: 'A Rate',
-      className: 'min-w-[170px] text-center',
-    },
-    {
-      label: 'B Rate',
-      className: 'min-w-[170px] text-center',
-    },
-    {
-      label: 'C Rate',
-      className: 'min-w-[170px] text-center',
-    },
+    ...(ranks || []).map((r) => ({
+      label: `${r.rank_name} Rate`,
+      className: 'min-w-[140px] text-center',
+    })),
     'Rate Changed On',
-    'ABC Updated On',
+    'Rates Updated On',
     {
       label: 'History',
       className: 'w-20 text-center',
@@ -455,6 +454,7 @@ const PricingTable = ({
           onRateChange={onRateChange}
           onSaveSingleRow={onSaveSingleRow}
           onViewHistory={onViewHistory}
+          ranks={ranks}
         />
       )}
       renderCard={(g) => (
@@ -466,6 +466,7 @@ const PricingTable = ({
           rowRates={g._rowRates}
           onRateChange={onRateChange}
           onViewHistory={onViewHistory}
+          ranks={ranks}
         />
       )}
     />

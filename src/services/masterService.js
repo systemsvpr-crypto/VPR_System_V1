@@ -42,7 +42,7 @@ export const getAllProducts = async () => {
   try {
     const [products, groupsRes] = await Promise.all([
       fetchAllRows(() => supabase.from('products').select('*').order('name', { ascending: true })),
-      supabase.from('product_groups').select('group_id, group_name, a_rate, b_rate, c_rate')
+      supabase.from('product_groups').select('group_id, group_name, rank_rates')
     ]);
     const groupsMap = new Map();
     (groupsRes?.data || []).forEach(g => {

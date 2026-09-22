@@ -49,6 +49,16 @@ export const getProductRateForCustomer = (product, customer, ranksList = []) => 
   const group = product.product_groups;
   if (!group) return null;
 
+  // Check dynamic rank_rates JSONB first
+  if (group.rank_rates && typeof group.rank_rates === 'object') {
+    const rateVal = group.rank_rates[tier] ?? group.rank_rates[customer.ranks?.rank_name];
+    if (rateVal !== null && rateVal !== undefined && rateVal !== '') {
+      const val = Number(rateVal);
+      if (!isNaN(val)) return val;
+    }
+  }
+
+  // Legacy fallback
   if (tier === 'A' && group.a_rate !== null && group.a_rate !== undefined && group.a_rate !== '') {
     const val = Number(group.a_rate);
     return isNaN(val) ? null : val;
