@@ -216,8 +216,8 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
   // New product saved from the "+ Add New Product" quick-add form — make it
   // usable everywhere in this preview (dropdown, suggestions) and drop it
   // straight into the row that asked for it, same as picking it manually.
-  const handleProductQuickAdded = (product) => {
-    setExtraProducts(prev => [...prev, product]);
+  const handleProductQuickAdded = (product, allProducts = [product]) => {
+    setExtraProducts(prev => [...prev, ...allProducts]);
     if (quickAddProductRow !== null) {
       setRawRows(prev => prev.map((row, i) => (
         i === quickAddProductRow
@@ -225,7 +225,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
           : row
       )));
     }
-    onImportProducts?.(product);
+    allProducts.forEach(p => onImportProducts?.(p));
     setQuickAddProductRow(null);
   };
 
@@ -299,8 +299,8 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
 
           const parsedDate = parseFileDate(rawDate) || defaultDate;
           const matchedProd = products.find(p => normalizeKey(p.name) === normalizeKey(rawProd));
-          const matchedCust = customers.find(c => c.name.trim().toLowerCase() === rawCust.toLowerCase());
-          const matchedGodown = activeGodowns.find(g => g.name.trim().toLowerCase() === rawGodown.toLowerCase());
+          const matchedCust = customers.find(c => normalizeKey(c.name) === normalizeKey(rawCust));
+          const matchedGodown = activeGodowns.find(g => normalizeKey(g.name) === normalizeKey(rawGodown));
 
           let effectivePrice = rawPrice;
           if (!effectivePrice && matchedProd && matchedCust) {

@@ -200,10 +200,10 @@ const FactoryInModal = ({ isOpen, onClose, products, godowns, productStockMap = 
   // New product saved from the "+ Add New Product" row inside the Product
   // dropdown — make it usable everywhere here and select it straight away,
   // same as picking an existing one.
-  const handleProductQuickAdded = (product) => {
-    setExtraProducts(prev => [...prev, product]);
+  const handleProductQuickAdded = (product, allProducts = [product]) => {
+    setExtraProducts(prev => [...prev, ...allProducts]);
     setForm(f => ({ ...f, product_id: product.product_id }));
-    onImportProducts?.(product);
+    allProducts.forEach(p => onImportProducts?.(p));
   };
 
   // Switching Grouping starts its product checklist fresh — a checked

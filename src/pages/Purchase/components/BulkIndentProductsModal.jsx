@@ -193,12 +193,12 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
   // dropdown — make it usable everywhere in this preview (dropdown,
   // suggestions) and drop it straight into the row that asked for it, same
   // as picking it manually.
-  const handleProductQuickAdded = (product) => {
-    setExtraProducts(prev => [...prev, product]);
+  const handleProductQuickAdded = (product, allProducts = [product]) => {
+    setExtraProducts(prev => [...prev, ...allProducts]);
     if (quickAddProductRow !== null) {
       handleUpdateRow(quickAddProductRow, 'product_id', product.product_id);
     }
-    onImportProducts?.(product);
+    allProducts.forEach(p => onImportProducts?.(p));
     setQuickAddProductRow(null);
   };
 

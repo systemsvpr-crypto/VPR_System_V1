@@ -1186,7 +1186,7 @@ export const updateDelivery = async ({ delivery_id, delivery_date, expected_deli
 
 };
 
-export const updateDeliveryStatus = async ({ delivery_id, status, user_id, received_quantity, delivery_date, godown_id, recv_unit, recv_unit_qty }) => {
+export const updateDeliveryStatus = async ({ delivery_id, status, user_id, received_quantity, delivery_date, godown_id, recv_unit, recv_unit_qty, expected_delivery_date }) => {
   const { data: delivery, error: fetchErr } = await supabase
     .from('purchase_deliveries')
     .select(`status, item_id, indent_id, delivery_date, received_quantity, lr_number, vehicle_number, lifting_number, transporter_id`)
@@ -1217,6 +1217,7 @@ export const updateDeliveryStatus = async ({ delivery_id, status, user_id, recei
   // product-master-unit figure that drives stock.
   if (recv_unit !== undefined) updateFields.recv_unit = recv_unit;
   if (recv_unit_qty !== undefined) updateFields.recv_unit_qty = recv_unit_qty;
+  if (expected_delivery_date !== undefined && expected_delivery_date !== '') updateFields.expected_delivery_date = expected_delivery_date;
 
   const { error: updErr } = await supabase
     .from('purchase_deliveries')
@@ -1588,7 +1589,7 @@ export const getPurchaseDashboardItems = async () => {
   });
 };
 
-export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, driver_phone_number, vehicle_number, remarks, status, received_quantity, recv_unit, recv_unit_qty, user_id, transporter_id }) => {
+export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, driver_phone_number, vehicle_number, remarks, status, received_quantity, recv_unit, recv_unit_qty, user_id, transporter_id, expected_delivery_date }) => {
   const { data: existing, error: fetchErr } = await supabase
     .from('purchase_deliveries')
     .select('status, item_id, delivery_date, lifting_number, lr_number, vehicle_number, received_quantity')
@@ -1641,11 +1642,13 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
       recv_unit,
       recv_unit_qty,
       godown_id: destinationGodownId,
+      expected_delivery_date,
     });
   }
 
   const updatePayload = {};
   if (lr_number !== undefined) updatePayload.lr_number = lr_number;
+  if (expected_delivery_date !== undefined && expected_delivery_date !== '') updatePayload.expected_delivery_date = expected_delivery_date;
   if (driver_phone_number !== undefined) updatePayload.driver_phone_number = driver_phone_number;
   if (vehicle_number !== undefined) updatePayload.vehicle_number = vehicle_number;
   if (remarks !== undefined) updatePayload.remarks = remarks;

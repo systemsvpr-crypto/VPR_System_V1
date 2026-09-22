@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
-import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Trash2, PlusCircle } from 'lucide-react';
+import { Upload, FileSpreadsheet, ArrowLeft, Download, Info, FileText, Trash2, PlusCircle, Plus } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
@@ -133,8 +133,8 @@ const BulkStockInModal = ({ isOpen, onClose, user, products = [], godowns = [], 
     onClose();
   };
 
-  const handleProductQuickAdded = (product) => {
-    setExtraProducts(prev => [...prev, product]);
+  const handleProductQuickAdded = (product, allProducts = [product]) => {
+    setExtraProducts(prev => [...prev, ...allProducts]);
     if (quickAddProductRow !== null) {
       setRawRows(prev => prev.map((row, i) => (
         i === quickAddProductRow
@@ -142,7 +142,7 @@ const BulkStockInModal = ({ isOpen, onClose, user, products = [], godowns = [], 
           : row
       )));
     }
-    onImportProducts?.(product);
+    allProducts.forEach(p => onImportProducts?.(p));
     setQuickAddProductRow(null);
   };
 
@@ -240,6 +240,21 @@ const BulkStockInModal = ({ isOpen, onClose, user, products = [], godowns = [], 
   const handleRemoveRow = (index) => {
     const updated = rawRows.filter((_, i) => i !== index);
     setRawRows(updated);
+  };
+
+  // Lets the user add a product that was never in the uploaded file at all —
+  // a blank row dropped in at the end of the same table, filled in (and, via
+  // "+ Add New Product", created) exactly like any parsed row.
+  const handleAddRow = () => {
+    setRawRows(prev => [...prev, {
+      id: prev.length,
+      txn_date: getTodayLocal(),
+      rawGodownName: '',
+      godown_id: '',
+      rawProductName: '',
+      product_id: '',
+      qty: '',
+    }]);
   };
 
   const handleConfirmImport = async () => {
@@ -500,6 +515,10 @@ const BulkStockInModal = ({ isOpen, onClose, user, products = [], godowns = [], 
                   </tbody>
                 </table>
               </div>
+
+              <Button type="button" variant="outline" size="sm" onClick={handleAddRow} className="gap-1.5 text-xs font-medium">
+                <Plus size={14} /> Add Product
+              </Button>
             </ModalBody>
             <ModalFooter>
               <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>

@@ -22,11 +22,12 @@ const COLUMN_ALIASES = {
 };
 
 const normalizeHeader = (header) => {
-  const h = header.trim().toLowerCase();
+  if (!header) return '';
+  const h = String(header).trim().toLowerCase();
   for (const [standard, aliases] of Object.entries(COLUMN_ALIASES)) {
     if (aliases.includes(h)) return standard;
   }
-  return header.trim();
+  return String(header).trim();
 };
 
 // A product is a duplicate when Brand Name + Category + Product Type + Mux all match —
@@ -270,12 +271,12 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
     }
   };
 
-  const handleProductQuickAdded = (newProduct) => {
+  const handleProductQuickAdded = (newProduct, allProducts = [newProduct]) => {
     if (!newProduct) return;
-    setExistingProductsList(prev => [newProduct, ...prev]);
+    setExistingProductsList(prev => [...allProducts, ...prev]);
     setProductLookup(prev => {
       const next = new Map(prev);
-      next.set(matchKey(newProduct.brand_name, newProduct.category, newProduct.product_type, newProduct.mux), newProduct);
+      allProducts.forEach(p => next.set(matchKey(p.brand_name, p.category, p.product_type, p.mux), p));
       return next;
     });
 

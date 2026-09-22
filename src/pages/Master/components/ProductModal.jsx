@@ -340,7 +340,13 @@ const ProductModal = ({
             : 'Product created successfully'
         );
         onClose();
-        onSuccess(createdProducts[0]);
+        // Second argument carries every product created in this submit (a
+        // quick-add popup allows adding several via "+ Add Another
+        // Product"/"+ Add New Group" just like the full page) — callers that
+        // only care about the row-triggering product can keep using the
+        // first argument, but should merge the full list into their own
+        // product list so products 2..N aren't invisible until reload.
+        onSuccess(createdProducts[0], createdProducts);
       }
     } catch (err) {
       if (err.code === 'DUPLICATE_PRODUCT') {

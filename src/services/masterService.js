@@ -108,7 +108,7 @@ const duplicateProductError = (name) => {
 // null when both fields are blank (nothing to group by).
 const PG_UNIQUE_VIOLATION = '23505';
 
-const resolveProductGroupId = async (brand_name, category, created_by) => {
+const resolveProductGroupId = async (brand_name, category) => {
   const groupName = `${(brand_name || '').trim()}${(category || '').trim()}`;
   if (!groupName) return null;
 
@@ -120,9 +120,16 @@ const resolveProductGroupId = async (brand_name, category, created_by) => {
   const existing = (groups || []).find(g => (g.group_name || '').trim().toLowerCase() === groupName.toLowerCase());
   if (existing) return existing.group_id;
 
+  // created_by is intentionally left unset: product_groups.created_by has a
+  // foreign key onto Supabase Auth's user table, but this app authenticates
+  // against its own public.users table (see authService.loginUser) rather
+  // than Supabase Auth, so every real logged-in user's id violates that FK —
+  // passing it silently failed every "create a new group" path (Add Product,
+  // every "+ Add New Product" quick-add, Bulk Import) with a 409 the UI only
+  // showed as a stuck/failed save.
   const { data: created, error: createErr } = await supabase
     .from('product_groups')
-    .insert([{ group_name: groupName, created_by: created_by || null }])
+    .insert([{ group_name: groupName }])
     .select('group_id')
     .single();
   if (createErr) {
@@ -154,7 +161,7 @@ export const createProduct = async ({ name, unit, allow_negative_stock, product_
     throw duplicateProductError(duplicate.name);
   }
 
-  const finalGroupId = group_id || await resolveProductGroupId(normalizedBrand, normalizedCategory, created_by);
+  const finalGroupId = group_id || await resolveProductGroupId(normalizedBrand, normalizedCategory);
   // Re-derived from the normalized Brand/Category rather than trusting the
   // popup's own live preview verbatim — that preview is built from whatever
   // was actually typed, which may not be the casing that ends up stored.
@@ -369,6 +376,10 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
   for (const row of uniqueProducts) {
     if (!productMap[row.key]) {
       const name = bulkImportProductName(row.brandName, row.category, row.productType, row.mux);
+      // Same Brand Name + Category grouping as the single-product Add Product
+      // form (see createProduct) — without this, bulk-imported products were
+      // left with no group_id and never showed up in Product Grouping.
+      const groupId = await resolveProductGroupId(row.brandName, row.category);
       const { data: created, error: createErr } = await supabase
         .from('products')
         .insert([{
@@ -379,6 +390,7 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
           brand_name: row.brandName?.trim() || '',
           category: row.category?.trim() || '',
           mux: row.mux?.trim() || '',
+          group_id: groupId,
         }])
         .select()
         .single();

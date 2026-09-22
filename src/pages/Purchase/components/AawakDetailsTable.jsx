@@ -159,6 +159,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     }
     if (field === 'driver_phone_number') return del.driver_phone_number || del.transporters?.driver_phone_number || '';
     if (field === 'vehicle_number') return del.vehicle_number || del.transporters?.vehicle_number || '';
+    if (field === 'expected_delivery_date') return del.expected_delivery_date ? del.expected_delivery_date.slice(0, 10) : '';
     // received_quantity defaults to what was actually dispatched
     // (dispatch_qty_bag/kg, matching the product's master unit) rather
     // than starting blank/zero — it's still 0 at this point for a lift
@@ -179,33 +180,36 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     }));
   };
 
-  // The *first* time Status is changed while multiple rows are checked, it
-  // fills in every other checked row too — a convenience for updating a
-  // batch of lifts the same way in one go. But once any row in that
-  // selection already has its own status override (i.e. the batch has
-  // already been filled, or someone changed one row individually), further
-  // changes only apply to the one row being edited — so a row can be
+  // The *first* time a field is changed on a row while multiple rows are
+  // checked, it fills in every other checked row too — a convenience for
+  // updating a batch of lifts the same way in one go. But once any row in
+  // that selection already has its own override for this field (i.e. the
+  // batch has already been filled, or someone changed one row individually),
+  // further changes only apply to the one row being edited — so a row can be
   // corrected on its own afterwards without dragging the rest of the
   // selection along with it. Same convention as Vendor Approval/Indent's
   // setFieldForSelected.
-  const handleStatusChange = (delId, val) => {
+  const setRowValForSelection = (delId, field, val) => {
     if (!selectedLifts.has(delId)) {
-      setRowVal(delId, 'status', val);
+      setRowVal(delId, field, val);
       return;
     }
     setEditingRows(prev => {
-      const alreadyDiverged = Array.from(selectedLifts).some(id => prev[id]?.status !== undefined);
+      const alreadyDiverged = Array.from(selectedLifts).some(id => prev[id]?.[field] !== undefined);
       const next = { ...prev };
       if (alreadyDiverged) {
-        next[delId] = { ...(next[delId] || {}), status: val };
+        next[delId] = { ...(next[delId] || {}), [field]: val };
       } else {
         selectedLifts.forEach(id => {
-          next[id] = { ...(next[id] || {}), status: val };
+          next[id] = { ...(next[id] || {}), [field]: val };
         });
       }
       return next;
     });
   };
+
+  const handleStatusChange = (delId, val) => setRowValForSelection(delId, 'status', val);
+  const handleExpDateChange = (delId, val) => setRowValForSelection(delId, 'expected_delivery_date', val);
 
   const handleSubmit = async () => {
     if (selectedLifts.size === 0) return;
@@ -244,6 +248,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
           godown_id: getRowVal(del, 'godown_id') || null,
           received_quantity: editedQty,
           transporter_id: del.transporter_id || null,
+          expected_delivery_date: edit.expected_delivery_date,
         });
         successCount++;
         savedIds.add(deliveryId);
@@ -435,9 +440,18 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                     <span className="text-slate-400">Transporter:</span>{' '}
                     <span className="text-slate-700 truncate inline-block max-w-[120px] align-bottom" title={del.transporters?.name}>{del.transporters?.name || '—'}</span>
                   </div>
-                  <div>
-                    <span className="text-slate-400">Exp. Recv:</span>{' '}
-                    <span className="text-slate-700">{del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-400 shrink-0">Exp. Recv:</span>
+                    {locked ? (
+                      <span className="text-slate-700">{del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}</span>
+                    ) : (
+                      <input
+                        type="date"
+                        value={getRowVal(del, 'expected_delivery_date')}
+                        onChange={e => handleExpDateChange(del.delivery_id, e.target.value)}
+                        className="text-slate-700 text-xs border border-slate-200 rounded px-1 h-6 min-w-0 flex-1 focus:outline-none focus:ring-1 focus:ring-primary bg-white"
+                      />
+                    )}
                   </div>
                   <div>
                     <span className="text-slate-400">Dispatch Kg:</span>{' '}
@@ -876,8 +890,17 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
                         />
                       </td>
-                      <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap">
-                        {del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}
+                      <td className="px-3 py-3 text-center">
+                        {locked ? (
+                          <span className="text-slate-500 whitespace-nowrap">{del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}</span>
+                        ) : (
+                          <Input
+                            type="date"
+                            value={getRowVal(del, 'expected_delivery_date')}
+                            onChange={e => handleExpDateChange(del.delivery_id, e.target.value)}
+                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
+                          />
+                        )}
                       </td>
                       <td className="px-3 py-3 text-center font-bold text-emerald-700 whitespace-nowrap">
                         {getRowVal(del, 'received_quantity') || '—'}

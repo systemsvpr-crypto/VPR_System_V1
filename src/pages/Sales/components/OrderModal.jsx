@@ -267,12 +267,12 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
   // New product saved from the "+ Add New Product" row inside that item's
   // dropdown — make it usable everywhere here and drop it straight into the
   // row that asked for it, same as picking it manually.
-  const handleProductQuickAdded = (product) => {
-    setExtraProducts(prev => [...prev, product]);
+  const handleProductQuickAdded = (product, allProducts = [product]) => {
+    setExtraProducts(prev => [...prev, ...allProducts]);
     if (quickAddProductRow !== null) {
       handleProductChange(quickAddProductRow, product.product_id);
     }
-    onImportProducts?.(product);
+    allProducts.forEach(p => onImportProducts?.(p));
     setQuickAddProductRow(null);
   };
 
