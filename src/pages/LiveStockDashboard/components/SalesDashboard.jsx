@@ -87,6 +87,7 @@ const SalesDashboard = () => {
   // Stock & transit maps for customer's items: { [productId]: number }
   const [stockMap, setStockMap] = useState({});
   const [transitMap, setTransitMap] = useState({});
+  const [transitDateMap, setTransitDateMap] = useState({});
 
   useEffect(() => {
     loadAllMasterData();
@@ -118,14 +119,6 @@ const SalesDashboard = () => {
       setCustomers(custList || []);
       setRanks(rankList || []);
       setProductGroups(groupList || []);
-
-      // Auto-select first customer with orders if none selected
-      if (!selectedCustomerId && custList && custList.length > 0) {
-        const customerWithOrders = custList.find((c) =>
-          (orderRows || []).some((r) => r.customerId === c.customer_id || r.customerName === c.name)
-        );
-        setSelectedCustomerId(customerWithOrders ? customerWithOrders.customer_id : custList[0].customer_id);
-      }
     } catch (err) {
       console.error('Error loading master data:', err);
       toast.error('Failed to load sales dashboard data');
@@ -134,15 +127,49 @@ const SalesDashboard = () => {
     }
   };
 
+  // Filter customers to ONLY those who have actually purchased anything in orderRows
+  const purchasedCustomers = useMemo(() => {
+    if (!customers || customers.length === 0) return [];
+    const buyerIds = new Set();
+    const buyerNames = new Set();
+
+    for (const r of data) {
+      if (r.customerId) buyerIds.add(String(r.customerId));
+      if (r.customerName) buyerNames.add(r.customerName.toLowerCase().trim());
+    }
+
+    return customers.filter(
+      (c) =>
+        buyerIds.has(String(c.customer_id)) ||
+        (c.name && buyerNames.has(c.name.toLowerCase().trim()))
+    );
+  }, [customers, data]);
+
+  // Auto-select first customer with purchase history
+  useEffect(() => {
+    if (purchasedCustomers.length > 0) {
+      const exists = purchasedCustomers.some((c) => c.customer_id === selectedCustomerId);
+      if (!exists) {
+        setSelectedCustomerId(purchasedCustomers[0].customer_id);
+      }
+    } else if (customers.length > 0 && !selectedCustomerId) {
+      setSelectedCustomerId('');
+    }
+  }, [purchasedCustomers, selectedCustomerId, customers]);
+
   // Resolve current active customer object
   const currentCustomer = useMemo(() => {
     if (!selectedCustomerId) return null;
     return (
+      purchasedCustomers.find(
+        (c) => c.customer_id === selectedCustomerId || c.name?.toLowerCase() === selectedCustomerId.toLowerCase()
+      ) ||
       customers.find(
         (c) => c.customer_id === selectedCustomerId || c.name?.toLowerCase() === selectedCustomerId.toLowerCase()
-      ) || null
+      ) ||
+      null
     );
-  }, [customers, selectedCustomerId]);
+  }, [purchasedCustomers, customers, selectedCustomerId]);
 
   // Customer Rank label (e.g. "A+", "A", "B", etc.)
   const customerRank = useMemo(() => {
@@ -167,6 +194,7 @@ const SalesDashboard = () => {
     if (productIds.length === 0) {
       setStockMap({});
       setTransitMap({});
+      setTransitDateMap({});
       return;
     }
 
@@ -177,6 +205,7 @@ const SalesDashboard = () => {
         if (isMounted) {
           setStockMap(res.stockMap || {});
           setTransitMap(res.transitMap || {});
+          setTransitDateMap(res.transitDateMap || {});
         }
       })
       .catch((err) => {
@@ -192,7 +221,7 @@ const SalesDashboard = () => {
   }, [customerRows]);
 
   // 1. LEFT TABLE: Ordered History (Items Purchased Details)
-  // Columns: Item Name | Last Delivered | Last Rate | Category Rate | Current Stock | In Transit
+  // Columns: Item Name | Last Delivered | Last Rate | Category Rate | Current Stock | In Transit (with Date)
   const orderedHistoryItems = useMemo(() => {
     if (customerRows.length === 0) return [];
 
@@ -264,12 +293,14 @@ const SalesDashboard = () => {
 
       const cStock = stockMap[it.productId] ?? 0;
       const inTra = transitMap[it.productId] ?? 0;
+      const inTraDate = transitDateMap[it.productId] || null;
 
       return {
         ...it,
         categoryRate: catRate,
         currentStock: cStock,
         inTransit: inTra,
+        inTransitDate: inTraDate,
       };
     });
 
@@ -281,7 +312,60 @@ const SalesDashboard = () => {
     }
 
     return results;
-  }, [customerRows, productGroups, customerRank, currentCustomer, stockMap, transitMap, itemSearch]);
+  }, [customerRows, productGroups, customerRank, currentCustomer, stockMap, transitMap, transitDateMap, itemSearch]);
+
+  // Product groups that the currently active customer has actually purchased
+  const customerPurchasedGroups = useMemo(() => {
+    if (!customerRows || customerRows.length === 0) return [];
+
+    const groupMap = new Map();
+
+    for (const r of customerRows) {
+      const gId = r.groupId;
+      const gName = r.groupName;
+      if (!gId && !gName) continue;
+
+      const key = gId || gName?.toLowerCase();
+      if (!groupMap.has(key)) {
+        const matched = productGroups.find(
+          (g) =>
+            (gId && g.group_id === gId) ||
+            (gName && g.group_name?.toLowerCase() === gName?.toLowerCase())
+        );
+
+        groupMap.set(key, {
+          group_id: gId || matched?.group_id || key,
+          group_name: gName || matched?.group_name || 'Group',
+          rank_rates: matched?.rank_rates || r.rankRates || {},
+        });
+      }
+    }
+
+    return Array.from(groupMap.values()).sort((a, b) =>
+      (a.group_name || '').localeCompare(b.group_name || '')
+    );
+  }, [customerRows, productGroups]);
+
+  // Ensure selectedGroupId is valid when customerPurchasedGroups updates
+  useEffect(() => {
+    if (customerPurchasedGroups.length > 0) {
+      const isValid = selectedGroupId === 'all' || customerPurchasedGroups.some((g) => g.group_id === selectedGroupId);
+      if (!isValid) {
+        setSelectedGroupId('all');
+      }
+    } else {
+      setSelectedGroupId('all');
+    }
+  }, [customerPurchasedGroups, selectedGroupId]);
+
+  // Groups to display in the New Item Price table
+  const groupsToDisplay = useMemo(() => {
+    if (customerPurchasedGroups.length === 0) return [];
+    if (!selectedGroupId || selectedGroupId === 'all') {
+      return customerPurchasedGroups;
+    }
+    return customerPurchasedGroups.filter((g) => g.group_id === selectedGroupId);
+  }, [customerPurchasedGroups, selectedGroupId]);
 
   // 2. RIGHT TABLE: Pending Orders
   // Columns: Item Name | Or Date | Qty | Rate
@@ -309,18 +393,6 @@ const SalesDashboard = () => {
     return filtered;
   }, [customerRows, selectedGroupId]);
 
-  // Active selected group object for the "New Item Price" widget
-  const activePriceGroup = useMemo(() => {
-    if (!selectedGroupId || selectedGroupId === 'all') {
-      return productGroups[0] || null;
-    }
-    return (
-      productGroups.find(
-        (g) => g.group_id === selectedGroupId || g.group_name?.toLowerCase() === selectedGroupId.toLowerCase()
-      ) || null
-    );
-  }, [productGroups, selectedGroupId]);
-
   // Display ranks for New Item Price header (A, B, C, D, E...)
   const displayRanks = useMemo(() => {
     if (ranks && ranks.length > 0) return ranks;
@@ -344,7 +416,7 @@ const SalesDashboard = () => {
       const wsHistory = workbook.addWorksheet('Ordered History');
       wsHistory.addRow([`Customer: ${currentCustomer.name}`, `Rank: ${customerRank}`]);
       wsHistory.addRow([]);
-      wsHistory.addRow(['Item Name', 'Last Delivered', 'Last Rate (₹)', 'Category Rate (₹)', 'Current Stock', 'In Transit']);
+      wsHistory.addRow(['Item Name', 'Last Delivered', 'Last Rate (₹)', 'Category Rate (₹)', 'Current Stock', 'In Transit Qty', 'In Transit Date']);
 
       orderedHistoryItems.forEach((it) => {
         wsHistory.addRow([
@@ -354,6 +426,7 @@ const SalesDashboard = () => {
           it.categoryRate ? Number(it.categoryRate) : '—',
           Number(it.currentStock || 0),
           Number(it.inTransit || 0),
+          it.inTransitDate ? formatDisplayDate(it.inTransitDate) : '—',
         ]);
       });
 
@@ -419,7 +492,9 @@ const SalesDashboard = () => {
         it.lastRate ? `₹${formatRate(it.lastRate)}` : '—',
         it.categoryRate ? `₹${formatRate(it.categoryRate)}` : '—',
         formatQty(it.currentStock),
-        it.inTransit > 0 ? formatQty(it.inTransit) : '—',
+        it.inTransit > 0
+          ? `${formatQty(it.inTransit)}${it.inTransitDate ? ` (${formatDisplayDate(it.inTransitDate)})` : ''}`
+          : '—',
       ]);
 
       autoTable(doc, {
@@ -467,7 +542,7 @@ const SalesDashboard = () => {
     <div className="flex flex-col gap-3 font-sans pb-6 min-h-0">
       {/* ─── Top Control Bar: Customer Selector with Rank Badge ─────────────── */}
       <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shrink-0">
-        {/* Left: Customer Dropdown with Rank Badge & Location */}
+        {/* Left: Customer Dropdown with Rank Badge & Location (Only buyers shown) */}
         <div className="flex items-center gap-3 flex-wrap">
           <div className="w-64 sm:w-80">
             <Dropdown
@@ -475,11 +550,11 @@ const SalesDashboard = () => {
               onValueChange={(val) => {
                 setSelectedCustomerId(val);
               }}
-              options={customers.map((c) => ({
+              options={purchasedCustomers.map((c) => ({
                 value: c.customer_id,
                 label: c.name,
               }))}
-              placeholder="Select Customer..."
+              placeholder={purchasedCustomers.length === 0 ? "No customers with orders" : "Select Customer..."}
               searchPlaceholder="Search customer name..."
               className="h-9 bg-white text-slate-800 font-semibold text-xs sm:text-sm border-slate-200"
             />
@@ -595,7 +670,7 @@ const SalesDashboard = () => {
                     <th className="px-3 py-2.5 text-right w-20 whitespace-nowrap">Last Rate (₹)</th>
                     <th className="px-3 py-2.5 text-right w-24 whitespace-nowrap">Category Rate (₹)</th>
                     <th className="px-3 py-2.5 text-center w-24 whitespace-nowrap">Current Stock</th>
-                    <th className="px-3 py-2.5 text-center w-20 whitespace-nowrap">In Transit</th>
+                    <th className="px-3 py-2.5 text-center w-28 whitespace-nowrap">In Transit</th>
                   </tr>
                 </thead>
 
@@ -647,12 +722,19 @@ const SalesDashboard = () => {
                             )}
                           </td>
 
-                          {/* 6. In Transit */}
+                          {/* 6. In Transit (with Date) */}
                           <td className="px-3 py-2.5 text-center tabular-nums">
                             {hasTransit ? (
-                              <span className="font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-[11px] border border-amber-200/60">
-                                {formatQty(it.inTransit)}
-                              </span>
+                              <div className="inline-flex flex-col items-center leading-tight">
+                                <span className="font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-[11px] border border-amber-200/60">
+                                  {formatQty(it.inTransit)}
+                                </span>
+                                {it.inTransitDate && (
+                                  <span className="text-[10px] text-slate-500 font-medium mt-0.5 whitespace-nowrap">
+                                    {formatDisplayDate(it.inTransitDate)}
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               <span className="text-slate-300">—</span>
                             )}
@@ -676,43 +758,45 @@ const SalesDashboard = () => {
           {/* RIGHT PANEL (5 Cols): NEW ITEM PRICE & PENDING ORDERS           */}
           {/* ═══════════════════════════════════════════════════════════════ */}
           <div className="lg:col-span-5 flex flex-col gap-3">
-            {/* ─── 1. New Item Price Widget ───────────────────────────────── */}
+            {/* ─── 1. New Item Price Widget (Shows Purchased Product Groups) ─── */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
               <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 bg-white">
                 <div className="flex items-center gap-2">
                   <TrendingUp size={15} className="text-slate-500" />
                   <h3 className="font-semibold text-slate-800 text-sm">New Item Price</h3>
                 </div>
-                <div className="w-44 sm:w-48">
+                <div className="w-48 sm:w-56">
                   <Dropdown
                     value={selectedGroupId}
                     onValueChange={(val) => setSelectedGroupId(val)}
                     options={[
-                      { value: 'all', label: 'All Groups' },
-                      ...productGroups.map((g) => ({
+                      ...(customerPurchasedGroups.length > 1 ? [{ value: 'all', label: 'All Purchased Groups' }] : []),
+                      ...customerPurchasedGroups.map((g) => ({
                         value: g.group_id,
                         label: g.group_name,
                       })),
                     ]}
-                    placeholder="Select Group..."
-                    searchPlaceholder="Search product group..."
+                    placeholder={customerPurchasedGroups.length === 0 ? "No groups" : "Select Group..."}
+                    searchPlaceholder="Search purchased group..."
                     className="h-7.5 text-xs font-medium bg-slate-50 border-slate-200"
                   />
                 </div>
               </div>
 
-              {/* Ranks & Rates Row */}
+              {/* Ranks & Rates Table for Purchased Groups */}
               <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/80 font-semibold text-slate-600">
+                      <th className="px-3 py-2 text-left min-w-[110px]">Product Group</th>
                       {displayRanks.map((r) => {
                         const isCustomerRank = customerRank && r.rank_name?.toLowerCase() === customerRank?.toLowerCase();
                         return (
                           <th
                             key={r.rank_id || r.rank_name}
-                            className={`px-3 py-2 text-center whitespace-nowrap ${isCustomerRank ? 'bg-blue-50 text-blue-800 font-bold' : ''
-                              }`}
+                            className={`px-3 py-2 text-center whitespace-nowrap ${
+                              isCustomerRank ? 'bg-blue-50 text-blue-800 font-bold' : ''
+                            }`}
                           >
                             <span className="flex items-center justify-center gap-1">
                               Rank {r.rank_name}
@@ -725,24 +809,38 @@ const SalesDashboard = () => {
                       })}
                     </tr>
                   </thead>
-                  <tbody>
-                    <tr className="bg-white">
-                      {displayRanks.map((r) => {
-                        const rateVal = activePriceGroup?.rank_rates?.[r.rank_name];
-                        const isCustomerRank = customerRank && r.rank_name?.toLowerCase() === customerRank?.toLowerCase();
-                        return (
-                          <td
-                            key={r.rank_id || r.rank_name}
-                            className={`px-3 py-2.5 text-center tabular-nums text-xs ${isCustomerRank
-                              ? 'bg-blue-50/40 text-blue-900 font-bold'
-                              : 'text-slate-800 font-semibold'
-                              }`}
-                          >
-                            {formatRate(rateVal)}
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {groupsToDisplay.length === 0 ? (
+                      <tr>
+                        <td colSpan={displayRanks.length + 1} className="text-center py-4 text-slate-400">
+                          No purchased product groups found for this customer.
+                        </td>
+                      </tr>
+                    ) : (
+                      groupsToDisplay.map((grp) => (
+                        <tr key={grp.group_id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">
+                            {grp.group_name}
                           </td>
-                        );
-                      })}
-                    </tr>
+                          {displayRanks.map((r) => {
+                            const rateVal = grp.rank_rates?.[r.rank_name];
+                            const isCustomerRank = customerRank && r.rank_name?.toLowerCase() === customerRank?.toLowerCase();
+                            return (
+                              <td
+                                key={r.rank_id || r.rank_name}
+                                className={`px-3 py-2 text-center tabular-nums text-xs ${
+                                  isCustomerRank
+                                    ? 'bg-blue-50/40 text-blue-900 font-bold'
+                                    : 'text-slate-800 font-semibold'
+                                }`}
+                              >
+                                {formatRate(rateVal)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>

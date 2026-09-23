@@ -107,18 +107,25 @@ export const getProductCurrentStockAndTransit = async (productIds) => {
   // through purchase_indent_items, and the lift's qty is received_quantity.
   const transit = await fetchAllRows(() => supabase
     .from('purchase_deliveries')
-    .select('received_quantity, status, purchase_indent_items!inner(product_id)')
+    .select('received_quantity, status, delivery_date, expected_delivery_date, purchase_indent_items!inner(product_id)')
     .in('status', ['In Transit', 'In Transport Godown', 'AT TPT GDN'])
     .in('purchase_indent_items.product_id', productIds));
 
   const transitMap = {};
+  const transitDateMap = {};
   for (const t of transit || []) {
     const pid = t.purchase_indent_items?.product_id;
     if (!pid) continue;
     transitMap[pid] = (transitMap[pid] || 0) + Number(t.received_quantity || 0);
+    const dateVal = t.delivery_date || t.expected_delivery_date;
+    if (dateVal) {
+      if (!transitDateMap[pid] || dateVal > transitDateMap[pid]) {
+        transitDateMap[pid] = dateVal;
+      }
+    }
   }
 
-  return { stockMap, transitMap };
+  return { stockMap, transitMap, transitDateMap };
 };
 
 export const getAllOrders = async () => {
