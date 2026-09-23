@@ -199,11 +199,10 @@ const Purchase = () => {
       <div className="flex items-center gap-6 border-b border-slate-200 shrink-0">
         {visibleTabs.map((tab) => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`pb-3 text-sm font-medium transition-all flex items-center gap-2 ${
-              activeTab === tab.id
-                ? 'text-primary border-b-2 border-primary translate-y-[1px]'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}>
+            className={`pb-3 text-sm font-medium transition-all flex items-center gap-2 ${activeTab === tab.id
+              ? 'text-primary border-b-2 border-primary translate-y-[1px]'
+              : 'text-slate-500 hover:text-slate-700'
+              }`}>
             <tab.icon size={18} />{tab.label}
           </button>
         ))}
@@ -218,95 +217,95 @@ const Purchase = () => {
           <p className="text-sm text-slate-400">You don't have access to any Purchase tabs. Contact your administrator.</p>
         </div>
       ) : (
-      <div className="flex flex-col gap-4 flex-1 min-h-0">
-      {activeTab === 'indent' && (
         <div className="flex flex-col gap-4 flex-1 min-h-0">
-          <IndentPendingHistoryTable
-            vendors={vendors}
-            user={user}
-            refreshToken={dataVersion}
-            searchTerm={searchTerm}
-            onSearchChange={setSearchTerm}
-            onDelete={handleDeleteSelectedItems}
-            groups={groups}
-            products={products}
-            godowns={godowns}
-            toolbarExtra={
-              <>
-                <select
-                  value={godownFilter}
-                  onChange={e => setGodownFilter(e.target.value)}
-                  className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px] shrink-0"
-                >
-                  <option value="">All Godowns</option>
-                  {ownGodowns.map(g => (
-                    <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
-                  ))}
-                </select>
-                <select
-                  value={typeFilter}
-                  onChange={e => setTypeFilter(e.target.value)}
-                  className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[130px] shrink-0"
-                >
-                  <option value="">All Types</option>
-                  <option value="direct">Direct</option>
-                  <option value="process">Process</option>
-                </select>
-                {filteredIndents.length > 0 && (
-                  <Button variant="outline" onClick={() => exportIndentsCSV(filteredIndents)} className="gap-2 px-4 font-medium text-xs h-9 text-slate-600 border-slate-200 hover:bg-slate-50 shrink-0">
-                    <Download size={16} /><span>Export</span>
-                  </Button>
-                )}
-                <Button variant="outline" onClick={() => setBulkModalOpen(true)} className="gap-2 px-4 font-medium text-xs h-9 text-slate-700 border-slate-200 hover:bg-slate-50 shrink-0">
-                  <Upload size={16} /><span>Bulk Upload</span>
-                </Button>
-                <Button onClick={() => { setEditingIndent(null); setModalOpen(true); }} className="gap-2 px-4 font-medium text-xs h-9 shrink-0">
-                  <Plus size={16} /><span>Add Indent</span>
-                </Button>
-              </>
-            }
-          />
+          {activeTab === 'indent' && (
+            <div className="flex flex-col gap-4 flex-1 min-h-0">
+              <IndentPendingHistoryTable
+                vendors={vendors}
+                user={user}
+                refreshToken={dataVersion}
+                searchTerm={searchTerm}
+                onSearchChange={setSearchTerm}
+                onDelete={handleDeleteSelectedItems}
+                groups={groups}
+                products={products}
+                godowns={godowns}
+                toolbarExtra={
+                  <>
+                    <select
+                      value={godownFilter}
+                      onChange={e => setGodownFilter(e.target.value)}
+                      className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px] shrink-0"
+                    >
+                      <option value="">All Godowns</option>
+                      {ownGodowns.map(g => (
+                        <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={typeFilter}
+                      onChange={e => setTypeFilter(e.target.value)}
+                      className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[130px] shrink-0"
+                    >
+                      <option value="">All Types</option>
+                      <option value="direct">Direct</option>
+                      <option value="process">Process</option>
+                    </select>
+                    {filteredIndents.length > 0 && (
+                      <Button variant="outline" onClick={() => exportIndentsCSV(filteredIndents)} className="gap-2 px-4 font-medium text-xs h-9 text-slate-600 border-slate-200 hover:bg-slate-50 shrink-0">
+                        <Download size={16} /><span>Export</span>
+                      </Button>
+                    )}
+                    <Button variant="outline" onClick={() => setBulkModalOpen(true)} className="gap-2 px-4 font-medium text-xs h-9 text-slate-700 border-slate-200 hover:bg-slate-50 shrink-0">
+                      <Upload size={16} /><span>Bulk Upload</span>
+                    </Button>
+                    <Button onClick={() => { setEditingIndent(null); setModalOpen(true); }} className="gap-2 px-4 font-medium text-xs h-9 shrink-0">
+                      <Plus size={16} /><span>Add Indent</span>
+                    </Button>
+                  </>
+                }
+              />
 
-          <IndentModal isOpen={modalOpen} onClose={handleCloseModal}
-            user={user} onSuccess={loadData} editingIndent={editingIndent}
-            products={products} godowns={godowns} vendors={vendors} groups={groups}
-            onImportProducts={(product) => setProducts(prev => [...prev, product])}
-            onImportVendors={(vendor) => setVendors(prev => [...prev, vendor])} />
+              <IndentModal isOpen={modalOpen} onClose={handleCloseModal}
+                user={user} onSuccess={loadData} editingIndent={editingIndent}
+                products={products} godowns={godowns} vendors={vendors} groups={groups}
+                onImportProducts={(product) => setProducts(prev => [...prev, product])}
+                onImportVendors={(vendor) => setVendors(prev => [...prev, vendor])} />
 
-          <BulkIndentProductsModal
-            isOpen={bulkModalOpen}
-            onClose={() => setBulkModalOpen(false)}
-            user={user}
-            products={products}
-            godowns={godowns}
-            vendors={vendors}
-            onImportProducts={(product) => setProducts(prev => [...prev, product])}
-            onImportVendors={(vendor) => setVendors(prev => [...prev, vendor])}
-            onSuccess={loadData}
-          />
+              <BulkIndentProductsModal
+                isOpen={bulkModalOpen}
+                onClose={() => setBulkModalOpen(false)}
+                user={user}
+                products={products}
+                godowns={godowns}
+                vendors={vendors}
+                onImportProducts={(product) => setProducts(prev => [...prev, product])}
+                onImportVendors={(vendor) => setVendors(prev => [...prev, vendor])}
+                onSuccess={loadData}
+              />
+            </div>
+          )}
+
+          {activeTab === 'vendor-selection' && (
+            <VendorSelectionTable vendors={vendors} godowns={godowns} user={user} groups={groups} products={products} />
+          )}
+
+          {activeTab === 'approval' && (
+            <VendorApprovalTable vendors={vendors} godowns={godowns} user={user} groups={groups} products={products} />
+          )}
+
+          {(activeTab === 'in-transit' || activeTab === 'delivery') && (
+            <DeliveryTable tabMode="in-transit" transporters={transporters} user={user} godowns={godowns} groups={groups} products={products} />
+          )}
+
+          {activeTab === 'aawak-details' && (
+            <AawakDetailsTable transporters={transporters} user={user} godowns={godowns} products={products} vendors={vendors} groups={groups} />
+          )}
+
+          {activeTab === 'purchase-complete' && (
+            <PurchaseCompleteTable user={user} godowns={godowns} products={products} vendors={vendors} groups={groups} />
+          )}
         </div>
-      )}
-
-      {activeTab === 'vendor-selection' && (
-        <VendorSelectionTable vendors={vendors} godowns={godowns} user={user} groups={groups} products={products} />
-      )}
-
-      {activeTab === 'approval' && (
-        <VendorApprovalTable vendors={vendors} godowns={godowns} user={user} groups={groups} products={products} />
-      )}
-
-      {(activeTab === 'in-transit' || activeTab === 'delivery') && (
-        <DeliveryTable tabMode="in-transit" transporters={transporters} user={user} godowns={godowns} groups={groups} products={products} />
-      )}
-
-      {activeTab === 'aawak-details' && (
-        <AawakDetailsTable transporters={transporters} user={user} godowns={godowns} products={products} vendors={vendors} groups={groups} />
-      )}
-
-      {activeTab === 'purchase-complete' && (
-        <PurchaseCompleteTable user={user} godowns={godowns} products={products} vendors={vendors} groups={groups} />
-      )}
-      </div>
       )}
     </div>
   );

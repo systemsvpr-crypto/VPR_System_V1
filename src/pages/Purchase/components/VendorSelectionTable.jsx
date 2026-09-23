@@ -139,6 +139,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
   }, [filteredBySearch]);
 
   const filteredItems = subTab === 'pending' ? pendingItems : historyItems;
+  const isEmpty = filteredItems.length === 0;
 
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
 
@@ -505,7 +506,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
 
           {viewMode === 'card' ? (
             <div className="flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
-              {filteredItems.length === 0 ? (
+              {isEmpty ? (
                 <div className="p-12 text-center">
                   <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                     <ShoppingCart size={32} className="text-slate-300" />
