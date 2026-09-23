@@ -34,6 +34,7 @@ const ModalContent = React.forwardRef(({ className, children, ...props }, ref) =
       )}
       {...props}
     >
+      <DialogPrimitive.Title className="sr-only">Dialog</DialogPrimitive.Title>
       {children}
       <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors z-10">
         <X size={18} />

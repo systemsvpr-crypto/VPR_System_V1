@@ -6,6 +6,8 @@ import useAuthStore from '../../store/authStore';
 import { getAllOrders, deleteOrder, deleteOrdersBulk } from '../../services/salesService';
 import { getAllProducts, getAllGodowns } from '../../services/masterService';
 import { getAllCustomers } from '../../services/customerService';
+import { getAllRanks } from '../../services/rankService';
+import { getAllPricingGroups } from '../../services/pricingService';
 import { isOrderFullyDispatched } from '@/lib/orderDispatchStatus';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -38,6 +40,8 @@ const Sales = () => {
   const [products, setProducts] = useState([]);
   const [godowns, setGodowns] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [ranks, setRanks] = useState([]);
+  const [productGroups, setProductGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
@@ -118,12 +122,22 @@ const Sales = () => {
     // Reference data and orders are independent — fire both off together
     // (rather than awaiting one before starting the other) so the Orders
     // tab's total load time is the slower of the two, not the sum.
-    const refDataPromise = Promise.all([getAllProducts(), getAllGodowns(), getAllCustomers()]);
+    const refDataPromise = Promise.all([
+      getAllProducts(),
+      getAllGodowns(),
+      getAllCustomers(),
+      getAllRanks().catch(() => []),
+      getAllPricingGroups().catch(() => []),
+    ]);
     const ordersPromise = getAllOrders();
 
     try {
-      const [p, g, c] = await refDataPromise;
-      setProducts(p); setGodowns(g); setCustomers(c);
+      const [p, g, c, r, grps] = await refDataPromise;
+      setProducts(p);
+      setGodowns(g);
+      setCustomers(c);
+      setRanks(r || []);
+      setProductGroups(grps || []);
     } catch (err) { toast.error('Failed to load reference data'); }
     try {
       const o = await ordersPromise;
@@ -345,6 +359,7 @@ const Sales = () => {
           <OrderModal isOpen={modalOpen} onClose={handleCloseModal}
             user={user} onSuccess={loadData} editingOrder={editingOrder}
             products={products} godowns={godowns} customers={customers}
+            ranks={ranks} productGroups={productGroups}
             onImportProducts={(product) => setProducts(prev => [...prev, product])}
             onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])} />
 
@@ -355,6 +370,8 @@ const Sales = () => {
             products={products}
             godowns={godowns}
             customers={customers}
+            ranks={ranks}
+            productGroups={productGroups}
             onImportProducts={(product) => setProducts(prev => [...prev, product])}
             onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])}
             onSuccess={loadData}
@@ -368,6 +385,7 @@ const Sales = () => {
             <DispatchPlanningTable godowns={godowns} searchTerm={searchTerm} dispatchFilter={dispatchFilter}
               onSearchChange={setSearchTerm} onFilterChange={setDispatchFilter}
               onSave={loadData} user={user} products={products} customers={customers}
+              ranks={ranks} productGroups={productGroups}
               onImportProducts={(product) => setProducts(prev => [...prev, product])}
               onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])} />
           </div>

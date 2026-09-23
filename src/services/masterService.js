@@ -41,7 +41,9 @@ export const getAllProductStock = async () => {
 export const getAllProducts = async () => {
   try {
     const [products, groupsRes] = await Promise.all([
-      fetchAllRows(() => supabase.from('products').select('*').order('name', { ascending: true })),
+      fetchAllRows(() => supabase.from('products').select('*, product_groups:group_id(group_id, group_name, rank_rates)').order('name', { ascending: true })).catch(() =>
+        fetchAllRows(() => supabase.from('products').select('*').order('name', { ascending: true }))
+      ),
       supabase.from('product_groups').select('group_id, group_name, rank_rates')
     ]);
     const groupsMap = new Map();
@@ -50,7 +52,7 @@ export const getAllProducts = async () => {
     });
     return products.map(p => ({
       ...p,
-      product_groups: p.group_id ? groupsMap.get(p.group_id) || null : null,
+      product_groups: p.product_groups || (p.group_id ? groupsMap.get(p.group_id) || null : null),
     }));
   } catch (err) {
     console.warn('Fallback loading products without groups:', err);

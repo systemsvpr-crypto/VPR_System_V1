@@ -11,7 +11,7 @@ import BulkOrderProductsModal from './BulkOrderProductsModal';
 import ProductModal from '../../Master/components/ProductModal';
 import CustomerModal from '../../Master/components/CustomerModal';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
-import { getProductRateForCustomer } from '@/lib/pricingCategoryHelper';
+import { getProductRateForCustomer, resolveCustomerTier } from '@/lib/pricingCategoryHelper';
 
 // Dispatch Planning's "Direct" button — a Create Order-style popup that also
 // auto-plans every item's dispatch on save (see createDirectOrder), so a
@@ -20,7 +20,7 @@ import { getProductRateForCustomer } from '@/lib/pricingCategoryHelper';
 // (Orders' Create Order, then Dispatch Planning's Dispatch). Create-only —
 // unlike OrderModal there's no editingOrder/locked-items support, since a
 // direct order's items are typically already planned the moment they exist.
-const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns, customers, onImportProducts, onImportCustomers }) => {
+const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns, customers, ranks = [], productGroups = [], onImportProducts, onImportCustomers }) => {
   const [form, setForm] = useState({
     order_date: new Date().toISOString().split('T')[0],
     order_number: '',
@@ -54,6 +54,15 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
     [...customers, ...extraCustomers].forEach(c => map.set(c.customer_id, c));
     return Array.from(map.values());
   }, [customers, extraCustomers]);
+
+  const selectedCustomer = useMemo(() => {
+    if (!form.customer_id) return null;
+    return allCustomers.find(c => String(c.customer_id) === String(form.customer_id)) || null;
+  }, [allCustomers, form.customer_id]);
+
+  const customerRank = useMemo(() => {
+    return resolveCustomerTier(selectedCustomer, ranks);
+  }, [selectedCustomer, ranks]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -159,8 +168,8 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
 
   const handleProductChange = (index, productId) => {
     const product = allProducts.find(p => p.product_id === productId);
-    const customer = allCustomers.find(c => c.customer_id === form.customer_id);
-    const suggestedRate = getProductRateForCustomer(product, customer);
+    const customer = allCustomers.find(c => String(c.customer_id) === String(form.customer_id));
+    const suggestedRate = getProductRateForCustomer(product, customer, ranks, productGroups);
     const items = [...form.items];
     items[index] = {
       ...items[index],
@@ -172,12 +181,12 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
   };
 
   const handleCustomerChange = (customerId) => {
-    const customer = allCustomers.find(c => c.customer_id === customerId);
+    const customer = allCustomers.find(c => String(c.customer_id) === String(customerId));
     setForm(prev => {
       const updatedItems = prev.items.map(item => {
         if (!item.product_id) return item;
         const product = allProducts.find(p => p.product_id === item.product_id);
-        const rate = getProductRateForCustomer(product, customer);
+        const rate = getProductRateForCustomer(product, customer, ranks, productGroups);
         return {
           ...item,
           unit_price: rate !== null ? String(rate) : item.unit_price,
@@ -277,9 +286,23 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
                   <Input value={form.order_number} onChange={(e) => setForm({ ...form, order_number: e.target.value })} placeholder="e.g. VPR/OR-001" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Customer <span className="text-red-500">*</span></label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-medium text-slate-700">Customer <span className="text-red-500">*</span></label>
+                    {customerRank && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-black bg-[#7e60b8] text-white shadow-2xs tracking-wide">
+                        <span className="opacity-80 text-[10px] font-medium uppercase">Rank:</span>
+                        {customerRank}
+                      </span>
+                    )}
+                  </div>
                   <Dropdown value={form.customer_id} onValueChange={(v) => handleCustomerChange(v)}
-                    options={allCustomers.map(c => ({ value: c.customer_id, label: c.name }))}
+                    options={allCustomers.map(c => {
+                      const r = resolveCustomerTier(c, ranks);
+                      return {
+                        value: c.customer_id,
+                        label: r ? `${c.name} (Rank: ${r})` : c.name,
+                      };
+                    })}
                     placeholder="Select customer..." searchPlaceholder="Search customers..."
                     align="start"
                     onAddNew={() => setCustomerQuickAddOpen(true)}
@@ -328,6 +351,22 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
                         <label className="block text-xs font-medium text-slate-500 mb-1">Unit Price</label>
                         <Input type="number" step="0.01" min="0" placeholder="0.00"
                           value={item.unit_price} onChange={(e) => updateItem(i, 'unit_price', e.target.value)} />
+                        {(() => {
+                          const product = allProducts.find(p => p.product_id === item.product_id);
+                          const rate = getProductRateForCustomer(product, selectedCustomer, ranks, productGroups);
+                          const groupName = product?.product_groups?.group_name || (product?.group_id ? productGroups.find(g => String(g.group_id) === String(product.group_id))?.group_name : null);
+                          if (rate !== null && customerRank) {
+                            return (
+                              <span
+                                className="text-[10.5px] text-purple-700 font-semibold block mt-1 truncate"
+                                title={`Group: ${groupName || '—'} | Rank ${customerRank} Rate: ₹${rate}`}
+                              >
+                                Rank {customerRank}: ₹{rate}
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Qty <span className="text-red-500">*</span></label>
@@ -385,6 +424,8 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
         products={allProducts}
         godowns={godowns}
         customers={allCustomers}
+        ranks={ranks}
+        productGroups={productGroups}
         processType="direct"
         autoPlanDispatch
         onImportProducts={(product) => { setExtraProducts(prev => [...prev, product]); onImportProducts?.(product); }}

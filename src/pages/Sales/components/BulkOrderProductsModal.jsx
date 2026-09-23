@@ -11,7 +11,7 @@ import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 import { parseFileDate } from '@/lib/parseFileDate';
 import ProductModal from '../../Master/components/ProductModal';
 import CustomerModal from '../../Master/components/CustomerModal';
-import { getProductRateForCustomer } from '@/lib/pricingCategoryHelper';
+import { getProductRateForCustomer, resolveCustomerTier } from '@/lib/pricingCategoryHelper';
 
 const COLUMN_ALIASES = {
   'Order Date': ['order date', 'orderdate', 'date', 'order_date'],
@@ -127,7 +127,7 @@ const fixSheetRange = (sheet) => {
 // 'order_process', and each created order's items also get their dispatch
 // auto-planned (see createDirectOrder) instead of just landing as plain
 // pending order items.
-const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns = [], customers = [], onImportProducts, onImportCustomers, onSuccess, processType = 'order_process', autoPlanDispatch = false }) => {
+const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns = [], customers = [], ranks = [], productGroups = [], onImportProducts, onImportCustomers, onSuccess, processType = 'order_process', autoPlanDispatch = false }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [fileName, setFileName] = useState('');
@@ -181,8 +181,14 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
   }, [activeGodowns]);
 
   const customerOptions = useMemo(() => {
-    return allCustomers.map(c => ({ value: c.customer_id, label: c.name }));
-  }, [allCustomers]);
+    return allCustomers.map(c => {
+      const r = resolveCustomerTier(c, ranks);
+      return {
+        value: c.customer_id,
+        label: r ? `${c.name} (Rank: ${r})` : c.name,
+      };
+    });
+  }, [allCustomers, ranks]);
 
   // For every unmatched product name in the file, precompute the closest
   // existing products so we can offer one-click "Did you mean...?" picks.
@@ -304,7 +310,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
 
           let effectivePrice = rawPrice;
           if (!effectivePrice && matchedProd && matchedCust) {
-            const suggestedRate = getProductRateForCustomer(matchedProd, matchedCust);
+            const suggestedRate = getProductRateForCustomer(matchedProd, matchedCust, ranks, productGroups);
             if (suggestedRate !== null) effectivePrice = String(suggestedRate);
           }
 
@@ -362,7 +368,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
       const customer = allCustomers.find(c => c.customer_id === row.customer_id);
       let newPrice = row.unit_price;
       if (!newPrice && product && customer) {
-        const rate = getProductRateForCustomer(product, customer);
+        const rate = getProductRateForCustomer(product, customer, ranks, productGroups);
         if (rate !== null) newPrice = String(rate);
       }
       updated[index] = {
@@ -376,7 +382,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
       const product = allProducts.find(p => p.product_id === row.product_id);
       let newPrice = row.unit_price;
       if (!newPrice && product && customer) {
-        const rate = getProductRateForCustomer(product, customer);
+        const rate = getProductRateForCustomer(product, customer, ranks, productGroups);
         if (rate !== null) newPrice = String(rate);
       }
       updated[index] = {
@@ -464,7 +470,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
           const product = allProducts.find(p => p.product_id === row.product_id);
           let newPrice = row.unit_price;
           if (!newPrice && product && customer) {
-            const rate = getProductRateForCustomer(product, customer);
+            const rate = getProductRateForCustomer(product, customer, ranks, productGroups);
             if (rate !== null) newPrice = String(rate);
           }
           return { ...row, customer_id: value, unit_price: newPrice };
@@ -721,7 +727,22 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                         />
                       </div>
                       <div className={autoPlanDispatch ? 'md:col-span-8' : 'md:col-span-5'}>
-                        <label className="block text-slate-500 font-medium mb-1">Customer <span className="text-red-500">*</span></label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-slate-500 font-medium">Customer <span className="text-red-500">*</span></label>
+                          {(() => {
+                            const cObj = allCustomers.find(c => String(c.customer_id) === String(group.customer_id));
+                            const r = resolveCustomerTier(cObj, ranks);
+                            if (r) {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-[#7e60b8] text-white tracking-wide">
+                                  <span className="opacity-80 text-[9px] font-medium uppercase">Rank:</span>
+                                  {r}
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
                         <Dropdown
                           value={group.customer_id}
                           onValueChange={(val) => handleGroupHeaderChange(group.key, 'customer_id', val)}
@@ -840,6 +861,19 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                                     placeholder="0.00"
                                     className="w-full h-7 px-2 rounded-md border border-slate-200 text-xs outline-none focus:border-primary bg-white"
                                   />
+                                  {(() => {
+                                    const cObj = allCustomers.find(c => String(c.customer_id) === String(row.customer_id || group.customer_id));
+                                    const r = resolveCustomerTier(cObj, ranks);
+                                    const rate = getProductRateForCustomer(rowProduct, cObj, ranks, productGroups);
+                                    if (rate !== null && r) {
+                                      return (
+                                        <span className="text-[10px] text-purple-700 font-semibold block mt-0.5 truncate" title={`Rank ${r} Rate: ₹${rate}`}>
+                                          Rank {r}: ₹{rate}
+                                        </span>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                 </td>
                                 <td className="px-3 py-1.5 whitespace-nowrap">
                                   <div className="relative w-[72px]">

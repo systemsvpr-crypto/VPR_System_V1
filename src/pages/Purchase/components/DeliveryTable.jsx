@@ -658,7 +658,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                   <div><span className="text-slate-400">Vendor:</span> <span className="text-slate-700 truncate">{item.approved_vendor?.name || item.item_vendor?.name || '—'}</span></div>
                   <div><span className="text-slate-400">Total Qty:</span> <span className="font-semibold text-slate-900">{item.quantity}</span></div>
                   <div><span className="text-slate-400">Pending Qty:</span> <span className="font-bold text-amber-600">{item.remaining_alloc_qty ?? item.remaining_qty}</span></div>
-                  <div><span className="text-slate-400">Rate:</span> <span className="text-slate-700">₹{item.item_vendor?.rate ?? item.purchase_indent_vendor_selections?.[0]?.quoted_rate ?? '—'}</span></div>
+                  <div><span className="text-slate-400">Rate:</span> <span className="text-slate-700 font-medium">{(item.rate != null && item.rate !== '') || (item.approved_rate != null && item.approved_rate !== '') ? `₹${Number(item.rate ?? item.approved_rate).toFixed(2)}` : '—'}</span></div>
                   <div><span className="text-slate-400">Packaging:</span> <span className="text-slate-700">{currentPkgSize}</span></div>
                 </div>
 
@@ -841,6 +841,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                   <div><span className="text-slate-400">Date:</span> <span className="text-slate-700">{del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}</span></div>
                   <div><span className="text-slate-400">Indent No:</span> <span className="text-slate-700">{indentNum}</span></div>
                   <div><span className="text-slate-400">Vendor:</span> <span className="text-slate-700 truncate">{vendorName}</span></div>
+                  <div><span className="text-slate-400">Rate:</span> <span className="text-slate-700 font-medium">{del.purchase_indent_items?.rate != null && del.purchase_indent_items?.rate !== '' ? `₹${Number(del.purchase_indent_items.rate).toFixed(2)}` : '—'}</span></div>
                   <div><span className="text-slate-400">Transporter:</span> <span className="text-slate-700 truncate">{del.transporters?.name || '—'}</span></div>
                   <div><span className="text-slate-400">LR No:</span> <span className="text-slate-700">{del.lr_number || '—'}</span></div>
                   <div><span className="text-slate-400">Vehicle:</span> <span className="text-slate-700">{del.vehicle_number || del.transporters?.vehicle_number || '—'}</span></div>
@@ -848,6 +849,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                   <div><span className="text-slate-400">Disp. KG:</span> <span className="font-semibold text-slate-800">{del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : '—'}</span></div>
                   <div><span className="text-slate-400">Received:</span> <span className="font-bold text-emerald-700">{qtyKg}</span></div>
                   <div><span className="text-slate-400">Godown:</span> <span className="text-slate-700 truncate">{del.purchase_delivery_godowns?.[0]?.godowns?.name || '—'}</span></div>
+                  <div><span className="text-slate-400">Remarks:</span> <span className="text-slate-700 truncate">{del.remarks || '—'}</span></div>
                 </div>
               </div>
             );
@@ -1166,7 +1168,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                         {item.remaining_alloc_qty ?? item.remaining_qty}
                       </td>
                       <td className="px-3 py-3 text-center text-slate-600">
-                        {item.rate ? Number(item.rate).toFixed(2) : '—'}
+                        {(item.rate != null && item.rate !== '') || (item.approved_rate != null && item.approved_rate !== '') ? Number(item.rate ?? item.approved_rate).toFixed(2) : '—'}
                       </td>
                       <td className="px-3 py-3 text-center">
                         <Input

@@ -427,14 +427,14 @@ const SalesDashboard = () => {
         head: [['Item Name', 'Last Delivered', 'Last Rate', 'Category Rate', 'Current Stock', 'In Transit']],
         body: historyData,
         theme: 'grid',
-        headStyles: { fillColor: [184, 226, 184], textColor: [27, 67, 50], fontStyle: 'bold' },
+        headStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold' },
         styles: { fontSize: 8, cellPadding: 2 },
       });
 
       // Table 2: Pending Orders
       const nextY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 100;
       doc.setFontSize(11);
-      doc.setTextColor(88, 28, 135);
+      doc.setTextColor(30, 41, 59);
       doc.text('Pending Orders', 14, nextY);
 
       const pendingData = pendingOrders.map((po) => [
@@ -446,10 +446,10 @@ const SalesDashboard = () => {
 
       autoTable(doc, {
         startY: nextY + 4,
-        head: [['Item Name', 'Or Date', 'Qty', 'Rate']],
+        head: [['Item Name', 'Order Date', 'Qty', 'Rate']],
         body: pendingData,
         theme: 'grid',
-        headStyles: { fillColor: [234, 209, 220], textColor: [74, 21, 75], fontStyle: 'bold' },
+        headStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold' },
         styles: { fontSize: 8, cellPadding: 2 },
       });
 
@@ -466,39 +466,39 @@ const SalesDashboard = () => {
   return (
     <div className="flex flex-col gap-3 font-sans pb-6 min-h-0">
       {/* ─── Top Control Bar: Customer Selector with Rank Badge ─────────────── */}
-      <div className="bg-white rounded-xl border border-slate-200 p-3 sm:p-3.5 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shrink-0">
-        {/* Left: Customer Dropdown with Attached Purple Rank Pill (Matching Screenshot) */}
-        <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
-          <div className="flex items-center rounded-lg border-2 border-[#7e60b8] bg-[#f8f5fc] p-0.5 shadow-xs">
-            {/* Customer Dropdown */}
-            <div className="w-56 sm:w-72 md:w-80">
-              <Dropdown
-                value={selectedCustomerId}
-                onValueChange={(val) => {
-                  setSelectedCustomerId(val);
-                }}
-                options={customers.map((c) => ({
-                  value: c.customer_id,
-                  label: c.name,
-                }))}
-                placeholder="Select Customer..."
-                searchPlaceholder="Search customer name..."
-                className="h-9 border-0 bg-transparent text-slate-900 font-bold text-xs sm:text-sm focus-visible:ring-0 truncate"
-              />
-            </div>
-
-            {/* Purple Rank Badge (e.g. "A+", "A", "B") */}
-            <div
-              className="px-3.5 py-1.5 bg-[#7e60b8] text-white font-black text-xs sm:text-sm rounded-md shadow-2xs shrink-0 flex items-center justify-center min-w-[42px] tracking-wide"
-              title={`Customer Rank: ${customerRank}`}
-            >
-              {customerRank}
-            </div>
+      <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shrink-0">
+        {/* Left: Customer Dropdown with Rank Badge & Location */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="w-64 sm:w-80">
+            <Dropdown
+              value={selectedCustomerId}
+              onValueChange={(val) => {
+                setSelectedCustomerId(val);
+              }}
+              options={customers.map((c) => ({
+                value: c.customer_id,
+                label: c.name,
+              }))}
+              placeholder="Select Customer..."
+              searchPlaceholder="Search customer name..."
+              className="h-9 bg-white text-slate-800 font-semibold text-xs sm:text-sm border-slate-200"
+            />
           </div>
 
+          {/* Clean Rank Badge */}
+          {customerRank && customerRank !== '—' && (
+            <div
+              className="px-2.5 py-1 bg-slate-100 text-slate-700 font-semibold text-xs rounded-md border border-slate-200 flex items-center gap-1.5"
+              title={`Customer Rank: ${customerRank}`}
+            >
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Rank</span>
+              <span className="text-slate-900 font-bold">{customerRank}</span>
+            </div>
+          )}
+
           {currentCustomer?.location && (
-            <span className="text-[11px] text-slate-500 font-medium hidden lg:inline-block">
-              Location: <strong>{currentCustomer.location}</strong>
+            <span className="text-xs text-slate-500 hidden sm:inline-block">
+              Location: <strong className="text-slate-700 font-medium">{currentCustomer.location}</strong>
             </span>
           )}
         </div>
@@ -555,12 +555,12 @@ const SalesDashboard = () => {
       </div>
 
       {loading ? (
-        <div className="p-16 text-center bg-white rounded-xl border border-slate-200 shadow-2xs">
+        <div className="p-16 text-center bg-white rounded-xl border border-slate-200 shadow-xs">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3"></div>
           <p className="text-xs text-slate-500 font-medium">Loading customer purchased details and pending orders...</p>
         </div>
       ) : !currentCustomer ? (
-        <div className="p-12 text-center bg-white rounded-xl border border-slate-200 shadow-2xs">
+        <div className="p-12 text-center bg-white rounded-xl border border-slate-200 shadow-xs">
           <Users size={40} className="mx-auto text-slate-300 mb-2" />
           <h3 className="text-sm font-semibold text-slate-700">No Customer Selected</h3>
           <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
@@ -568,46 +568,41 @@ const SalesDashboard = () => {
           </p>
         </div>
       ) : (
-        /* ─── Main Two-Column Layout (Matching the Excel Screenshot) ───────── */
+        /* ─── Main Two-Column Layout ───────── */
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
           {/* ═══════════════════════════════════════════════════════════════ */}
-          {/* LEFT PANEL (7 Cols): ORDERED HISTORY (Purchased Items Details)  */}
+          {/* LEFT PANEL (7 Cols): ORDERED HISTORY (Purchased Items)          */}
           {/* ═══════════════════════════════════════════════════════════════ */}
-          <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-            {/* Table Header Container */}
-            <div className="overflow-x-auto custom-scrollbar">
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  {/* Two-tone header row matching screenshot: Green for Items & Orange for Stock */}
-                  <tr className="border-b border-slate-300 font-bold text-slate-900 select-none">
-                    {/* Green Segment (#d9ead3) */}
-                    <th className="px-3 py-2.5 text-left bg-[#b8e2b8] text-[#1b4332] border-r border-slate-300 min-w-[180px] font-bold">
-                      Item Name
-                    </th>
-                    <th className="px-3 py-2.5 text-center bg-[#b8e2b8] text-[#1b4332] border-r border-slate-300 w-28 whitespace-nowrap font-bold">
-                      Last Delivered
-                    </th>
-                    <th className="px-3 py-2.5 text-right bg-[#b8e2b8] text-[#1b4332] border-r border-slate-300 w-20 whitespace-nowrap font-bold">
-                      Last Rate
-                    </th>
-                    <th className="px-3 py-2.5 text-right bg-[#b8e2b8] text-[#1b4332] border-r border-slate-300 w-24 whitespace-nowrap font-bold">
-                      Category Rate
-                    </th>
+          <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
+            {/* Card Header */}
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-white">
+              <div className="flex items-center gap-2">
+                <Package size={16} className="text-slate-500" />
+                <h3 className="font-semibold text-slate-800 text-sm">Purchased Items History</h3>
+              </div>
+              <span className="text-xs bg-slate-100 text-slate-600 font-medium px-2 py-0.5 rounded-full">
+                {orderedHistoryItems.length} {orderedHistoryItems.length === 1 ? 'item' : 'items'}
+              </span>
+            </div>
 
-                    {/* Orange Segment (#f9cb9c) */}
-                    <th className="px-3 py-2.5 text-center bg-[#f9cb9c] text-[#78350f] border-r border-slate-300 w-24 whitespace-nowrap font-bold">
-                      Current Stock
-                    </th>
-                    <th className="px-3 py-2.5 text-center bg-[#f9cb9c] text-[#78350f] w-20 whitespace-nowrap font-bold">
-                      In Tra
-                    </th>
+            {/* Table */}
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/80 font-semibold text-slate-600">
+                    <th className="px-3.5 py-2.5 text-left min-w-[170px]">Item Name</th>
+                    <th className="px-3 py-2.5 text-center w-28 whitespace-nowrap">Last Delivered</th>
+                    <th className="px-3 py-2.5 text-right w-20 whitespace-nowrap">Last Rate (₹)</th>
+                    <th className="px-3 py-2.5 text-right w-24 whitespace-nowrap">Category Rate (₹)</th>
+                    <th className="px-3 py-2.5 text-center w-24 whitespace-nowrap">Current Stock</th>
+                    <th className="px-3 py-2.5 text-center w-20 whitespace-nowrap">In Transit</th>
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-200 bg-white">
+                <tbody className="divide-y divide-slate-100 bg-white">
                   {orderedHistoryItems.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="text-center py-10 text-slate-400 bg-slate-50/50">
+                      <td colSpan={6} className="text-center py-10 text-slate-400 bg-slate-50/30">
                         No ordered history found for this customer.
                       </td>
                     </tr>
@@ -619,42 +614,43 @@ const SalesDashboard = () => {
                       return (
                         <tr
                           key={it.productId || idx}
-                          className="hover:bg-slate-50/90 transition-colors group text-[11.5px]"
+                          className="hover:bg-slate-50/70 transition-colors text-[12px]"
                         >
                           {/* 1. Item Name */}
-                          <td className="px-3 py-2 text-left font-semibold text-slate-800 border-r border-slate-200">
+                          <td className="px-3.5 py-2.5 text-left font-medium text-slate-800">
                             {it.productName}
                           </td>
 
-                          {/* 2. Last Delivered (e.g. 20-Aug-26) */}
-                          <td className="px-3 py-2 text-center text-slate-600 border-r border-slate-200 whitespace-nowrap font-medium">
+                          {/* 2. Last Delivered */}
+                          <td className="px-3 py-2.5 text-center text-slate-500 whitespace-nowrap">
                             {formatDisplayDate(it.lastDeliveredDate)}
                           </td>
 
-                          {/* 3. Last Rate (e.g. 1.68) */}
-                          <td className="px-3 py-2 text-right text-slate-800 border-r border-slate-200 font-bold tabular-nums">
+                          {/* 3. Last Rate */}
+                          <td className="px-3 py-2.5 text-right text-slate-700 font-medium tabular-nums">
                             {formatRate(it.lastRate)}
                           </td>
 
-                          {/* 4. Category Rate (e.g. 174) */}
-                          <td className="px-3 py-2 text-right text-slate-900 border-r border-slate-200 font-bold tabular-nums">
+                          {/* 4. Category Rate */}
+                          <td className="px-3 py-2.5 text-right text-slate-900 font-semibold tabular-nums">
                             {formatRate(it.categoryRate)}
                           </td>
 
-                          {/* 5. Current Stock (Muted grey if 0, bold if positive) */}
-                          <td className="px-3 py-2 text-center border-r border-slate-200 tabular-nums">
-                            <span
-                              className={`font-semibold ${hasStock ? 'text-slate-900 font-bold' : 'text-slate-300 font-normal'
-                                }`}
-                            >
-                              {formatQty(it.currentStock)}
-                            </span>
+                          {/* 5. Current Stock */}
+                          <td className="px-3 py-2.5 text-center tabular-nums">
+                            {hasStock ? (
+                              <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[11px] border border-emerald-200/60">
+                                {formatQty(it.currentStock)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-normal">0</span>
+                            )}
                           </td>
 
-                          {/* 6. In Transit (Blank or muted if 0) */}
-                          <td className="px-3 py-2 text-center tabular-nums">
+                          {/* 6. In Transit */}
+                          <td className="px-3 py-2.5 text-center tabular-nums">
                             {hasTransit ? (
-                              <span className="font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded text-[11px] border border-amber-200/60">
+                              <span className="font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-[11px] border border-amber-200/60">
                                 {formatQty(it.inTransit)}
                               </span>
                             ) : (
@@ -669,10 +665,10 @@ const SalesDashboard = () => {
               </table>
             </div>
 
-            {/* Table Footer Count */}
-            <div className="px-3.5 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-[11px] text-slate-500">
-              <span>Total Purchased Items: <strong>{orderedHistoryItems.length}</strong></span>
-              {stockLoading && <span className="text-primary animate-pulse font-medium">Updating live stock...</span>}
+            {/* Table Footer */}
+            <div className="px-3.5 py-2 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between text-[11px] text-slate-500">
+              <span>Total Purchased Items: <strong className="text-slate-700">{orderedHistoryItems.length}</strong></span>
+              {stockLoading && <span className="text-blue-600 animate-pulse font-medium">Updating live stock...</span>}
             </div>
           </div>
 
@@ -680,53 +676,67 @@ const SalesDashboard = () => {
           {/* RIGHT PANEL (5 Cols): NEW ITEM PRICE & PENDING ORDERS           */}
           {/* ═══════════════════════════════════════════════════════════════ */}
           <div className="lg:col-span-5 flex flex-col gap-3">
-            {/* ─── 1. New Item Price Widget (Peach Header) ─────────────────── */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+            {/* ─── 1. New Item Price Widget ───────────────────────────────── */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 bg-white">
+                <div className="flex items-center gap-2">
+                  <TrendingUp size={15} className="text-slate-500" />
+                  <h3 className="font-semibold text-slate-800 text-sm">New Item Price</h3>
+                </div>
+                <div className="w-44 sm:w-48">
+                  <Dropdown
+                    value={selectedGroupId}
+                    onValueChange={(val) => setSelectedGroupId(val)}
+                    options={[
+                      { value: 'all', label: 'All Groups' },
+                      ...productGroups.map((g) => ({
+                        value: g.group_id,
+                        label: g.group_name,
+                      })),
+                    ]}
+                    placeholder="Select Group..."
+                    searchPlaceholder="Search product group..."
+                    className="h-7.5 text-xs font-medium bg-slate-50 border-slate-200"
+                  />
+                </div>
+              </div>
+
+              {/* Ranks & Rates Row */}
               <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full text-xs border-collapse">
+                <table className="w-full text-xs">
                   <thead>
-                    {/* Header Row in Peach (#fce5cd) */}
-                    <tr className="border-b border-slate-300 font-bold bg-[#fce5cd] text-[#78350f]">
-                      <th className="px-3 py-2 text-left border-r border-slate-300 min-w-[140px] font-bold">
-                        New Item Price
-                      </th>
-                      {displayRanks.map((r) => (
-                        <th
-                          key={r.rank_id || r.rank_name}
-                          className="px-2.5 py-2 text-center border-r border-slate-300 last:border-r-0 min-w-[50px] font-bold"
-                        >
-                          {r.rank_name}
-                        </th>
-                      ))}
+                    <tr className="border-b border-slate-200 bg-slate-50/80 font-semibold text-slate-600">
+                      {displayRanks.map((r) => {
+                        const isCustomerRank = customerRank && r.rank_name?.toLowerCase() === customerRank?.toLowerCase();
+                        return (
+                          <th
+                            key={r.rank_id || r.rank_name}
+                            className={`px-3 py-2 text-center whitespace-nowrap ${isCustomerRank ? 'bg-blue-50 text-blue-800 font-bold' : ''
+                              }`}
+                          >
+                            <span className="flex items-center justify-center gap-1">
+                              Rank {r.rank_name}
+                              {isCustomerRank && (
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-600" title="Current Customer Tier"></span>
+                              )}
+                            </span>
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody>
                     <tr className="bg-white">
-                      {/* Dropdown to select Group / Item */}
-                      <td className="p-1.5 border-r border-slate-200">
-                        <Dropdown
-                          value={selectedGroupId}
-                          onValueChange={(val) => setSelectedGroupId(val)}
-                          options={[
-                            { value: 'all', label: 'All Groups' },
-                            ...productGroups.map((g) => ({
-                              value: g.group_id,
-                              label: g.group_name,
-                            })),
-                          ]}
-                          placeholder="Select Group..."
-                          searchPlaceholder="Search product group..."
-                          className="h-8 text-xs font-semibold bg-slate-50 border-slate-200"
-                        />
-                      </td>
-
-                      {/* Rank Rate Columns (A, B, C...) */}
                       {displayRanks.map((r) => {
                         const rateVal = activePriceGroup?.rank_rates?.[r.rank_name];
+                        const isCustomerRank = customerRank && r.rank_name?.toLowerCase() === customerRank?.toLowerCase();
                         return (
                           <td
                             key={r.rank_id || r.rank_name}
-                            className="px-2 py-2 text-center font-bold text-slate-800 border-r border-slate-200 last:border-r-0 tabular-nums text-xs"
+                            className={`px-3 py-2.5 text-center tabular-nums text-xs ${isCustomerRank
+                              ? 'bg-blue-50/40 text-blue-900 font-bold'
+                              : 'text-slate-800 font-semibold'
+                              }`}
                           >
                             {formatRate(rateVal)}
                           </td>
@@ -738,32 +748,33 @@ const SalesDashboard = () => {
               </div>
             </div>
 
-            {/* ─── 2. Pending Orders Table (Pink/Mauve Header) ─────────────── */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
+            {/* ─── 2. Pending Orders Table ─────────────────────────────────── */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-white">
+                <div className="flex items-center gap-2">
+                  <Clock size={16} className="text-slate-500" />
+                  <h3 className="font-semibold text-slate-800 text-sm">Pending Orders</h3>
+                </div>
+                <span className="text-xs bg-slate-100 text-slate-600 font-medium px-2 py-0.5 rounded-full">
+                  {pendingOrders.length} {pendingOrders.length === 1 ? 'order' : 'orders'}
+                </span>
+              </div>
+
               <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full text-xs border-collapse">
+                <table className="w-full text-xs">
                   <thead>
-                    {/* Pink/Mauve Header Row (#ead1dc) */}
-                    <tr className="border-b border-slate-300 font-bold bg-[#ead1dc] text-[#581c87]">
-                      <th className="px-3 py-2.5 text-left border-r border-slate-300 min-w-[150px] font-bold">
-                        Item Name
-                      </th>
-                      <th className="px-2.5 py-2.5 text-center border-r border-slate-300 w-24 whitespace-nowrap font-bold">
-                        Or Date
-                      </th>
-                      <th className="px-2.5 py-2.5 text-center border-r border-slate-300 w-16 whitespace-nowrap font-bold">
-                        Qty
-                      </th>
-                      <th className="px-2.5 py-2.5 text-right w-20 whitespace-nowrap font-bold">
-                        Rate
-                      </th>
+                    <tr className="border-b border-slate-200 bg-slate-50/80 font-semibold text-slate-600">
+                      <th className="px-3.5 py-2.5 text-left min-w-[140px]">Item Name</th>
+                      <th className="px-2.5 py-2.5 text-center w-24 whitespace-nowrap">Order Date</th>
+                      <th className="px-2.5 py-2.5 text-center w-20 whitespace-nowrap">Qty</th>
+                      <th className="px-3 py-2.5 text-right w-20 whitespace-nowrap">Rate (₹)</th>
                     </tr>
                   </thead>
 
-                  <tbody className="divide-y divide-slate-200 bg-white">
+                  <tbody className="divide-y divide-slate-100 bg-white">
                     {pendingOrders.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="text-center py-8 text-slate-400 bg-slate-50/50">
+                        <td colSpan={4} className="text-center py-8 text-slate-400 bg-slate-50/30">
                           No pending orders for this customer{selectedGroupId !== 'all' ? ' in this group' : ''}.
                         </td>
                       </tr>
@@ -771,25 +782,27 @@ const SalesDashboard = () => {
                       pendingOrders.map((po, idx) => (
                         <tr
                           key={po.id || idx}
-                          className="hover:bg-slate-50/90 transition-colors text-[11.5px]"
+                          className="hover:bg-slate-50/70 transition-colors text-[12px]"
                         >
                           {/* 1. Item Name */}
-                          <td className="px-3 py-2 text-left font-semibold text-slate-800 border-r border-slate-200">
+                          <td className="px-3.5 py-2.5 text-left font-medium text-slate-800">
                             {po.productName}
                           </td>
 
-                          {/* 2. Order Date (e.g. 20-Aug-26) */}
-                          <td className="px-2.5 py-2 text-center text-slate-600 border-r border-slate-200 whitespace-nowrap font-medium">
+                          {/* 2. Order Date */}
+                          <td className="px-2.5 py-2.5 text-center text-slate-500 whitespace-nowrap">
                             {formatDisplayDate(po.orderDate)}
                           </td>
 
                           {/* 3. Quantity */}
-                          <td className="px-2.5 py-2 text-center border-r border-slate-200 font-bold text-slate-900 tabular-nums">
-                            {formatQty(po.pendingQty)}
+                          <td className="px-2.5 py-2.5 text-center tabular-nums">
+                            <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-[11px] border border-blue-200/60">
+                              {formatQty(po.pendingQty)}
+                            </span>
                           </td>
 
                           {/* 4. Rate */}
-                          <td className="px-2.5 py-2 text-right font-bold text-emerald-700 tabular-nums">
+                          <td className="px-3 py-2.5 text-right font-medium text-slate-800 tabular-nums">
                             {formatRate(po.unitPrice)}
                           </td>
                         </tr>
@@ -800,12 +813,12 @@ const SalesDashboard = () => {
               </div>
 
               {/* Pending Orders Footer */}
-              <div className="px-3.5 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-[11px] text-slate-500">
+              <div className="px-3.5 py-2 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between text-[11px] text-slate-500">
                 <span>
-                  Pending Orders: <strong>{pendingOrders.length}</strong>
+                  Total Pending Orders: <strong className="text-slate-700">{pendingOrders.length}</strong>
                 </span>
                 {selectedGroupId !== 'all' && (
-                  <span className="text-[10.5px] text-purple-700 font-semibold bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                  <span className="text-[10.5px] text-blue-700 font-medium bg-blue-50 px-2 py-0.5 rounded border border-blue-200/60">
                     Filtered by group
                   </span>
                 )}

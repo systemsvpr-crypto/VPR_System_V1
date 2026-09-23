@@ -105,7 +105,7 @@ const buildProductNoMap = (rawItems) => {
 /* ──────────────────────────────────────────────────────────
    Main component
 ────────────────────────────────────────────────────────── */
-const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchChange, onFilterChange, onSave, user, products, customers, onImportProducts, onImportCustomers }) => {
+const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchChange, onFilterChange, onSave, user, products, customers, ranks = [], productGroups = [], onImportProducts, onImportCustomers }) => {
   // Same gate as the "Delete order" button in the main Sales orders list —
   // this wipes rows out of sales_order_items/sales_orders permanently.
   const roleUpper = String(user?.role || '').trim().toUpperCase();
@@ -1380,6 +1380,8 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
         products={products || []}
         godowns={godowns || []}
         customers={customers || []}
+        ranks={ranks || []}
+        productGroups={productGroups || []}
         onImportProducts={onImportProducts}
         onImportCustomers={onImportCustomers}
         onSuccess={async () => { await loadItems(); onSave?.(); }}
