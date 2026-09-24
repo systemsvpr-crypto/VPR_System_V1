@@ -127,49 +127,33 @@ const SalesDashboard = () => {
     }
   };
 
-  // Filter customers to ONLY those who have actually purchased anything in orderRows
-  const purchasedCustomers = useMemo(() => {
+  // Sort all customers alphabetically
+  const sortedCustomers = useMemo(() => {
     if (!customers || customers.length === 0) return [];
-    const buyerIds = new Set();
-    const buyerNames = new Set();
+    return [...customers]
+      .filter((c) => c.customer_id && c.name)
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [customers]);
 
-    for (const r of data) {
-      if (r.customerId) buyerIds.add(String(r.customerId));
-      if (r.customerName) buyerNames.add(r.customerName.toLowerCase().trim());
-    }
-
-    return customers.filter(
-      (c) =>
-        buyerIds.has(String(c.customer_id)) ||
-        (c.name && buyerNames.has(c.name.toLowerCase().trim()))
-    );
-  }, [customers, data]);
-
-  // Auto-select first customer with purchase history
+  // Clear selection if selected customer is no longer valid
   useEffect(() => {
-    if (purchasedCustomers.length > 0) {
-      const exists = purchasedCustomers.some((c) => c.customer_id === selectedCustomerId);
+    if (selectedCustomerId && sortedCustomers.length > 0) {
+      const exists = sortedCustomers.some((c) => c.customer_id === selectedCustomerId);
       if (!exists) {
-        setSelectedCustomerId(purchasedCustomers[0].customer_id);
+        setSelectedCustomerId('');
       }
-    } else if (customers.length > 0 && !selectedCustomerId) {
-      setSelectedCustomerId('');
     }
-  }, [purchasedCustomers, selectedCustomerId, customers]);
+  }, [sortedCustomers, selectedCustomerId]);
 
   // Resolve current active customer object
   const currentCustomer = useMemo(() => {
     if (!selectedCustomerId) return null;
     return (
-      purchasedCustomers.find(
+      sortedCustomers.find(
         (c) => c.customer_id === selectedCustomerId || c.name?.toLowerCase() === selectedCustomerId.toLowerCase()
-      ) ||
-      customers.find(
-        (c) => c.customer_id === selectedCustomerId || c.name?.toLowerCase() === selectedCustomerId.toLowerCase()
-      ) ||
-      null
+      ) || null
     );
-  }, [purchasedCustomers, customers, selectedCustomerId]);
+  }, [sortedCustomers, selectedCustomerId]);
 
   // Customer Rank label (e.g. "A+", "A", "B", etc.)
   const customerRank = useMemo(() => {
@@ -346,26 +330,38 @@ const SalesDashboard = () => {
     );
   }, [customerRows, productGroups]);
 
-  // Ensure selectedGroupId is valid when customerPurchasedGroups updates
+  // All product groups sorted alphabetically (for the dropdown)
+  const sortedProductGroups = useMemo(() => {
+    if (!productGroups || productGroups.length === 0) return [];
+    return [...productGroups]
+      .filter((g) => g.group_id && g.group_name)
+      .sort((a, b) => (a.group_name || '').localeCompare(b.group_name || ''));
+  }, [productGroups]);
+
+  // Reset selectedGroupId to 'all' when customer changes
   useEffect(() => {
-    if (customerPurchasedGroups.length > 0) {
-      const isValid = selectedGroupId === 'all' || customerPurchasedGroups.some((g) => g.group_id === selectedGroupId);
+    setSelectedGroupId('all');
+  }, [selectedCustomerId]);
+
+  // Ensure selectedGroupId is valid
+  useEffect(() => {
+    if (selectedGroupId !== 'all') {
+      const isValid = sortedProductGroups.some((g) => g.group_id === selectedGroupId);
       if (!isValid) {
         setSelectedGroupId('all');
       }
-    } else {
-      setSelectedGroupId('all');
     }
-  }, [customerPurchasedGroups, selectedGroupId]);
+  }, [sortedProductGroups, selectedGroupId]);
 
-  // Groups to display in the New Item Price table
+  // Groups to display in the New Item Price table:
+  // Shows ONLY the customer's purchased groups by default (or the specifically selected group from dropdown),
+  // NEVER displays all product groups on the page!
   const groupsToDisplay = useMemo(() => {
-    if (customerPurchasedGroups.length === 0) return [];
     if (!selectedGroupId || selectedGroupId === 'all') {
       return customerPurchasedGroups;
     }
-    return customerPurchasedGroups.filter((g) => g.group_id === selectedGroupId);
-  }, [customerPurchasedGroups, selectedGroupId]);
+    return sortedProductGroups.filter((g) => g.group_id === selectedGroupId);
+  }, [customerPurchasedGroups, sortedProductGroups, selectedGroupId]);
 
   // 2. RIGHT TABLE: Pending Orders
   // Columns: Item Name | Or Date | Qty | Rate
@@ -376,11 +372,12 @@ const SalesDashboard = () => {
 
     // Group filter from the "New Item Price" widget dropdown
     if (selectedGroupId && selectedGroupId !== 'all') {
-      filtered = filtered.filter(
-        (r) =>
-          r.groupId === selectedGroupId ||
-          (r.groupName && r.groupName.toLowerCase() === selectedGroupId.toLowerCase())
-      );
+      const selectedGrp = sortedProductGroups.find((g) => g.group_id === selectedGroupId);
+      filtered = filtered.filter((r) => {
+        if (r.groupId && r.groupId === selectedGroupId) return true;
+        if (selectedGrp && r.groupName && selectedGrp.group_name && r.groupName.toLowerCase() === selectedGrp.group_name.toLowerCase()) return true;
+        return false;
+      });
     }
 
     // Sort by order date descending
@@ -391,7 +388,7 @@ const SalesDashboard = () => {
     });
 
     return filtered;
-  }, [customerRows, selectedGroupId]);
+  }, [customerRows, selectedGroupId, sortedProductGroups]);
 
   // Display ranks for New Item Price header (A, B, C, D, E...)
   const displayRanks = useMemo(() => {
@@ -542,7 +539,7 @@ const SalesDashboard = () => {
     <div className="flex flex-col gap-3 font-sans pb-6 min-h-0">
       {/* ─── Top Control Bar: Customer Selector with Rank Badge ─────────────── */}
       <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shrink-0">
-        {/* Left: Customer Dropdown with Rank Badge & Location (Only buyers shown) */}
+        {/* Left: Customer Dropdown with Rank Badge & Location (All customers) */}
         <div className="flex items-center gap-3 flex-wrap">
           <div className="w-64 sm:w-80">
             <Dropdown
@@ -550,11 +547,11 @@ const SalesDashboard = () => {
               onValueChange={(val) => {
                 setSelectedCustomerId(val);
               }}
-              options={purchasedCustomers.map((c) => ({
+              options={sortedCustomers.map((c) => ({
                 value: c.customer_id,
                 label: c.name,
               }))}
-              placeholder={purchasedCustomers.length === 0 ? "No customers with orders" : "Select Customer..."}
+              placeholder={sortedCustomers.length === 0 ? "No customers found" : "Select Customer..."}
               searchPlaceholder="Search customer name..."
               className="h-9 bg-white text-slate-800 font-semibold text-xs sm:text-sm border-slate-200"
             />
@@ -758,7 +755,7 @@ const SalesDashboard = () => {
           {/* RIGHT PANEL (5 Cols): NEW ITEM PRICE & PENDING ORDERS           */}
           {/* ═══════════════════════════════════════════════════════════════ */}
           <div className="lg:col-span-5 flex flex-col gap-3">
-            {/* ─── 1. New Item Price Widget (Shows Purchased Product Groups) ─── */}
+            {/* ─── 1. New Item Price Widget (Shows All Product Groups) ─── */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
               <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 bg-white">
                 <div className="flex items-center gap-2">
@@ -770,20 +767,22 @@ const SalesDashboard = () => {
                     value={selectedGroupId}
                     onValueChange={(val) => setSelectedGroupId(val)}
                     options={[
-                      ...(customerPurchasedGroups.length > 1 ? [{ value: 'all', label: 'All Purchased Groups' }] : []),
-                      ...customerPurchasedGroups.map((g) => ({
+                      ...(customerPurchasedGroups.length > 0
+                        ? [{ value: 'all', label: 'All Purchased Groups' }]
+                        : []),
+                      ...sortedProductGroups.map((g) => ({
                         value: g.group_id,
                         label: g.group_name,
                       })),
                     ]}
-                    placeholder={customerPurchasedGroups.length === 0 ? "No groups" : "Select Group..."}
-                    searchPlaceholder="Search purchased group..."
+                    placeholder={sortedProductGroups.length === 0 ? "No groups" : "Select Group..."}
+                    searchPlaceholder="Search product group..."
                     className="h-7.5 text-xs font-medium bg-slate-50 border-slate-200"
                   />
                 </div>
               </div>
 
-              {/* Ranks & Rates Table for Purchased Groups */}
+              {/* Ranks & Rates Table */}
               <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full text-xs">
                   <thead>
@@ -794,9 +793,8 @@ const SalesDashboard = () => {
                         return (
                           <th
                             key={r.rank_id || r.rank_name}
-                            className={`px-3 py-2 text-center whitespace-nowrap ${
-                              isCustomerRank ? 'bg-blue-50 text-blue-800 font-bold' : ''
-                            }`}
+                            className={`px-3 py-2 text-center whitespace-nowrap ${isCustomerRank ? 'bg-blue-50 text-blue-800 font-bold' : ''
+                              }`}
                           >
                             <span className="flex items-center justify-center gap-1">
                               Rank {r.rank_name}
@@ -813,7 +811,9 @@ const SalesDashboard = () => {
                     {groupsToDisplay.length === 0 ? (
                       <tr>
                         <td colSpan={displayRanks.length + 1} className="text-center py-4 text-slate-400">
-                          No purchased product groups found for this customer.
+                          {selectedGroupId && selectedGroupId !== 'all'
+                            ? 'No rate information found for this product group.'
+                            : 'No purchased product groups found.'}
                         </td>
                       </tr>
                     ) : (
@@ -828,11 +828,10 @@ const SalesDashboard = () => {
                             return (
                               <td
                                 key={r.rank_id || r.rank_name}
-                                className={`px-3 py-2 text-center tabular-nums text-xs ${
-                                  isCustomerRank
-                                    ? 'bg-blue-50/40 text-blue-900 font-bold'
-                                    : 'text-slate-800 font-semibold'
-                                }`}
+                                className={`px-3 py-2 text-center tabular-nums text-xs ${isCustomerRank
+                                  ? 'bg-blue-50/40 text-blue-900 font-bold'
+                                  : 'text-slate-800 font-semibold'
+                                  }`}
                               >
                                 {formatRate(rateVal)}
                               </td>

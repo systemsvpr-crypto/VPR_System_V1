@@ -256,17 +256,22 @@ const Sales = () => {
       <div className="flex flex-col gap-4 flex-1 min-h-0">
       {activeTab === 'orders' && (
         <div className="flex flex-col gap-4 flex-1 min-h-0">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-            <div className="flex flex-wrap items-center gap-3 flex-1">
-              <div className="relative w-full md:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
-                <Input type="text" placeholder="Search orders..." className="pl-9"
-                  value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          <div className="flex items-center justify-between gap-2.5 shrink-0 flex-nowrap overflow-x-auto custom-scrollbar pb-1">
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="relative w-44 sm:w-52 lg:w-60 shrink-0">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={15} />
+                <Input
+                  type="text"
+                  placeholder="Search orders..."
+                  className="pl-8 h-9 text-xs w-full"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
               </div>
               <select
                 value={godownFilter}
                 onChange={e => setGodownFilter(e.target.value)}
-                className="h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px]"
+                className="h-9 px-2.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0"
               >
                 <option value="">All Godowns</option>
                 {ownGodowns.map(g => (
@@ -276,7 +281,7 @@ const Sales = () => {
               <select
                 value={typeFilter}
                 onChange={e => setTypeFilter(e.target.value)}
-                className="h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[130px]"
+                className="h-9 px-2.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0"
               >
                 <option value="">All Types</option>
                 <option value="order_process">Process</option>
@@ -284,25 +289,25 @@ const Sales = () => {
                 <option value="skip_delivered">Skip</option>
               </select>
             </div>
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 ml-auto">
               {!loading && filteredOrders.length > 0 && (
-                <Button variant="outline" onClick={() => exportOrdersCSV(filteredOrders)} className="gap-2 px-4 font-medium text-slate-600 border-slate-200 hover:bg-slate-50">
-                  <Download size={16} /><span>Export</span>
+                <Button variant="outline" size="sm" onClick={() => exportOrdersCSV(filteredOrders)} className="h-9 gap-1.5 px-3 text-xs font-medium text-slate-600 border-slate-200 hover:bg-slate-50 shrink-0">
+                  <Download size={14} /><span>Export</span>
                 </Button>
               )}
               {!loading && (
                 <>
-                  <Button variant="outline" onClick={() => setBulkModalOpen(true)} className="gap-2 px-4 font-medium text-slate-700 border-slate-200 hover:bg-slate-50">
-                    <Upload size={18} /><span>Bulk Upload</span>
+                  <Button variant="outline" size="sm" onClick={() => setBulkModalOpen(true)} className="h-9 gap-1.5 px-3 text-xs font-medium text-slate-700 border-slate-200 hover:bg-slate-50 shrink-0">
+                    <Upload size={14} /><span>Bulk Upload</span>
                   </Button>
                   {canDeleteOrders && (
-                    <Button variant="destructive" onClick={handleDeleteSelectedOrders} disabled={deletingSelectedOrders || selectedOrderIds.size === 0}
-                      className="gap-2 px-4 font-medium">
-                      <Trash2 size={18} /><span>Delete{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</span>
+                    <Button variant="destructive" size="sm" onClick={handleDeleteSelectedOrders} disabled={deletingSelectedOrders || selectedOrderIds.size === 0}
+                      className="h-9 gap-1.5 px-3 text-xs font-medium shrink-0">
+                      <Trash2 size={14} /><span>Delete{selectedOrderIds.size > 0 ? ` (${selectedOrderIds.size})` : ''}</span>
                     </Button>
                   )}
-                  <Button onClick={() => { setEditingOrder(null); setModalOpen(true); }} className="gap-2 px-4 font-medium">
-                    <Plus size={20} /><span>Add Order</span>
+                  <Button size="sm" onClick={() => { setEditingOrder(null); setModalOpen(true); }} className="h-9 gap-1.5 px-3.5 text-xs font-medium shrink-0 shadow-2xs">
+                    <Plus size={15} /><span>Add Order</span>
                   </Button>
                 </>
               )}

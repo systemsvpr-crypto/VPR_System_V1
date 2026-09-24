@@ -1475,7 +1475,7 @@ export const getPurchaseDashboardItems = async () => {
         indent_id, indent_date, indent_number, process_type, is_void, group_id, product_groups:group_id(group_name)
       ),
       purchase_deliveries(
-        delivery_id, lifting_number, delivery_date, status, received_quantity, group_id, product_groups:group_id(group_name),
+        delivery_id, lifting_number, delivery_date, expected_delivery_date, status, received_quantity, group_id, product_groups:group_id(group_name),
         transporter_id, lr_number, vehicle_number, driver_phone_number,
         transporters:transporter_id(name, vehicle_number, driver_phone_number),
         purchase_delivery_godowns(godown_id, qty, group_id, product_groups:group_id(group_name), godowns:godown_id(name))
@@ -1548,6 +1548,7 @@ export const getPurchaseDashboardItems = async () => {
         delivery_id: del.delivery_id,
         lifting_number: del.lifting_number,
         delivery_date: del.delivery_date,
+        expected_delivery_date: del.expected_delivery_date,
         status: del.status,
         received_quantity: recQty,
         group_id: del.group_id,
@@ -1584,6 +1585,8 @@ export const getPurchaseDashboardItems = async () => {
       transporter_qty: transporterQty,
       received_qty: receivedQty,
       received_godown_str: Array.from(receivedGodowns).join(', ') || '—',
+      delivery_date: (deliveries || []).map(d => d.delivery_date).filter(Boolean).sort().reverse()[0] || (deliveries || []).map(d => d.expected_delivery_date).filter(Boolean).sort().reverse()[0] || null,
+      expected_delivery_date: (deliveries || []).map(d => d.expected_delivery_date).filter(Boolean).sort().reverse()[0] || (deliveries || []).map(d => d.delivery_date).filter(Boolean).sort().reverse()[0] || null,
       lifts,
     };
   });

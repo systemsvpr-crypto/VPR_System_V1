@@ -1,5 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { CheckCircle, Square, CheckSquare, Save, Lock, AlertTriangle, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import {
+  CheckCircle, Square, CheckSquare, Save, Lock, AlertTriangle, ChevronLeft, ChevronRight, Trash2,
+  LayoutGrid, LayoutList, Calendar, MapPin, User, Package, Clock, RotateCw, Check, Ban, Search
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAllDispatchPlans, completeDispatchWithStockOut, batchUpdateInformAfterDispatch, deleteDispatchPlansBulk } from '../../../services/salesService';
 import { getAllProductStock } from '../../../services/masterService';
@@ -7,8 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
 import { DatePicker } from '@/components/ui/date-picker';
-
-import { Search } from 'lucide-react';
+import { format } from 'date-fns';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -23,6 +25,11 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('sales_dispatch_completed_view_mode') || 'card');
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('sales_dispatch_completed_view_mode', mode);
+  };
   const [checkedRows, setCheckedRows] = useState(() => new Set());
   const [editValues, setEditValues] = useState({});
   const [isSaving, setIsSaving] = useState(false);
@@ -309,6 +316,241 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
 
 
 
+  const renderCards = () => {
+    if (filteredPlans.length === 0) {
+      return (
+        <div className="p-12 text-center w-full flex-1 flex flex-col items-center justify-center">
+          <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+            <CheckCircle size={32} className="text-slate-300" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-600 mb-1">No Dispatch Plans</h3>
+          <p className="text-sm text-slate-400">
+            {searchTerm ? 'No items match your search.' : 'No dispatch plans found.'}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="overflow-y-auto p-3 custom-scrollbar bg-slate-50/50 flex flex-col gap-2 flex-1 min-h-0">
+        <div className="flex flex-col gap-2">
+          {currentPlans.map(plan => {
+            const vals = editValues[plan.plan_id] || {};
+            const isDone = plan.dispatch_status === 'Dispatch Done' || plan.dispatch_status === 'Cancelled';
+            const isPartiallyDone = plan.dispatch_status === 'Partially Dispatched';
+            const isChecked = checkedRows.has(plan.plan_id);
+
+            const accentBorder = plan.dispatch_status === 'Dispatch Done'
+              ? 'border-l-emerald-500'
+              : plan.dispatch_status === 'Cancelled'
+              ? 'border-l-red-500'
+              : isPartiallyDone
+              ? 'border-l-amber-500'
+              : 'border-l-blue-500';
+
+            const orderQty = Number(plan.sales_order_items?.quantity || 0);
+            const dispatchQty = Number(plan.quantity || 0);
+            const pct = orderQty > 0 ? Math.min(100, Math.round((dispatchQty / orderQty) * 100)) : 0;
+            const godownName = godowns?.find(g => String(g.godown_id) === String(plan.godown_id))?.name || '—';
+
+            return (
+              <div
+                key={plan.plan_id}
+                className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col border-l-[3.5px] ${accentBorder} ${
+                  isChecked ? 'ring-2 ring-primary/20 border-primary' : ''
+                } ${isDone ? 'opacity-85' : ''}`}
+              >
+                {/* Main Compact Row */}
+                <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+                  {/* Left Column: Checkbox/Lock, Status Badge, Dispatch No, Date */}
+                  <div className="flex items-center gap-2.5 shrink-0 min-w-[155px]">
+                    {isDone ? (
+                      <Lock size={16} className="text-slate-300 shrink-0 mt-0.5" />
+                    ) : (
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleCheck(plan.plan_id, isDone)}
+                        className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0 mt-0.5"
+                      />
+                    )}
+                    <div className="flex flex-col gap-1">
+                      <div>
+                        {plan.dispatch_status === 'Dispatch Done' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 leading-none">
+                            <Check size={11} className="stroke-[3]" /> Dispatch Done
+                          </span>
+                        ) : plan.dispatch_status === 'Cancelled' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600 border border-red-200 leading-none">
+                            <Ban size={10} className="stroke-[2.5]" /> Cancelled
+                          </span>
+                        ) : isPartiallyDone ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 leading-none">
+                            <Clock size={10} className="stroke-[2.5]" /> Partially Dispatched
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 leading-none">
+                            <RotateCw size={10} className="stroke-[2.5]" /> Pending
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-tight">
+                        {plan.dispatch_number || '—'}
+                      </div>
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium whitespace-nowrap leading-none">
+                        <Calendar size={11} className="text-slate-400 shrink-0" />
+                        <span>Date: {plan.dispatch_date ? format(new Date(plan.dispatch_date), 'dd MMM yyyy') : '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Vertical Divider */}
+                  <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+
+                  {/* Middle Column: Product Avatar, Name, Badges, Metadata Row */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                        {plan.sales_order_items?.products?.image_url ? (
+                          <img src={plan.sales_order_items.products.image_url} alt={plan.sales_order_items?.products?.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
+                            <Package size={18} className="text-slate-400" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={plan.sales_order_items?.products?.name}>
+                            {plan.sales_order_items?.products?.name || '—'}
+                          </span>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 leading-none">
+                            Order: {plan.sales_order_items?.sales_orders?.order_number || '—'}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-medium leading-tight">
+                          Unit: {plan.sales_order_items?.products?.unit ? String(plan.sales_order_items.products.unit).toUpperCase() : '—'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metadata Row: Customer, Godown, Person */}
+                    <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px]">
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <User size={12} className="text-slate-400 shrink-0" />
+                        <span className="text-slate-400">Customer:</span>
+                        <span className="font-medium text-slate-700 truncate max-w-[150px]" title={plan.sales_order_items?.sales_orders?.customers?.name}>
+                          {plan.sales_order_items?.sales_orders?.customers?.name || '—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <MapPin size={12} className="text-slate-400 shrink-0" />
+                        <span className="text-slate-400">Godown:</span>
+                        <span className="font-semibold text-slate-800 truncate max-w-[150px]" title={godownName}>
+                          {godownName}
+                        </span>
+                      </div>
+                      {plan.users?.full_name && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <User size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Person:</span>
+                          <span className="font-medium text-slate-700">{plan.users.full_name}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Vertical Divider */}
+                  <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+
+                  {/* Middle-Right: Quantities / Progress Box */}
+                  <div className={`py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1.5 min-w-[190px] sm:min-w-[210px] shrink-0 ${
+                    plan.dispatch_status === 'Dispatch Done'
+                      ? 'bg-emerald-50/50 border-emerald-200/70'
+                      : plan.dispatch_status === 'Cancelled'
+                      ? 'bg-red-50/50 border-red-200/70'
+                      : isPartiallyDone
+                      ? 'bg-amber-50/50 border-amber-200/70'
+                      : 'bg-blue-50/50 border-blue-200/70'
+                  }`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded-md bg-white/90 border border-slate-200/60 flex items-center justify-center shrink-0 shadow-2xs">
+                          <Package size={11} className={
+                            plan.dispatch_status === 'Dispatch Done'
+                              ? 'text-emerald-600'
+                              : plan.dispatch_status === 'Cancelled'
+                              ? 'text-red-600'
+                              : 'text-blue-600'
+                          } />
+                        </div>
+                        <span className="font-bold text-slate-900 text-xs">
+                          {dispatchQty} / {orderQty} {plan.sales_order_items?.products?.unit ? String(plan.sales_order_items.products.unit).toUpperCase() : ''}
+                        </span>
+                      </div>
+                      <span className={`text-[10px] font-semibold ${
+                        plan.dispatch_status === 'Dispatch Done'
+                          ? 'text-emerald-700'
+                          : plan.dispatch_status === 'Cancelled'
+                          ? 'text-red-600'
+                          : isPartiallyDone
+                          ? 'text-amber-700'
+                          : 'text-blue-700'
+                      }`}>
+                        {plan.dispatch_status === 'Dispatch Done' ? '100% Done' : `${pct}%`}
+                      </span>
+                    </div>
+
+                    <div className="w-full h-1.5 rounded-full bg-slate-200/80 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          plan.dispatch_status === 'Dispatch Done'
+                            ? 'bg-emerald-500'
+                            : plan.dispatch_status === 'Cancelled'
+                            ? 'bg-red-500'
+                            : 'bg-blue-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-500">
+                      <div>
+                        <span>Order Qty:</span>
+                        <span className="ml-1 font-semibold text-slate-800">{orderQty}</span>
+                      </div>
+                      <div>
+                        <span>Disp Qty:</span>
+                        <span className="ml-1 font-bold text-emerald-700">{dispatchQty}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Inline Dispatch Date Picker Row (when not done) */}
+                {!isDone && (
+                  <div className={`border-t border-slate-100 px-3.5 py-2 flex items-center gap-2.5 flex-wrap transition-colors ${
+                    isChecked ? 'bg-primary/5' : 'bg-slate-50/70'
+                  }`}>
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Dispatch Date:</span>
+                    <DatePicker
+                      value={vals.dispatch_date || ''}
+                      onChange={(e) => updateEditValue(plan.plan_id, 'dispatch_date', e.target.value)}
+                      name="dispatch_date"
+                      placeholder="Select dispatch date..."
+                      className="h-8 text-xs w-36 bg-white"
+                      disabled={!isChecked}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 mb-4 shrink-0">
@@ -382,11 +624,55 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
             {deletingSelected ? 'Deleting...' : 'Delete'}
           </Button>
         )}
+
+        <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
+          <button
+            type="button"
+            onClick={() => handleViewModeChange('card')}
+            className={`p-1.5 rounded-md transition-colors ${
+              viewMode === 'card'
+                ? 'bg-white text-primary shadow-xs'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+            title="Card View"
+          >
+            <LayoutGrid size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleViewModeChange('table')}
+            className={`p-1.5 rounded-md transition-colors ${
+              viewMode === 'table'
+                ? 'bg-white text-primary shadow-xs'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+            title="Table View"
+          >
+            <LayoutList size={15} />
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
-        <div className="overflow-x-auto custom-scrollbar flex-1 min-h-0">
-          <table className="w-full text-xs relative">
+        {/* Sub-header */}
+        <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-400 flex-wrap shrink-0">
+          <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
+            <input type="checkbox"
+              checked={currentPlans.length > 0 && currentPlans.filter(p => p.dispatch_status !== 'Dispatch Done' && p.dispatch_status !== 'Cancelled').length > 0 && currentPlans.filter(p => p.dispatch_status !== 'Dispatch Done' && p.dispatch_status !== 'Cancelled').every(p => checkedRows.has(p.plan_id))}
+              onChange={toggleSelectAll}
+              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+            Select All
+          </label>
+          <span className="ml-auto font-medium text-slate-500">
+            {filteredPlans.length} item{filteredPlans.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        {viewMode === 'card' && renderCards()}
+
+        {viewMode === 'table' && (
+          <div className="overflow-x-auto custom-scrollbar flex-1 min-h-0">
+            <table className="w-full text-xs relative">
             <thead className="sticky top-0 z-10 shadow-sm">
               <tr className="bg-blue-50 border-b border-slate-200">
                 <th className="w-10 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center whitespace-nowrap">
@@ -504,6 +790,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
             </tbody>
           </table>
         </div>
+      )}
         
         <div className="px-4 py-2.5 border-t border-royal-600/25 bg-blue-50 flex items-center justify-between gap-4 rounded-b-xl shrink-0">
             <div className="flex items-center gap-2">

@@ -414,80 +414,126 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
-                {currentIndents.map(indent => {
-                  const items = indent.purchase_indent_items || [];
-                  const isExpanded = expandedIndents.has(indent.indent_id);
-                  const allApproved = items.length > 0 && items.every(i => i.approval_status === 'Approved');
-                  const hasSelectedItems = items.some(i => selectedItems.has(i.item_id));
+                <div className="flex flex-col gap-2">
+                  {currentIndents.map(indent => {
+                    const items = indent.purchase_indent_items || [];
+                    const isExpanded = expandedIndents.has(indent.indent_id);
+                    const allApproved = items.length > 0 && items.every(i => i.approval_status === 'Approved');
+                    const hasSelectedItems = items.some(i => selectedItems.has(i.item_id));
 
-                  return (
-                    <div
-                      key={indent.indent_id}
-                      className={`bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2 ${
-                        hasSelectedItems ? 'ring-2 ring-primary/20 border-primary' : ''
-                      }`}
-                    >
-                      {/* Header */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          {items.some(i => i.approval_status !== 'Approved') && (
-                            <input
-                              type="checkbox"
-                              checked={items.filter(i => i.approval_status !== 'Approved').every(i => selectedItems.has(i.item_id))}
-                              onChange={() => toggleSelectAll(items)}
-                              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer mt-0.5"
-                            />
-                          )}
-                          <div>
-                            <div className="font-semibold text-slate-800 text-sm">{indent.indent_number || '—'}</div>
-                            <div className="text-xs text-slate-500 truncate max-w-[180px]">
-                              {indent.vendors?.name || '—'}
+                    return (
+                      <div
+                        key={indent.indent_id}
+                        className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col border-l-[3.5px] ${
+                          allApproved ? 'border-l-emerald-500' : 'border-l-blue-500'
+                        } ${hasSelectedItems ? 'ring-2 ring-primary/20 border-primary' : ''}`}
+                      >
+                        {/* Main Compact 1-Card Row */}
+                        <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+                          {/* Left Column: Checkbox, Status Badge, Indent No, Date */}
+                          <div className="flex items-center gap-2.5 shrink-0 min-w-[155px]">
+                            {items.some(i => i.approval_status !== 'Approved') && (
+                              <input
+                                type="checkbox"
+                                checked={items.filter(i => i.approval_status !== 'Approved').every(i => selectedItems.has(i.item_id))}
+                                onChange={() => toggleSelectAll(items)}
+                                className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0 mt-0.5"
+                              />
+                            )}
+                            <div className="flex flex-col gap-1">
+                              <div>
+                                {allApproved ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 leading-none">
+                                    <CheckCircle size={10} className="stroke-[2.5]" /> Approved
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 leading-none">
+                                    <Clock size={10} className="stroke-[2.5]" /> Pending Approval
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-tight">
+                                {indent.indent_number || '—'}
+                              </div>
+                              <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium whitespace-nowrap leading-none">
+                                <Calendar size={11} className="text-slate-400 shrink-0" />
+                                <span>Date: {indent.indent_date ? format(new Date(indent.indent_date), 'dd MMM yyyy') : '—'}</span>
+                              </div>
                             </div>
                           </div>
+
+                          {/* Vertical Divider */}
+                          <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+
+                          {/* Middle Column: Vendor Avatar, Name, Godown, Items count */}
+                          <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                                <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
+                                  <User size={18} className="text-slate-400" />
+                                </div>
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={indent.vendors?.name}>
+                                    {indent.vendors?.name || '—'}
+                                  </span>
+                                  {indent.process_type && (
+                                    <IndentTypeBadge processType={indent.process_type} />
+                                  )}
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100 leading-none">
+                                    {items.length} {items.length === 1 ? 'Product' : 'Products'}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 font-medium leading-tight">
+                                  Godown: <span className="text-slate-700 font-semibold">{indent.godowns?.name || '—'}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Middle-Right: Total Amount Box */}
+                          <div className="py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1 min-w-[170px] sm:min-w-[190px] shrink-0 bg-slate-50 border-slate-200/70">
+                            <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider leading-none">
+                              Total Amount
+                            </div>
+                            <div className="text-sm sm:text-base font-bold text-slate-900 leading-tight">
+                              ₹{Number(indent.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </div>
+                            <div className="text-[10px] text-slate-500 leading-none">
+                              Status: <strong className={allApproved ? 'text-emerald-700' : 'text-blue-700'}>{allApproved ? 'Approved' : 'Pending'}</strong>
+                            </div>
+                          </div>
+
+                          {/* Right Column: Actions */}
+                          <div className="flex items-center justify-end xl:justify-center gap-1.5 shrink-0">
+                            <Button
+                              variant={isExpanded ? 'secondary' : 'outline'}
+                              size="sm"
+                              type="button"
+                              onClick={() => toggleExpand(indent.indent_id)}
+                              className={`h-7 px-2.5 text-xs font-semibold gap-1 rounded-md transition-all ${
+                                isExpanded ? 'bg-slate-200 text-slate-800' : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                              }`}
+                            >
+                              <span>{isExpanded ? 'Hide Items' : `View Items (${items.length})`}</span>
+                              <ChevronDown size={13} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Delete Indent"
+                              onClick={() => handleDeleteIndent(indent)}
+                              className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <IndentTypeBadge processType={indent.process_type} />
-                          {allApproved && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
-                              Approved
-                            </span>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            type="button"
-                            title="Delete Indent"
-                            onClick={() => handleDeleteIndent(indent)}
-                            className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
-                          >
-                            <Trash2 size={13} />
-                          </Button>
-                        </div>
-                      </div>
 
-                      {/* Summary Info (2-col grid like DispatchPlanningTable) */}
-                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                        <div><span className="text-slate-400">Date:</span> <span className="text-slate-700">{indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}</span></div>
-                        <div><span className="text-slate-400">Godown:</span> <span className="text-slate-700">{indent.godowns?.name || '—'}</span></div>
-                        <div><span className="text-slate-400">Products:</span> <span className="font-semibold text-primary">{items.length} items</span></div>
-                        <div><span className="text-slate-400">Total Amt:</span> <span className="font-bold text-slate-900">₹{Number(indent.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-                      </div>
-
-                      {/* Toggle Expand Items */}
-                      <div className="border-t border-slate-100 pt-2 flex items-center justify-between">
-                        <button
-                          type="button"
-                          onClick={() => toggleExpand(indent.indent_id)}
-                          className="text-xs font-semibold text-primary hover:text-primary/80 flex items-center gap-1 cursor-pointer"
-                        >
-                          <ChevronDown size={14} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
-                          {isExpanded ? 'Hide Items' : `View Items (${items.length})`}
-                        </button>
-                      </div>
-
-                      {/* Expanded Items */}
-                      {isExpanded && items.length > 0 && (
+                        {/* Expanded Items */}
+                        {isExpanded && items.length > 0 && (
                         <div className="space-y-2 pt-1 border-t border-slate-100">
                           {items.map(item => {
                             const approved = item.approval_status === 'Approved';
@@ -511,11 +557,6 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                                         onChange={() => toggleSelect(item.item_id)}
                                         className="w-3.5 h-3.5 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                                       />
-                                    )}
-                                    {getGroupNameFromItem(item, groups) !== '—' && (
-                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                        {getGroupNameFromItem(item, groups)}
-                                      </span>
                                     )}
                                     <span className="font-semibold text-slate-900">{item.products?.name}</span>
                                     <span className="text-[10px] text-slate-400 uppercase">({item.products?.unit})</span>
@@ -695,7 +736,6 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                               <thead>
                                 <tr className="border-b border-slate-200">
                                   <th className="w-10 px-2 py-2" />
-                                  <th className="text-left px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Group</th>
                                   <th className="text-left px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Product</th>
                                   <th className="text-center px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Qty</th>
                                   <th className="text-left px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Rate</th>
@@ -721,11 +761,6 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                                             onChange={() => toggleSelect(item.item_id)}
                                             className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                                         )}
-                                      </td>
-                                      <td className="px-3 py-2.5 whitespace-nowrap">
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                          {getGroupNameFromItem(item, groups)}
-                                        </span>
                                       </td>
                                       <td className="px-3 py-2.5">
                                         <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>

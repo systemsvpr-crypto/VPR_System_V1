@@ -43,7 +43,6 @@ const IndentTable = ({ indents, totalItems, loading, onEdit, onDelete, searchTer
             <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Items</th>
             <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Type</th>
             <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Created Date</th>
-            <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Group Name</th>
             <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[200px]">Product Name</th>
             <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Unit</th>
             <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Indent Qty</th>
@@ -58,7 +57,7 @@ const IndentTable = ({ indents, totalItems, loading, onEdit, onDelete, searchTer
         <tbody className="divide-y divide-slate-100">
           {totalItems === 0 && (
             <tr>
-              <td colSpan="17" className="p-12 text-center">
+              <td colSpan="16" className="p-12 text-center">
                 <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                   <ShoppingCart size={32} className="text-slate-300" />
                 </div>
@@ -107,11 +106,6 @@ const IndentTable = ({ indents, totalItems, loading, onEdit, onDelete, searchTer
                   )}
                 </td>
                 <td className="px-4 py-3 text-slate-400 text-xs text-center whitespace-nowrap">{format(new Date(o.created_at), 'dd/MM/yyyy')}</td>
-                <td className="px-4 py-3 text-center whitespace-nowrap">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                    {getGroupNameFromItem(item || o, groups)}
-                  </span>
-                </td>
                 <td className="px-4 py-3 text-center whitespace-nowrap">
                   <span className="font-medium text-slate-800">{item?.products?.name || '—'}</span>
                 </td>

@@ -47,6 +47,16 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
   const [deletingSelected, setDeletingSelected] = useState(false);
 
   const [edits, setEdits] = useState({});
+  const [expandedPlanIds, setExpandedPlanIds] = useState(new Set());
+
+  const toggleExpandPlan = (itemId) => {
+    setExpandedPlanIds(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
 
   useEffect(() => { loadItems(); }, []);
 
@@ -523,47 +533,155 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+                <div className="flex flex-col gap-2">
                   {currentItems.map(item => {
                     const indent = item.purchase_indents || {};
                     const hasDecision = !!edits[item.item_id]?.approval_action;
                     const selected = selectedItems.has(item.item_id);
+                    const isExpanded = expandedPlanIds.has(item.item_id);
+                    const vendorId = getValue(item, 'vendor_id');
+                    const selectedVendor = vendors.find(v => String(v.vendor_id) === String(vendorId));
+                    const vendorName = selectedVendor?.name || item.approved_vendor?.name || item.item_vendor?.name || '';
+                    const totalQty = Number(item.indent_qty ?? item.quantity ?? 0);
+                    const apprQty = getApprovedQtyPreview(item);
+                    const rateVal = Number(item.rate || 0);
 
                     return (
                       <div
                         key={item.item_id}
-                        className={`bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2 ${selected ? 'ring-2 ring-primary/20 border-primary' : ''
-                          }`}
+                        className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col border-l-[3.5px] ${
+                          hasDecision ? 'border-l-emerald-500' : 'border-l-indigo-500'
+                        } ${selected ? 'ring-2 ring-primary/20 border-primary' : ''}`}
                       >
-                        {/* Card Header */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2">
+                        {/* Main Compact 1-Card Row */}
+                        <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+                          {/* Left Column: Checkbox, Status Badge, Indent No, Date */}
+                          <div className="flex items-center gap-2.5 shrink-0 min-w-[155px]">
                             <input
                               type="checkbox"
                               checked={selected}
                               onChange={() => toggleSelect(item.item_id)}
-                              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer mt-0.5"
+                              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0 mt-0.5"
                             />
-                            <div>
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="font-semibold text-slate-800 text-sm">{indent.indent_number || '—'}</span>
-                                {getGroupNameFromItem(item, groups) !== '—' && (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                    {getGroupNameFromItem(item, groups)}
+                            <div className="flex flex-col gap-1">
+                              <div>
+                                {hasDecision ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 leading-none">
+                                    <Check size={10} className="stroke-[3]" /> Decided
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 leading-none">
+                                    <Clock size={10} className="stroke-[2.5]" /> Pending Planning
                                   </span>
                                 )}
                               </div>
-                              <div className="text-xs text-slate-500">
-                                {item.products?.name || '—'} <span className="uppercase text-[10px] text-slate-400">({item.products?.unit || '—'})</span>
+                              <div className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-tight">
+                                {indent.indent_number || '—'}
+                              </div>
+                              <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium whitespace-nowrap leading-none">
+                                <Calendar size={11} className="text-slate-400 shrink-0" />
+                                <span>Date: {indent.indent_date ? format(new Date(indent.indent_date), 'dd MMM yyyy') : '—'}</span>
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {hasDecision && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                Decided
+
+                          {/* Vertical Divider */}
+                          <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+
+                          {/* Middle Column: Product Avatar, Name, Packaging, Metadata */}
+                          <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                                {item.products?.image_url ? (
+                                  <img src={item.products.image_url} alt={item.products?.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
+                                    <Package size={18} className="text-slate-400" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={item.products?.name}>
+                                    {item.products?.name || '—'}
+                                  </span>
+                                  {indent.process_type && (
+                                    <IndentTypeBadge processType={indent.process_type} />
+                                  )}
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100 leading-none">
+                                    Raw Material
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-400 font-medium leading-tight">
+                                  {item.products?.packaging_size ? `${item.products.packaging_size} Kg` : (item.products?.unit || '')}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Metadata Row: Vendor, Rate, Exp Date */}
+                            <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px]">
+                              <div className="flex items-center gap-1 text-slate-600">
+                                <User size={12} className="text-slate-400 shrink-0" />
+                                <span className="text-slate-400">Vendor:</span>
+                                <span className="font-medium text-slate-700 truncate max-w-[140px]" title={vendorName}>{vendorName || 'Not selected'}</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-slate-600">
+                                <span className="text-slate-400">Rate:</span>
+                                <span className="font-semibold text-slate-800">₹{rateVal.toFixed(2)}</span>
+                              </div>
+                              {item.planning_date && (
+                                <div className="flex items-center gap-1 text-slate-600">
+                                  <Calendar size={12} className="text-slate-400 shrink-0" />
+                                  <span className="text-slate-400">Exp Delivery:</span>
+                                  <span className="font-medium text-slate-700">{format(new Date(item.planning_date), 'dd/MM/yyyy')}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Middle-Right: Quantities Box with Progress Bar */}
+                          <div className="py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1.5 min-w-[190px] sm:min-w-[210px] shrink-0 bg-indigo-50/50 border-indigo-200/70">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-5 h-5 rounded bg-white/90 border border-slate-200/60 flex items-center justify-center shrink-0">
+                                  <Package size={11} className="text-indigo-600" />
+                                </div>
+                                <span className="font-bold text-slate-900 text-xs">
+                                  {apprQty || totalQty} / {totalQty} {item.products?.unit || 'Kg'}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-semibold text-indigo-700 leading-none">
+                                {hasDecision ? 'Planned' : 'Unplanned'}
                               </span>
-                            )}
+                            </div>
+
+                            <div className="w-full h-1.5 rounded-full bg-slate-200/80 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+                                style={{ width: `${hasDecision ? 100 : 30}%` }}
+                              />
+                            </div>
+
+                            <div className="flex items-center justify-between text-[10px] text-slate-500 leading-none">
+                              <span>Total: <strong className="text-slate-800">{totalQty}</strong></span>
+                              <span>Approved: <strong className="text-indigo-700">{apprQty || '—'}</strong></span>
+                            </div>
+                          </div>
+
+                          {/* Right Column: Actions (Configure Drawer Toggle & Delete) */}
+                          <div className="flex items-center justify-end xl:justify-center gap-1.5 shrink-0">
+                            <Button
+                              variant={isExpanded ? 'secondary' : 'outline'}
+                              size="sm"
+                              type="button"
+                              onClick={() => toggleExpandPlan(item.item_id)}
+                              className={`h-7 px-2.5 text-xs font-semibold gap-1 rounded-md transition-all ${
+                                isExpanded ? 'bg-slate-200 text-slate-800' : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                              }`}
+                            >
+                              <span>{isExpanded ? 'Hide Form' : 'Plan / Edit'}</span>
+                              <ChevronDown size={13} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -577,80 +695,101 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                           </div>
                         </div>
 
-                        {/* Card Grid Info */}
-                        <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                          <div><span className="text-slate-400">Date:</span> <span className="text-slate-700">{indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}</span></div>
-                          <div><span className="text-slate-400">Total Qty:</span> <span className="font-semibold text-slate-900">{item.indent_qty ?? item.quantity ?? '—'}</span></div>
-                          <div><span className="text-slate-400">Rate:</span> <span className="text-slate-700">₹{Number(item.rate || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-                          <div><span className="text-slate-400">Appr. Qty:</span> <span className="font-semibold text-emerald-700">{getApprovedQtyPreview(item) || '—'}</span></div>
-                        </div>
-
-                        {/* Form Details */}
-                        <div className="space-y-2 pt-2 border-t border-slate-100">
-                          <div>
-                            <label className="block text-[10px] text-slate-400 mb-1">Vendor</label>
-                            <Dropdown
-                              value={getValue(item, 'vendor_id')}
-                              onValueChange={(v) => setEditValue(item.item_id, 'vendor_id', v)}
-                              options={vendorOptions}
-                              placeholder="Select vendor..."
-                              searchPlaceholder="Search vendors..."
-                              align="start"
-                              className="h-8 text-xs w-full"
-                            />
+                        {/* Collapsible Planning Drawer */}
+                        {isExpanded && (
+                          <div className="px-3.5 py-3 bg-slate-50/80 border-t border-slate-100 flex flex-col gap-2.5 animate-in fade-in duration-150">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-500 mb-1">Vendor</label>
+                                <Dropdown
+                                  value={getValue(item, 'vendor_id')}
+                                  onValueChange={(v) => setEditValue(item.item_id, 'vendor_id', v)}
+                                  options={vendorOptions}
+                                  placeholder="Select vendor..."
+                                  searchPlaceholder="Search vendors..."
+                                  align="start"
+                                  className="h-7 text-xs w-full bg-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-500 mb-1">Approve Unit</label>
+                                <select
+                                  disabled={subTab === 'history'}
+                                  value={getValue(item, 'approve_unit')}
+                                  onChange={(e) => handleApproveUnitChange(item, e.target.value)}
+                                  className="w-full h-7 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                                >
+                                  <option value="bag">BAG</option>
+                                  <option value="kg">KG</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-500 mb-1">Qty</label>
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="Qty"
+                                  disabled={subTab === 'history'}
+                                  value={getValue(item, 'approve_unit_qty')}
+                                  onChange={(e) => setEditValue(item.item_id, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
+                                  className="h-7 text-xs font-semibold text-center bg-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-500 mb-1">Status</label>
+                                <Dropdown
+                                  value={getValue(item, 'approval_action')}
+                                  onValueChange={(v) => setEditValue(item.item_id, 'approval_action', v)}
+                                  options={STATUS_OPTIONS}
+                                  placeholder="Select status..."
+                                  disabled={subTab === 'history'}
+                                  align="start"
+                                  className="h-7 text-xs w-full bg-white"
+                                />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-slate-200/50">
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Rate (₹)</label>
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="0.00"
+                                  disabled={subTab === 'history'}
+                                  value={getValue(item, 'rate')}
+                                  onChange={(e) => {
+                                    let val = e.target.value.replace(/[^0-9.]/g, '');
+                                    const parts = val.split('.');
+                                    if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                                    setEditValue(item.item_id, 'rate', val);
+                                  }}
+                                  className="h-7 text-xs bg-white font-medium"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Exp. Delivery Date</label>
+                                <Input
+                                  type="date"
+                                  disabled={subTab === 'history'}
+                                  value={getValue(item, 'planning_date')}
+                                  onChange={(e) => setEditValue(item.item_id, 'planning_date', e.target.value)}
+                                  className="h-7 text-xs bg-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Approval Remarks</label>
+                                <Input
+                                  type="text"
+                                  placeholder="Remarks..."
+                                  disabled={subTab === 'history'}
+                                  value={getValue(item, 'approval_remarks')}
+                                  onChange={(e) => setEditValue(item.item_id, 'approval_remarks', e.target.value)}
+                                  className="h-7 text-xs bg-white"
+                                />
+                              </div>
+                            </div>
                           </div>
-                          <div className="grid grid-cols-12 gap-2">
-                            <div className="col-span-6">
-                              <label className="block text-[10px] text-slate-400 mb-1">Approve Unit</label>
-                              <select
-                                disabled={subTab === 'history'}
-                                value={getValue(item, 'approve_unit')}
-                                onChange={(e) => handleApproveUnitChange(item, e.target.value)}
-                                className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
-                              >
-                                <option value="bag">BAG</option>
-                                <option value="kg">KG</option>
-                              </select>
-                            </div>
-                            <div className="col-span-6">
-                              <label className="block text-[10px] text-slate-400 mb-1">Qty</label>
-                              <Input
-                                type="text"
-                                inputMode="decimal"
-                                placeholder="Qty"
-                                disabled={subTab === 'history'}
-                                value={getValue(item, 'approve_unit_qty')}
-                                onChange={(e) => setEditValue(item.item_id, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
-                                className="h-8 text-xs font-semibold text-center"
-                              />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-12 gap-2">
-                            <div className="col-span-6">
-                              <label className="block text-[10px] text-slate-400 mb-1">Status</label>
-                              <Dropdown
-                                value={getValue(item, 'approval_action')}
-                                onValueChange={(v) => setEditValue(item.item_id, 'approval_action', v)}
-                                options={STATUS_OPTIONS}
-                                placeholder="Select status..."
-                                disabled={subTab === 'history'}
-                                align="start"
-                                className="h-8 text-xs w-full"
-                              />
-                            </div>
-                            <div className="col-span-6">
-                              <label className="block text-[10px] text-slate-400 mb-1">Approval Remarks</label>
-                              <Input
-                                type="text"
-                                placeholder="Remarks..."
-                                disabled={subTab === 'history'}
-                                value={getValue(item, 'approval_remarks')}
-                                onChange={(e) => setEditValue(item.item_id, 'approval_remarks', e.target.value)}
-                                className="h-8 text-xs w-full"
-                              />
-                            </div>
-                          </div>
-                        </div>
+                        )}
                       </div>
                     );
                   })}
@@ -676,7 +815,6 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                     </th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Group Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approve Unit</th>
@@ -693,7 +831,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                 <tbody className="divide-y divide-slate-100">
                   {isEmpty && (
                     <tr>
-                      <td colSpan="15" className="p-12 text-center">
+                      <td colSpan="14" className="p-12 text-center">
                         <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                           <ShoppingCart size={32} className="text-slate-300" />
                         </div>
@@ -742,11 +880,6 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                         </td>
                         <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap text-xs">
                           {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
-                        </td>
-                        <td className="px-3 py-3 text-center whitespace-nowrap">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                            {getGroupNameFromItem(item, groups)}
-                          </span>
                         </td>
                         <td className="px-3 py-3 text-center whitespace-nowrap">
                           <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>{' '}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, History, Download, X, Eye, Zap, ArrowRightLeft, BadgeCheck, Truck, Timer, MapPin, CheckCircle2, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList } from 'lucide-react';
+import { Search, History, Download, X, Eye, Zap, ArrowRightLeft, BadgeCheck, Truck, Timer, MapPin, CheckCircle2, ChevronLeft, ChevronRight, Calendar, Package, User, Clock, Check, Trash2, LayoutGrid, LayoutList, RotateCw, FileText, Phone, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getPurchaseDashboardItems, deleteIndentItem, deleteDelivery } from '../../../services/purchaseService';
@@ -145,8 +145,10 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
   const filteredItems = useMemo(() => {
     const term = searchTerm.toLowerCase();
     return items.filter(i => {
+      const delivDate = i.delivery_date || i.expected_delivery_date || (i.lifts && i.lifts.map(l => l.delivery_date || l.expected_delivery_date).filter(Boolean).sort().reverse()[0]);
+      const delYmd = delivDate ? String(delivDate).slice(0, 10) : '';
       const iYmd = i.indent_date ? String(i.indent_date).slice(0, 10) : '';
-      const matchDate = !dateFilter || iYmd === dateFilter;
+      const matchDate = !dateFilter || delYmd === dateFilter || iYmd === dateFilter || (i.lifts && i.lifts.some(l => (l.delivery_date && String(l.delivery_date).slice(0, 10) === dateFilter) || (l.expected_delivery_date && String(l.expected_delivery_date).slice(0, 10) === dateFilter)));
       const matchProduct = !productFilter || i.product_name === productFilter;
       const matchTransporter = !transporterFilter || i.lifts.some(l => l.transporter_name === transporterFilter);
       const gName = i.group_name || getGroupNameFromItem(i, groups);
@@ -221,43 +223,229 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
     }
 
     return (
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+      <div className="overflow-y-auto p-3 custom-scrollbar bg-slate-50/50 flex flex-col gap-2 flex-1 min-h-0">
+        <div className="flex flex-col gap-2">
           {currentItems.map(item => {
             const isSelected = selectedItems.has(item.item_id);
-            const hasLifts = item.lifts.length > 0;
+            const hasLifts = item.lifts && item.lifts.length > 0;
+            const isReceived = Number(item.received_qty || 0) >= Number(item.total_qty || 0) && Number(item.total_qty || 0) > 0;
+            const isInTransit = Number(item.intransit_qty || 0) > 0 || Number(item.transporter_qty || 0) > 0;
+            const totalQty = Number(item.total_qty || 0);
+            const rcvQty = Number(item.received_qty || 0);
+            const pct = totalQty > 0 ? Math.min(100, Math.round((rcvQty / totalQty) * 100)) : 0;
+
+            const accentBorder = isReceived
+              ? 'border-l-4 border-l-emerald-500'
+              : isInTransit
+              ? 'border-l-4 border-l-blue-500'
+              : 'border-l-4 border-l-amber-500';
+
+            // Delivery date: latest delivery date or expected delivery date from lifts or item
+            const delivDate = item.delivery_date ||
+              (item.lifts && item.lifts.map(l => l.delivery_date).filter(Boolean).sort().reverse()[0]) ||
+              item.expected_delivery_date ||
+              (item.lifts && item.lifts.map(l => l.expected_delivery_date).filter(Boolean).sort().reverse()[0]);
+
+            // Logistics fields from lifts
+            const transporterName = item.lifts?.map(l => l.transporter_name).find(t => t && t !== '—');
+            const vehicleNum = item.lifts?.map(l => l.vehicle_number).find(v => v && v !== '—');
+            const lrNum = item.lifts?.map(l => l.lr_number).find(lr => lr && lr !== '—');
+            const godownDisplayName = (item.received_godown_str && item.received_godown_str !== '—')
+              ? item.received_godown_str
+              : item.lifts?.map(l => l.godown_name).find(g => g && g !== '—');
 
             return (
               <div
                 key={item.item_id}
-                className={`bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2 transition-all ${isSelected ? 'ring-2 ring-primary/20 border-primary' : 'hover:border-slate-300 hover:shadow-md'
-                  }`}
+                className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col ${accentBorder} border-l-[3.5px] ${
+                  isSelected ? 'ring-2 ring-primary/20 border-primary' : ''
+                }`}
               >
-                {/* Card Header */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
+                {/* Main Compact 1-Card Row */}
+                <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+                  {/* Left Column: Checkbox, Status Badge, Indent No, Delivery Date */}
+                  <div className="flex items-center gap-2.5 shrink-0 min-w-[155px]">
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleSelect(item.item_id)}
                       className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0 mt-0.5"
                     />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-bold text-slate-800 text-sm">{item.indent_number || '—'}</span>
-                        <IndentTypeBadge processType={item.indent_type === 'Direct' ? 'direct' : 'process'} />
-                        {(item.group_name && item.group_name !== '—') && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                            {item.group_name}
+                    <div className="flex flex-col gap-1">
+                      <div>
+                        {isReceived ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 leading-none">
+                            <Check size={11} className="stroke-[3]" /> Received
+                          </span>
+                        ) : isInTransit ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 leading-none">
+                            <RotateCw size={10} className="stroke-[2.5]" /> In Transit
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 leading-none">
+                            <Clock size={10} className="stroke-[2.5]" /> Pending
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-slate-500 truncate">
-                        {item.product_name} <span className="uppercase text-[10px] text-slate-400">({item.unit || '—'})</span>
+                      <div className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-tight">
+                        {item.indent_number || '—'}
+                      </div>
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium whitespace-nowrap leading-none">
+                        <Calendar size={11} className="text-slate-400 shrink-0" />
+                        <span>Delivery Date: {delivDate ? format(new Date(delivDate), 'dd MMM yyyy') : '—'}</span>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
+
+                  {/* Vertical Divider */}
+                  <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+
+                  {/* Middle Column: Product Avatar, Name, Unit, Badges, Logistics Metadata */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                        {item.image_url ? (
+                          <img src={item.image_url} alt={item.product_name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
+                            <Package size={18} className="text-slate-400" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={item.product_name}>
+                            {item.product_name || '—'}
+                          </span>
+                          {item.indent_type && (
+                            <IndentTypeBadge processType={item.indent_type === 'Direct' ? 'direct' : 'process'} />
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-medium leading-tight">
+                          Unit: {item.unit || '—'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metadata Row: Vendor, Transporter, Godown, [Vehicle], [LR No], Rate, Total Amount, Appr. By */}
+                    <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px]">
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <User size={12} className="text-slate-400 shrink-0" />
+                        <span className="text-slate-400">Vendor:</span>
+                        <span className="font-medium text-slate-700 truncate max-w-[130px]" title={item.vendor_name}>{item.vendor_name || '—'}</span>
+                      </div>
+                      {transporterName && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <Truck size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Transporter:</span>
+                          <span className="font-medium text-slate-700 truncate max-w-[130px]" title={transporterName}>{transporterName}</span>
+                        </div>
+                      )}
+                      {godownDisplayName && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <MapPin size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Godown:</span>
+                          <span className="font-semibold text-slate-800 truncate max-w-[130px]" title={godownDisplayName}>{godownDisplayName}</span>
+                        </div>
+                      )}
+                      {vehicleNum && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <Truck size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Vehicle:</span>
+                          <span className="font-medium text-slate-700">{vehicleNum}</span>
+                        </div>
+                      )}
+                      {lrNum && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <FileText size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">LR No:</span>
+                          <span className="font-medium text-slate-700">{lrNum}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <span className="text-slate-400">Rate:</span>
+                        <span className="font-semibold text-slate-800">₹{formatMoney(item.rate)}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <span className="text-slate-400">Total Amt:</span>
+                        <span className="font-bold text-slate-900">₹{formatMoney(item.total_amount)}</span>
+                      </div>
+                      {item.approved_by_name && (
+                        <div className="flex items-center gap-1 text-slate-500">
+                          <span className="text-slate-400">Appr. By:</span>
+                          <span className="font-medium text-slate-600 truncate max-w-[120px]">{item.approved_by_name}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Middle-Right: Quantities Box with Progress Bar */}
+                  <div className={`py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1.5 min-w-[190px] sm:min-w-[210px] shrink-0 ${
+                    isReceived
+                      ? 'bg-emerald-50/50 border-emerald-200/70'
+                      : isInTransit
+                      ? 'bg-blue-50/50 border-blue-200/70'
+                      : 'bg-amber-50/50 border-amber-200/70'
+                  }`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded-md bg-white/90 border border-slate-200/60 flex items-center justify-center shrink-0 shadow-2xs">
+                          <Package size={11} className={isReceived ? 'text-emerald-600' : isInTransit ? 'text-blue-600' : 'text-amber-600'} />
+                        </div>
+                        <span className="font-bold text-slate-900 text-xs">
+                          {formatNum(rcvQty)} / {formatNum(totalQty)} {item.unit || 'Kg'}
+                        </span>
+                      </div>
+                      <span className={`text-[10px] font-semibold ${
+                        isReceived ? 'text-emerald-700' : (rcvQty === 0 ? 'text-amber-700' : 'text-blue-700')
+                      }`}>
+                        {rcvQty === 0 ? 'Not received yet' : (pct >= 100 ? '100% received' : `${pct}% received`)}
+                      </span>
+                    </div>
+
+                    <div className="w-full h-1.5 rounded-full bg-slate-200/80 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          isReceived ? 'bg-emerald-500' : isInTransit ? 'bg-blue-500' : 'bg-amber-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-500">
+                      <div>
+                        <span>Total:</span>
+                        <span className="ml-1 font-semibold text-slate-800">{formatNum(totalQty)}</span>
+                      </div>
+                      {Number(item.intransit_qty || 0) > 0 && (
+                        <div>
+                          <span>Transit:</span>
+                          <span className="ml-1 font-semibold text-amber-600">{formatNum(item.intransit_qty)}</span>
+                        </div>
+                      )}
+                      <div>
+                        <span>Recv:</span>
+                        <span className="ml-1 font-bold text-emerald-700">{formatNum(rcvQty)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Actions */}
+                  <div className="flex items-center justify-end xl:justify-center gap-1.5 shrink-0">
+                    {hasLifts ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        type="button"
+                        onClick={() => setSelectedItem(item)}
+                        className="h-7 px-2.5 text-xs font-semibold gap-1 rounded-md bg-white hover:bg-slate-50 text-slate-700 border-slate-200 transition-all shadow-2xs"
+                      >
+                        <Truck size={12} className="text-primary" />
+                        <span>Lifts ({item.lifts.length})</span>
+                      </Button>
+                    ) : (
+                      <span className="text-[11px] text-slate-400 px-2">No lifts</span>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -270,69 +458,6 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                       <Trash2 size={13} />
                     </Button>
                   </div>
-                </div>
-
-                {/* 2-Column Key-Value Grid */}
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                  <div>
-                    <span className="text-slate-400">Date:</span>{' '}
-                    <span className="text-slate-700">{item.indent_date ? format(new Date(item.indent_date), 'dd/MM/yyyy') : '—'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Vendor:</span>{' '}
-                    <span className="text-slate-700 font-medium truncate inline-block max-w-[120px] align-bottom" title={item.vendor_name}>{item.vendor_name || '—'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Total Qty:</span>{' '}
-                    <span className="text-slate-700 font-semibold">{formatNum(item.total_qty)}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Rate:</span>{' '}
-                    <span className="text-slate-700 font-medium">₹{formatMoney(item.rate)}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Total Amt:</span>{' '}
-                    <span className="text-slate-800 font-bold">₹{formatMoney(item.total_amount)}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Approve:</span>{' '}
-                    <span className="text-slate-700 font-semibold">{item.approve_qty !== null ? formatNum(item.approve_qty) : 'Pending'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">In Transit:</span>{' '}
-                    <span className="text-amber-600 font-semibold">{item.intransit_qty > 0 ? formatNum(item.intransit_qty) : '0'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">TPT GDN:</span>{' '}
-                    <span className="text-blue-600 font-semibold">{item.transporter_qty > 0 ? formatNum(item.transporter_qty) : '0'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Received:</span>{' '}
-                    <span className="text-emerald-700 font-bold">{item.received_qty > 0 ? formatNum(item.received_qty) : '0'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Godown:</span>{' '}
-                    <span className="text-slate-700 truncate inline-block max-w-[120px] align-bottom" title={item.received_godown_str}>{item.received_godown_str || '—'}</span>
-                  </div>
-                </div>
-
-                {/* Footer with Lifts Drilldown */}
-                <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-                  <span className="text-[11px] text-slate-400 truncate max-w-[150px]" title={item.approved_by_name}>
-                    {item.approved_by_name ? `Approved: ${item.approved_by_name}` : ''}
-                  </span>
-                  {hasLifts ? (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedItem(item)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                    >
-                      <Truck size={12} />
-                      <span>Lifts ({item.lifts.length})</span>
-                    </button>
-                  ) : (
-                    <span className="text-[11px] text-slate-400">No lifts yet</span>
-                  )}
                 </div>
               </div>
             );
@@ -498,7 +623,6 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Group Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
@@ -515,7 +639,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
               <tbody className="divide-y divide-slate-100">
                 {filteredItems.length === 0 && (
                   <tr>
-                    <td colSpan="16" className="p-12 text-center text-slate-400">
+                    <td colSpan="15" className="p-12 text-center text-slate-400">
                       <BadgeCheck size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No purchase indent items found.</p>
                     </td>
@@ -558,11 +682,6 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
                         <IndentTypeBadge processType={item.indent_type === 'Direct' ? 'direct' : 'process'} />
-                      </td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                          {item.group_name || getGroupNameFromItem(item, groups)}
-                        </span>
                       </td>
                       <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
                         {item.product_name}
@@ -671,7 +790,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                   {selectedItem?.product_name} — All Lifts
                 </ModalTitle>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  {selectedItem?.indent_number} &nbsp;·&nbsp; {selectedItem?.vendor_name} {selectedItem?.group_name && selectedItem.group_name !== '—' && `· Group: ${selectedItem.group_name}`}
+                  {selectedItem?.indent_number} &nbsp;·&nbsp; {selectedItem?.vendor_name}
                 </p>
               </div>
             </div>

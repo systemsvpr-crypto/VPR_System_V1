@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList } from 'lucide-react';
+import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Phone, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import {
@@ -585,20 +585,33 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
   };
 
   const renderPendingCards = () => (
-    <div className="overflow-y-auto custom-scrollbar flex-1 min-h-0 p-4 bg-slate-50/50">
+    <div className="overflow-y-auto p-3 custom-scrollbar bg-slate-50/50 flex flex-col gap-2 flex-1 min-h-0">
       {currentList.length === 0 ? (
         <div className="p-12 text-center text-slate-400">
           <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
           <p className="text-sm font-medium">No approved deliveries available.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+        <div className="flex flex-col gap-2">
           {currentPageItems.map(item => {
             const indent = item.purchase_indents || {};
             const isSelected = selectedItems.has(item.item_id);
             const pkgSize = getPackagingSize(item.products);
             const transpId = getRowVal(item.item_id, 'transporter_id');
             const selectedTransporter = transporters.find(t => String(t.transporter_id) === String(transpId));
+
+            // Vehicle, LR, Driver & Remarks
+            const lrVal = getRowVal(item.item_id, 'lr_number');
+            const hasLr = Boolean(lrVal && String(lrVal).trim() !== '' && String(lrVal).trim() !== '—');
+
+            const vehicleVal = getRowVal(item.item_id, 'vehicle_number', selectedTransporter?.vehicle_number || '');
+            const hasVehicle = Boolean(vehicleVal && String(vehicleVal).trim() !== '' && String(vehicleVal).trim() !== '—');
+
+            const driverVal = getRowVal(item.item_id, 'driver_phone_number', selectedTransporter?.driver_phone_number || '');
+            const hasDriver = Boolean(driverVal && String(driverVal).trim() !== '' && String(driverVal).trim() !== '—');
+
+            const remarksVal = getRowVal(item.item_id, 'remarks');
+            const hasRemarks = Boolean(remarksVal && String(remarksVal).trim() !== '' && String(remarksVal).trim() !== '—');
 
             const masterUnit = (item.products?.unit || '').toLowerCase();
             const currentPkgSize = getRowVal(item.item_id, 'packaging_size', pkgSize);
@@ -607,38 +620,161 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
             const dispatchQtyBag = convertDispatchQty(dispatchQtyVal, dispatchUnit, 'bag', currentPkgSize);
             const dispatchQtyKg = convertDispatchQty(dispatchQtyVal, dispatchUnit, 'kg', currentPkgSize);
 
+            const totalQty = Number(item.quantity || 0);
+            const pendingQty = Number(item.remaining_alloc_qty ?? item.remaining_qty ?? 0);
+            const allocatedQty = Math.max(0, totalQty - pendingQty);
+            const percentAllocated = totalQty > 0 ? Math.min(100, Math.round((allocatedQty / totalQty) * 100)) : 0;
+
+            const vendorName = item.approved_vendor?.name || item.item_vendor?.name || '—';
+            const rateVal = (item.rate != null && item.rate !== '') || (item.approved_rate != null && item.approved_rate !== '') ? Number(item.rate ?? item.approved_rate) : null;
+
+            const expDeliveryDate = getRowVal(item.item_id, 'exp_date', item.planning_date || '');
+
             return (
               <div
                 key={item.item_id}
-                className={`bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2 ${
+                className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col border-l-[3.5px] border-l-amber-500 ${
                   isSelected ? 'ring-2 ring-primary/20 border-primary' : ''
                 }`}
               >
-                {/* Header */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2">
+                {/* Main Compact 1-Card Row */}
+                <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+                  {/* Left Column: Checkbox, Indent No, Indent Type Badge, Exp Delivery Date */}
+                  <div className="flex items-center gap-2.5 shrink-0 min-w-[155px]">
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleSelect(item.item_id)}
-                      className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer mt-0.5"
+                      className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0 mt-0.5"
                     />
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-semibold text-slate-800 text-sm">{indent.indent_number || '—'}</span>
-                        {getGroupNameFromItem(item, groups) !== '—' && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                            {getGroupNameFromItem(item, groups)}
-                          </span>
-                        )}
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 leading-none">
+                          <Clock size={10} className="stroke-[2.5]" /> Pending Dispatch
+                        </span>
                       </div>
-                      <div className="text-xs text-slate-500">
-                        {item.products?.name || '—'} <span className="uppercase text-[10px] text-slate-400">({item.products?.unit || '—'})</span>
+                      <div className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-tight">
+                        {indent.indent_number || '—'}
+                      </div>
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium whitespace-nowrap leading-none">
+                        <Calendar size={11} className="text-slate-400 shrink-0" />
+                        <span>Exp Delivery: {expDeliveryDate ? format(new Date(expDeliveryDate), 'dd MMM yyyy') : (item.planning_date ? format(new Date(item.planning_date), 'dd MMM yyyy') : (indent.indent_date ? format(new Date(indent.indent_date), 'dd MMM yyyy') : '—'))}</span>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <IndentTypeBadge processType={indent.process_type} />
+
+                  {/* Vertical Divider */}
+                  <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+
+                  {/* Middle Column: Product Avatar, Name, Packaging, Metadata */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                        {item.products?.image_url ? (
+                          <img src={item.products.image_url} alt={item.products?.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
+                            <Package size={18} className="text-slate-400" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={item.products?.name}>
+                            {item.products?.name || '—'}
+                          </span>
+                          {indent.process_type && (
+                            <IndentTypeBadge processType={indent.process_type} />
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-medium leading-tight">
+                          {currentPkgSize ? `${currentPkgSize} Kg` : (item.products?.unit || '')}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metadata Row: Vendor, Rate, Exp Date, Transporter, Vehicle, LR, Driver, Remarks */}
+                    <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px]">
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <User size={12} className="text-slate-400 shrink-0" />
+                        <span className="text-slate-400">Vendor:</span>
+                        <span className="font-medium text-slate-700 truncate max-w-[140px]" title={vendorName}>{vendorName}</span>
+                      </div>
+                      {rateVal !== null && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <span className="text-slate-400">Rate:</span>
+                          <span className="font-semibold text-slate-800">₹{rateVal.toFixed(2)}</span>
+                        </div>
+                      )}
+                      {selectedTransporter?.name && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <Truck size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Transporter:</span>
+                          <span className="font-medium text-slate-700 truncate max-w-[130px]" title={selectedTransporter.name}>{selectedTransporter.name}</span>
+                        </div>
+                      )}
+                      {hasVehicle && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <Truck size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Vehicle:</span>
+                          <span className="font-medium text-slate-700">{vehicleVal}</span>
+                        </div>
+                      )}
+                      {hasLr && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <FileText size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">LR No:</span>
+                          <span className="font-medium text-slate-700">{lrVal}</span>
+                        </div>
+                      )}
+                      {hasDriver && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <Phone size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Driver:</span>
+                          <span className="font-medium text-slate-700">{driverVal}</span>
+                        </div>
+                      )}
+                      {hasRemarks && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <MessageSquare size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Remarks:</span>
+                          <span className="font-medium text-slate-700 truncate max-w-[130px]" title={remarksVal}>{remarksVal}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Middle-Right: Quantities Box with Progress Bar */}
+                  <div className="py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1.5 min-w-[190px] sm:min-w-[210px] shrink-0 bg-amber-50/50 border-amber-200/70">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded bg-white/90 border border-slate-200/60 flex items-center justify-center shrink-0">
+                          <Package size={11} className="text-amber-600" />
+                        </div>
+                        <span className="font-bold text-slate-900 text-xs">
+                          {pendingQty} / {totalQty} {item.products?.unit || 'Kg'}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-semibold text-amber-700 leading-none">
+                        {pendingQty === 0 ? 'Fully Dispatched' : `${pendingQty} pending`}
+                      </span>
+                    </div>
+
+                    <div className="w-full h-1.5 rounded-full bg-slate-200/80 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-amber-500 transition-all duration-300"
+                        style={{ width: `${percentAllocated}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 leading-none">
+                      <span>Total: <strong className="text-slate-800">{totalQty}</strong></span>
+                      <span>Pending: <strong className="text-amber-700">{pendingQty}</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Actions (Delete) */}
+                  <div className="flex items-center justify-end xl:justify-center gap-1.5 shrink-0">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -652,118 +788,142 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                   </div>
                 </div>
 
-                {/* Card Grid Info */}
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                  <div><span className="text-slate-400">Date:</span> <span className="text-slate-700">{indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}</span></div>
-                  <div><span className="text-slate-400">Vendor:</span> <span className="text-slate-700 truncate">{item.approved_vendor?.name || item.item_vendor?.name || '—'}</span></div>
-                  <div><span className="text-slate-400">Total Qty:</span> <span className="font-semibold text-slate-900">{item.quantity}</span></div>
-                  <div><span className="text-slate-400">Pending Qty:</span> <span className="font-bold text-amber-600">{item.remaining_alloc_qty ?? item.remaining_qty}</span></div>
-                  <div><span className="text-slate-400">Rate:</span> <span className="text-slate-700 font-medium">{(item.rate != null && item.rate !== '') || (item.approved_rate != null && item.approved_rate !== '') ? `₹${Number(item.rate ?? item.approved_rate).toFixed(2)}` : '—'}</span></div>
-                  <div><span className="text-slate-400">Packaging:</span> <span className="text-slate-700">{currentPkgSize}</span></div>
-                </div>
+                {/* Form Controls / Inputs Section - Always visible in one view, enabled when checked */}
+                <div className={`p-3 border-t transition-colors ${
+                  isSelected ? 'bg-primary/[0.02] border-primary/20' : 'bg-slate-50/60 border-slate-100'
+                }`}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+                    {isSelected && (
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Exp. Delivery Date</label>
+                        <Input
+                          type="date"
+                          value={getRowVal(item.item_id, 'exp_date', item.planning_date || '')}
+                          onChange={e => setFieldForSelected(item.item_id, 'exp_date', e.target.value)}
+                          className="h-8 text-xs bg-white"
+                        />
+                      </div>
+                    )}
 
-                {/* Inputs Grid */}
-                <div className="space-y-2 pt-2 border-t border-slate-100">
-                  <div className="grid grid-cols-12 gap-2">
-                    <div className="col-span-6">
-                      <label className="block text-[10px] text-slate-400 mb-1">Exp. Date</label>
-                      <Input
-                        type="date"
-                        value={getRowVal(item.item_id, 'exp_date', item.planning_date || '')}
-                        onChange={e => setFieldForSelected(item.item_id, 'exp_date', e.target.value)}
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                    <div className="col-span-6">
-                      <label className="block text-[10px] text-slate-400 mb-1">Remarks</label>
-                      <Input
-                        type="text"
-                        placeholder="Remarks..."
-                        value={getRowVal(item.item_id, 'remarks')}
-                        onChange={e => setRowVal(item.item_id, 'remarks', e.target.value)}
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 gap-2">
-                    <div className="col-span-4">
-                      <label className="block text-[10px] text-slate-400 mb-1">Unit</label>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Dispatch Unit</label>
                       <select
+                        disabled={!isSelected}
                         value={dispatchUnit}
                         onChange={e => handleDispatchUnitChange(item, e.target.value)}
-                        className="w-full h-8 px-2 rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-700"
+                        className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
                       >
                         <option value="bag">Bag</option>
                         <option value="kg">Kg</option>
                       </select>
                     </div>
-                    <div className="col-span-4">
-                      <label className="block text-[10px] text-slate-400 mb-1">Dis. Qty</label>
+
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                        Dispatch Qty ({dispatchUnit === 'bag' ? 'Bags' : 'Kg'})
+                      </label>
                       <Input
                         type="number"
                         step="any"
+                        disabled={!isSelected}
                         placeholder={String(item.remaining_alloc_qty ?? item.remaining_qty ?? '')}
                         value={dispatchQtyVal}
                         onChange={e => handleReceivedQtyChange(item, e.target.value)}
-                        className="h-8 text-xs bg-white font-semibold text-blue-700 border-blue-200 focus:border-blue-400 text-center"
+                        className="h-8 text-xs bg-white font-bold text-blue-700 border-blue-200 disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
                       />
                     </div>
-                    <div className="col-span-4">
-                      <label className="block text-[10px] text-slate-400 mb-1">Converted</label>
-                      <div className="h-8 w-full flex items-center justify-center text-[10px] font-semibold text-slate-700 bg-slate-50 rounded-md border border-slate-200">
+
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Converted</label>
+                      <div className="h-8 w-full flex items-center px-2.5 text-xs font-bold text-slate-700 bg-slate-100 rounded-lg border border-slate-200">
                         {dispatchUnit === 'bag' ? `${dispatchQtyKg ? Math.round(dispatchQtyKg * 100) / 100 : 0} kg` : `${dispatchQtyBag ? Math.round(dispatchQtyBag * 100) / 100 : 0} bag`}
                       </div>
                     </div>
+
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Transporter</label>
+                      <select
+                        disabled={!isSelected}
+                        value={transpId}
+                        onChange={e => handleTransporterChange(item.item_id, e.target.value)}
+                        className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
+                      >
+                        <option value="">-- Select Transporter --</option>
+                        {transporters.map(t => (
+                          <option key={t.transporter_id} value={t.transporter_id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {(isSelected || hasVehicle) && (
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Vehicle No.</label>
+                        <Input
+                          type="text"
+                          placeholder="Vehicle No."
+                          value={vehicleVal}
+                          onChange={e => setFieldForSelected(item.item_id, 'vehicle_number', e.target.value)}
+                          disabled={!isSelected}
+                          className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
+                        />
+                      </div>
+                    )}
+
+                    {(isSelected || hasLr) && (
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">LR Number</label>
+                        <Input
+                          type="text"
+                          placeholder="LR No."
+                          value={lrVal}
+                          onChange={e => setFieldForSelected(item.item_id, 'lr_number', e.target.value)}
+                          disabled={!isSelected}
+                          className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
+                        />
+                      </div>
+                    )}
+
+                    {(isSelected || hasDriver) && (
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Driver Contact</label>
+                        <Input
+                          type="text"
+                          placeholder="Driver Phone"
+                          value={driverVal}
+                          onChange={e => setFieldForSelected(item.item_id, 'driver_phone_number', e.target.value)}
+                          disabled={!isSelected}
+                          className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
+                        />
+                      </div>
+                    )}
+
+                    {(isSelected || hasRemarks) && (
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Remarks</label>
+                        <Input
+                          type="text"
+                          placeholder="Remarks..."
+                          value={remarksVal}
+                          onChange={e => setRowVal(item.item_id, 'remarks', e.target.value)}
+                          disabled={!isSelected}
+                          className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
+                        />
+                      </div>
+                    )}
                   </div>
 
-                  <div>
-                    <label className="block text-[10px] text-slate-400 mb-1">Transporter</label>
-                    <select
-                      value={transpId}
-                      onChange={e => handleTransporterChange(item.item_id, e.target.value)}
-                      className="w-full h-8 px-2 rounded-md border border-slate-200 bg-white text-xs text-slate-700"
-                    >
-                      <option value="">-- Select Transporter --</option>
-                      {transporters.map(t => (
-                        <option key={t.transporter_id} value={t.transporter_id}>{t.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">LR No.</label>
-                      <Input
-                        type="text"
-                        placeholder="LR No."
-                        value={getRowVal(item.item_id, 'lr_number')}
-                        onChange={e => setFieldForSelected(item.item_id, 'lr_number', e.target.value)}
-                        disabled={!isSelected || !transpId}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">Vehicle</label>
-                      <Input
-                        type="text"
-                        placeholder="Vehicle"
-                        value={getRowVal(item.item_id, 'vehicle_number', selectedTransporter?.vehicle_number || '')}
-                        onChange={e => setFieldForSelected(item.item_id, 'vehicle_number', e.target.value)}
-                        disabled={!isSelected || !transpId}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] text-slate-400 mb-1">Driver</label>
-                      <Input
-                        type="text"
-                        placeholder="Driver"
-                        value={getRowVal(item.item_id, 'driver_phone_number', selectedTransporter?.driver_phone_number || '')}
-                        onChange={e => setFieldForSelected(item.item_id, 'driver_phone_number', e.target.value)}
-                        disabled={!isSelected || !transpId}
-                        className="h-7 text-xs"
-                      />
+                  {/* Selection Status Footer */}
+                  <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-200/60">
+                    <div className="flex items-center gap-1.5">
+                      {isSelected ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary">
+                          <Check size={12} className="stroke-[3]" /> Editing enabled (batch saves on Submit Delivery)
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-slate-400 italic">
+                          Check the box above to configure dispatch
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -776,53 +936,201 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
   );
 
   const renderHistoryCards = () => (
-    <div className="overflow-y-auto custom-scrollbar flex-1 min-h-0 p-4 bg-slate-50/50">
+    <div className="overflow-y-auto p-3 custom-scrollbar bg-slate-50/50 flex flex-col gap-2 flex-1 min-h-0">
       {currentList.length === 0 ? (
         <div className="p-12 text-center text-slate-400">
           <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
           <p className="text-sm font-medium">No delivery history found.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+        <div className="flex flex-col gap-2">
           {currentPageItems.map(del => {
-            const prod = del.purchase_indent_items?.products || {};
-            const qtyKg = Number(del.received_quantity || 0);
-            const indentNum = del.purchase_indent_items?.purchase_indents?.indent_number || '—';
-            const vendorName = del.purchase_indent_items?.approved_vendor?.name || del.purchase_indent_items?.item_vendor?.name || '—';
             const isSelected = selectedItems.has(del.delivery_id);
+            const prod = del.purchase_indent_items?.products || {};
+            const indent = del.purchase_indent_items?.purchase_indents || {};
+            const vendorName = del.purchase_indent_items?.approved_vendor?.name || del.purchase_indent_items?.item_vendor?.name || '';
+            const transporterName = del.transporters?.name || '';
+            const godownName = del.purchase_delivery_godowns?.[0]?.godowns?.name || del.purchase_indent_items?.approved_godown?.name || '—';
+
+            const vehicleNum = del.vehicle_number || del.transporters?.vehicle_number || '';
+            const hasVehicle = Boolean(vehicleNum && String(vehicleNum).trim() !== '' && String(vehicleNum).trim() !== '—');
+            const lrNum = del.lr_number || '';
+            const hasLr = Boolean(lrNum && String(lrNum).trim() !== '' && String(lrNum).trim() !== '—');
+            const driverNum = del.driver_phone_number || del.transporters?.driver_phone_number || '';
+            const hasDriver = Boolean(driverNum && String(driverNum).trim() !== '' && String(driverNum).trim() !== '—');
+            const remarksVal = del.remarks || '';
+            const hasRemarks = Boolean(remarksVal && String(remarksVal).trim() !== '' && String(remarksVal).trim() !== '—');
+
+            const masterUnit = (prod.unit || '').toLowerCase();
+            const isBagUnit = masterUnit.includes('bag') || (del.dispatch_qty_bag != null && Number(del.dispatch_qty_bag) > 0);
+            const unitLabel = isBagUnit ? 'Bags' : (prod.unit || 'Kg');
+            const dispatchQty = isBagUnit
+              ? (del.dispatch_qty_bag != null ? Number(Number(del.dispatch_qty_bag).toFixed(2)) : (del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : 0))
+              : (del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : (del.dispatch_qty_bag != null ? Number(Number(del.dispatch_qty_bag).toFixed(2)) : 0));
+            const recvQty = Number(del.received_quantity || 0);
+            const percentReceived = dispatchQty > 0 ? Math.min(100, Math.round((recvQty / dispatchQty) * 100)) : (recvQty > 0 ? 100 : 0);
+
+            const pkgSize = prod.packaging_size || del.purchase_indent_items?.packaging_size;
+            const pkgSizeDisplay = pkgSize ? `${pkgSize} Kg` : (prod.unit || '');
+
+            const isReceived = del.status === 'Received' || del.status === 'Arrived';
+            const isInTransit = del.status === 'In Transit';
+
+            const accentBorder = isReceived
+              ? 'border-l-4 border-l-emerald-500'
+              : isInTransit
+              ? 'border-l-4 border-l-blue-500'
+              : 'border-l-4 border-l-amber-500';
 
             return (
               <div
                 key={del.delivery_id}
-                className={`bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2 ${
+                className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col ${accentBorder} border-l-[3.5px] ${
                   isSelected ? 'ring-2 ring-primary/20 border-primary' : ''
                 }`}
               >
-                {/* Header */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2">
+                <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+                  {/* Left Column: Status Badge, LIFT Number, Date */}
+                  <div className="flex items-center gap-2.5 shrink-0 min-w-[155px]">
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleSelect(del.delivery_id)}
-                      className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer mt-0.5"
+                      className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0 mt-0.5"
                     />
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-semibold text-slate-800 text-sm">{del.lifting_number || '—'}</span>
-                        {(getGroupNameFromItem(del, groups) !== '—' || getGroupNameFromItem(del.purchase_indent_items, groups) !== '—') && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                            {getGroupNameFromItem(del, groups) !== '—' ? getGroupNameFromItem(del, groups) : getGroupNameFromItem(del.purchase_indent_items, groups)}
-                          </span>
-                        )}
+                    <div className="flex flex-col gap-1">
+                      <div>
+                        {renderStatusBadge(del.status)}
                       </div>
-                      <div className="text-xs text-slate-500">
-                        {prod.name || '—'} <span className="uppercase text-[10px] text-slate-400">({prod.unit || '—'})</span>
+                      <div className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-tight">
+                        {del.lifting_number || '—'}
+                      </div>
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium whitespace-nowrap leading-none">
+                        <Calendar size={11} className="text-slate-400 shrink-0" />
+                        <span>Exp Delivery: {del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd MMM yyyy') : (del.delivery_date ? format(new Date(del.delivery_date), 'dd MMM yyyy') : '—')}</span>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {renderStatusBadge(del.status)}
+
+                  {/* Vertical Divider */}
+                  <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+
+                  {/* Middle Column: Product & Logistics */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                        {prod.image_url ? (
+                          <img src={prod.image_url} alt={prod.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
+                            <Package size={18} className="text-slate-400" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={prod.name}>
+                            {prod.name || '—'}
+                          </span>
+                          {indent.process_type && (
+                            <IndentTypeBadge processType={indent.process_type} />
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-medium leading-tight">
+                          {pkgSizeDisplay}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metadata Row: Vendor, Transporter, Godown, [Vehicle], [LR No] */}
+                    <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px]">
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <User size={12} className="text-slate-400 shrink-0" />
+                        <span className="text-slate-400">Vendor:</span>
+                        <span className="font-medium text-slate-700 truncate max-w-[130px]" title={vendorName}>{vendorName || '—'}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <Truck size={12} className="text-slate-400 shrink-0" />
+                        <span className="text-slate-400">Transporter:</span>
+                        <span className="font-medium text-slate-700 truncate max-w-[130px]" title={transporterName}>{transporterName || '—'}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <MapPin size={12} className="text-slate-400 shrink-0" />
+                        <span className="text-slate-400">Godown:</span>
+                        <span className="font-semibold text-slate-800 truncate max-w-[130px]" title={godownName}>{godownName}</span>
+                      </div>
+                      {hasVehicle && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <Truck size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Vehicle:</span>
+                          <span className="font-medium text-slate-700">{vehicleNum}</span>
+                        </div>
+                      )}
+                      {hasLr && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <FileText size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">LR No:</span>
+                          <span className="font-medium text-slate-700">{lrNum}</span>
+                        </div>
+                      )}
+                      {hasDriver && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <Phone size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Driver:</span>
+                          <span className="font-medium text-slate-700">{driverNum}</span>
+                        </div>
+                      )}
+                      {hasRemarks && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <MessageSquare size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Remarks:</span>
+                          <span className="font-medium text-slate-700 truncate max-w-[130px]" title={remarksVal}>{remarksVal}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Middle-Right: Quantities Box with Progress Bar */}
+                  <div className={`py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1.5 min-w-[190px] sm:min-w-[210px] shrink-0 ${
+                    isReceived
+                      ? 'bg-emerald-50/50 border-emerald-200/70'
+                      : isInTransit
+                      ? 'bg-blue-50/50 border-blue-200/70'
+                      : 'bg-amber-50/50 border-amber-200/70'
+                  }`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded bg-white/90 border border-slate-200/60 flex items-center justify-center shrink-0">
+                          <Package size={11} className={isReceived ? 'text-emerald-600' : isInTransit ? 'text-blue-600' : 'text-amber-600'} />
+                        </div>
+                        <span className="font-bold text-slate-900 text-xs">
+                          {recvQty} / {dispatchQty} {unitLabel}
+                        </span>
+                      </div>
+                      <span className={`text-[10px] font-semibold leading-none ${
+                        isReceived ? 'text-emerald-700' : (recvQty === 0 ? 'text-amber-700' : 'text-blue-700')
+                      }`}>
+                        {recvQty === 0 ? 'Not received' : (percentReceived >= 100 ? '100% received' : `${percentReceived}% received`)}
+                      </span>
+                    </div>
+
+                    <div className="w-full h-1.5 rounded-full bg-slate-200/80 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          isReceived ? 'bg-emerald-500' : isInTransit ? 'bg-blue-500' : 'bg-amber-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(0, percentReceived))}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 leading-none">
+                      <span>Dispatch: <strong className="text-slate-800">{dispatchQty}</strong></span>
+                      <span>Recv: <strong className="text-emerald-700">{recvQty}</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Actions Column */}
+                  <div className="flex items-center justify-end xl:justify-center gap-1.5 shrink-0">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -834,22 +1142,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                       <Trash2 size={13} />
                     </Button>
                   </div>
-                </div>
-
-                {/* Grid Info */}
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                  <div><span className="text-slate-400">Date:</span> <span className="text-slate-700">{del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}</span></div>
-                  <div><span className="text-slate-400">Indent No:</span> <span className="text-slate-700">{indentNum}</span></div>
-                  <div><span className="text-slate-400">Vendor:</span> <span className="text-slate-700 truncate">{vendorName}</span></div>
-                  <div><span className="text-slate-400">Rate:</span> <span className="text-slate-700 font-medium">{del.purchase_indent_items?.rate != null && del.purchase_indent_items?.rate !== '' ? `₹${Number(del.purchase_indent_items.rate).toFixed(2)}` : '—'}</span></div>
-                  <div><span className="text-slate-400">Transporter:</span> <span className="text-slate-700 truncate">{del.transporters?.name || '—'}</span></div>
-                  <div><span className="text-slate-400">LR No:</span> <span className="text-slate-700">{del.lr_number || '—'}</span></div>
-                  <div><span className="text-slate-400">Vehicle:</span> <span className="text-slate-700">{del.vehicle_number || del.transporters?.vehicle_number || '—'}</span></div>
-                  <div><span className="text-slate-400">Disp. Bags:</span> <span className="font-semibold text-slate-800">{del.dispatch_qty_bag != null ? Number(Number(del.dispatch_qty_bag).toFixed(2)) : '—'}</span></div>
-                  <div><span className="text-slate-400">Disp. KG:</span> <span className="font-semibold text-slate-800">{del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : '—'}</span></div>
-                  <div><span className="text-slate-400">Received:</span> <span className="font-bold text-emerald-700">{qtyKg}</span></div>
-                  <div><span className="text-slate-400">Godown:</span> <span className="text-slate-700 truncate">{del.purchase_delivery_godowns?.[0]?.godowns?.name || '—'}</span></div>
-                  <div><span className="text-slate-400">Remarks:</span> <span className="text-slate-700 truncate">{del.remarks || '—'}</span></div>
                 </div>
               </div>
             );
@@ -1076,7 +1368,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Group Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
@@ -1098,7 +1389,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
               <tbody className="divide-y divide-slate-100">
                 {currentList.length === 0 && (
                   <tr>
-                    <td colSpan="22" className="p-12 text-center text-slate-400">
+                    <td colSpan="21" className="p-12 text-center text-slate-400">
                       <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No approved deliveries available.</p>
                     </td>
@@ -1151,11 +1442,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                       </td>
                       <td className="px-3 py-3 text-center font-medium text-slate-700 whitespace-nowrap">
                         {item.approved_vendor?.name || item.item_vendor?.name || '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                          {getGroupNameFromItem(item, groups)}
-                        </span>
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
                         <span className="text-slate-800 font-medium">{item.products?.name || '—'}</span>
@@ -1302,7 +1588,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Group Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in BAG</th>
@@ -1317,7 +1602,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
               <tbody className="divide-y divide-slate-100">
                 {currentList.length === 0 && (
                   <tr>
-                    <td colSpan="16" className="p-12 text-center text-slate-400">
+                    <td colSpan="15" className="p-12 text-center text-slate-400">
                       <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No delivery history found.</p>
                     </td>
@@ -1365,11 +1650,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                       </td>
                       <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
                         {vendorName}
-                      </td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                          {getGroupNameFromItem(del, groups) !== '—' ? getGroupNameFromItem(del, groups) : getGroupNameFromItem(del.purchase_indent_items, groups)}
-                        </span>
                       </td>
                       <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
                         {prod.name || '—'}

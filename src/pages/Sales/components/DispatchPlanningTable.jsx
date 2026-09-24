@@ -3,6 +3,7 @@ import {
   ClipboardList, Package, Truck, Search, Trash2, Ban,
   AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Sparkles, PackageCheck, PackageX, PackageSearch, Zap,
+  LayoutGrid, LayoutList, Calendar, MapPin, User, Check, Clock, RotateCw,
 } from 'lucide-react';
 import { format, differenceInCalendarDays } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -119,6 +120,11 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   const [currentPage, setCurrentPage]       = useState(1);
   const [pageSize, setPageSize]             = useState(PAGE_SIZE_OPTIONS[0]);
   const [historyPageSize, setHistoryPageSize] = useState(HISTORY_PAGE_SIZE_OPTIONS[0]);
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('sales_dispatch_planning_view_mode') || 'card');
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('sales_dispatch_planning_view_mode', mode);
+  };
 
   // inline "check row -> dispatch it" workflow (pending view only)
   const [selectedForDispatch, setSelectedForDispatch] = useState(new Set());
@@ -794,6 +800,456 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   const isEmpty = isPendingView ? dashboardItems.length === 0 : historyRows.length === 0;
   const selectedCount = selectedForDispatch.size;
 
+  const renderPendingCards = () => {
+    if (dashboardItems.length === 0) {
+      return (
+        <div className="p-12 text-center w-full flex-1 flex flex-col items-center justify-center">
+          <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+            <ClipboardList size={32} className="text-slate-300" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-600 mb-1">No Dispatch Items</h3>
+          <p className="text-sm text-slate-400">
+            {searchTerm ? 'No items match your search.' : 'All orders are fully planned.'}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="overflow-y-auto p-3 custom-scrollbar bg-slate-50/50 flex flex-col gap-2 flex-1 min-h-0">
+        <div className="flex flex-col gap-2">
+          {currentItems.map((item) => {
+            const selected = selectedForDispatch.has(item.item_id);
+            const converted = getConvertedQtyPreview(item);
+
+            const isReady = item.stockStatus === 'ready';
+            const isPartial = item.stockStatus === 'partial';
+
+            const accentBorder = isReady
+              ? 'border-l-emerald-500'
+              : isPartial
+              ? 'border-l-amber-500'
+              : 'border-l-red-500';
+
+            const effectiveQty = Number(item.effectiveQty || 0);
+            const remaining = Number(item.remaining || 0);
+            const plannedOrDispatched = Math.max(0, effectiveQty - remaining);
+            const pct = effectiveQty > 0 ? Math.min(100, Math.round((plannedOrDispatched / effectiveQty) * 100)) : 0;
+
+            return (
+              <div
+                key={item.item_id}
+                className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col border-l-[3.5px] ${accentBorder} ${
+                  selected ? 'ring-2 ring-primary/20 border-primary' : ''
+                }`}
+              >
+                {/* Main Compact Row */}
+                <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+                  {/* Left Column: Checkbox, Status Badge, Order No, Date */}
+                  <div className="flex items-center gap-2.5 shrink-0 min-w-[155px]">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleDispatchSelect(item)}
+                      className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0 mt-0.5"
+                    />
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1.5">
+                        {isReady ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 leading-none">
+                            <Check size={11} className="stroke-[3]" /> Ready to Dispatch
+                          </span>
+                        ) : isPartial ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 leading-none">
+                            <Clock size={10} className="stroke-[2.5]" /> Partial Stock
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600 border border-red-200 leading-none">
+                            <AlertCircle size={10} className="stroke-[2.5]" /> Stock Shortage
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-tight">
+                        {item.sales_orders?.order_number || '—'}
+                      </div>
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium whitespace-nowrap leading-none">
+                        <Calendar size={11} className="text-slate-400 shrink-0" />
+                        <span>Date: {item.sales_orders?.order_date ? format(new Date(item.sales_orders.order_date), 'dd MMM yyyy') : '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Vertical Divider */}
+                  <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+
+                  {/* Middle Column: Product Avatar, Name, Badges, Metadata Row */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                        {item.products?.image_url ? (
+                          <img src={item.products.image_url} alt={item.productName} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
+                            <Package size={18} className="text-slate-400" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={item.productName}>
+                            {item.productName || '—'}
+                          </span>
+                          <OrderTypeBadge processType={item.sales_orders?.process_type} />
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 leading-none">
+                            #{item.productNo}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-medium leading-tight">
+                          Unit: {item.products?.unit ? String(item.products.unit).toUpperCase() : '—'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metadata Row: Customer, Godown, Unit Price, Total */}
+                    <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px]">
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <User size={12} className="text-slate-400 shrink-0" />
+                        <span className="text-slate-400">Customer:</span>
+                        <span className="font-medium text-slate-700 truncate max-w-[150px]" title={item.sales_orders?.customers?.name}>
+                          {item.sales_orders?.customers?.name || '—'}
+                        </span>
+                      </div>
+                      {item.orderGodownName && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <MapPin size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Order Godown:</span>
+                          <span className="font-semibold text-slate-800 truncate max-w-[150px]" title={item.orderGodownName}>
+                            {item.orderGodownName}
+                          </span>
+                        </div>
+                      )}
+                      {item.unit_price ? (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <span className="text-slate-400">Price:</span>
+                          <span className="font-semibold text-slate-800">
+                            ₹{Number(item.unit_price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      ) : null}
+                      {item.unit_price ? (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <span className="text-slate-400">Total:</span>
+                          <span className="font-bold text-slate-900">
+                            ₹{(Number(item.unit_price) * Number(item.effectiveQty || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Vertical Divider */}
+                  <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+
+                  {/* Middle-Right: Quantities / Stock Status Box */}
+                  <div className={`py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1.5 min-w-[190px] sm:min-w-[210px] shrink-0 ${
+                    isReady
+                      ? 'bg-emerald-50/50 border-emerald-200/70'
+                      : isPartial
+                      ? 'bg-amber-50/50 border-amber-200/70'
+                      : 'bg-red-50/50 border-red-200/70'
+                  }`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded-md bg-white/90 border border-slate-200/60 flex items-center justify-center shrink-0 shadow-2xs">
+                          <Package size={11} className={isReady ? 'text-emerald-600' : isPartial ? 'text-amber-600' : 'text-red-600'} />
+                        </div>
+                        <span className="font-bold text-slate-900 text-xs">
+                          {item.remaining} / {item.effectiveQty} {unitLabel(item.products?.unit)}
+                        </span>
+                      </div>
+                      <span className={`text-[10px] font-semibold ${
+                        isReady ? 'text-emerald-700' : isPartial ? 'text-amber-700' : 'text-red-600'
+                      }`}>
+                        {item.stockStatus === 'ready' ? 'Ready' : item.stockStatus === 'partial' ? 'Partial' : 'Shortage'}
+                      </span>
+                    </div>
+
+                    <div className="w-full h-1.5 rounded-full bg-slate-200/80 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          isReady ? 'bg-emerald-500' : isPartial ? 'bg-amber-500' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(0, 100 - pct))}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-500">
+                      <div>
+                        <span>Total:</span>
+                        <span className="ml-1 font-semibold text-slate-800">{item.effectiveQty}</span>
+                      </div>
+                      <div>
+                        <span>Pending:</span>
+                        <span className={`ml-1 font-bold ${isReady ? 'text-emerald-700' : isPartial ? 'text-amber-700' : 'text-red-600'}`}>
+                          {item.remaining}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Inline Dispatch Planning Row */}
+                <div className={`border-t border-slate-100 px-3.5 py-2 flex items-center gap-2.5 flex-wrap transition-colors ${
+                  selected ? 'bg-primary/5' : 'bg-slate-50/70'
+                }`}>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Unit:</span>
+                    <Dropdown
+                      value={getDraft(item, 'unit')}
+                      onValueChange={v => setUnitForItem(item, v)}
+                      options={UNIT_OPTIONS}
+                      placeholder="Unit..."
+                      align="start"
+                      disabled={!selected}
+                      className="h-8 text-xs w-24 text-center bg-white"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Qty:</span>
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Qty"
+                      disabled={!selected}
+                      value={getDraft(item, 'quantity')}
+                      onChange={e => setDraftValue(item.item_id, 'quantity', sanitizeQtyInput(e.target.value))}
+                      className="h-8 text-xs w-20 text-center bg-white"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Dis Qty:</span>
+                    <div className="h-8 px-2 flex items-center justify-center text-xs font-medium text-slate-700 bg-white rounded-md border border-slate-200 min-w-[70px]">
+                      {converted ? `${converted.value} ${unitLabel(converted.unit)}` : '—'}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Date:</span>
+                    <DatePicker
+                      value={getDraft(item, 'dispatch_date')}
+                      disabled={!selected}
+                      onChange={e => setDispatchDateForSelected(item, e.target.value)}
+                      placeholder="Select date..."
+                      className="h-8 text-xs w-32 bg-white"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 flex-1 min-w-[170px]">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Godown:</span>
+                    <Dropdown
+                      value={getDraft(item, 'godown_id')}
+                      onValueChange={v => setGodownForSelected(item, v)}
+                      options={activeGodownOptions}
+                      placeholder="Godown..."
+                      searchPlaceholder="Search godowns..."
+                      align="start"
+                      disabled={!selected}
+                      className="h-8 text-xs w-full bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderHistoryCards = () => {
+    if (currentDataset.length === 0) {
+      return (
+        <div className="p-12 text-center w-full flex-1 flex flex-col items-center justify-center">
+          <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+            <ClipboardList size={32} className="text-slate-300" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-600 mb-1">No Dispatch Items</h3>
+          <p className="text-sm text-slate-400">
+            {searchTerm ? 'No items match your search.' : 'No planned dispatches yet.'}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="overflow-y-auto p-3 custom-scrollbar bg-slate-50/50 flex flex-col gap-2 flex-1 min-h-0">
+        <div className="flex flex-col gap-2">
+          {currentHistoryRows.map((row) => {
+            const isDone = row.status === 'Dispatch Done';
+            const isCancelled = row.status === 'Cancelled';
+
+            const accentBorder = isDone
+              ? 'border-l-emerald-500'
+              : isCancelled
+              ? 'border-l-red-500'
+              : 'border-l-blue-500';
+
+            return (
+              <div
+                key={row.key}
+                className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col border-l-[3.5px] ${accentBorder}`}
+              >
+                <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+                  {/* Left Column: Status Badge, Dispatch No, Dispatch Date */}
+                  <div className="flex items-center gap-2.5 shrink-0 min-w-[155px]">
+                    <div className="flex flex-col gap-1">
+                      <div>
+                        {isDone ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 leading-none">
+                            <Check size={11} className="stroke-[3]" /> Dispatch Done
+                          </span>
+                        ) : isCancelled ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600 border border-red-200 leading-none">
+                            <Ban size={10} className="stroke-[2.5]" /> Cancelled
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 leading-none">
+                            <RotateCw size={10} className="stroke-[2.5]" /> {row.status || 'Planned'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-tight">
+                        {row.dispatchNo || '—'}
+                      </div>
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium whitespace-nowrap leading-none">
+                        <Calendar size={11} className="text-slate-400 shrink-0" />
+                        <span>Date: {row.dispatchDate ? format(new Date(row.dispatchDate), 'dd MMM yyyy') : '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Vertical Divider */}
+                  <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+
+                  {/* Middle Column: Product Name, Order No, Customer, Godowns */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                        <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
+                          <Package size={18} className="text-slate-400" />
+                        </div>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={row.productName}>
+                            {row.productName || '—'}
+                          </span>
+                          <OrderTypeBadge processType={row.processType} />
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 leading-none">
+                            #{row.productNo}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-medium leading-tight">
+                          Order: <span className="font-semibold text-primary">{row.orderNumber}</span> (Date: {row.orderDate ? format(new Date(row.orderDate), 'dd MMM yyyy') : '—'})
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metadata Row: Customer, Godowns, Unit Price, Total */}
+                    <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px]">
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <User size={12} className="text-slate-400 shrink-0" />
+                        <span className="text-slate-400">Customer:</span>
+                        <span className="font-medium text-slate-700 truncate max-w-[150px]" title={row.customerName}>
+                          {row.customerName || '—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <MapPin size={12} className="text-slate-400 shrink-0" />
+                        <span className="text-slate-400">Dispatch Godown:</span>
+                        <span className="font-semibold text-slate-800 truncate max-w-[150px]" title={row.dispatchGodownName}>
+                          {row.dispatchGodownName}
+                        </span>
+                      </div>
+                      {row.unitPrice ? (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <span className="text-slate-400">Price:</span>
+                          <span className="font-semibold text-slate-800">
+                            ₹{Number(row.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      ) : null}
+                      {row.totalAmount ? (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <span className="text-slate-400">Total:</span>
+                          <span className="font-bold text-slate-900">
+                            ₹{Number(row.totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Vertical Divider */}
+                  <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+
+                  {/* Middle-Right: Quantities Box */}
+                  <div className={`py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1.5 min-w-[190px] sm:min-w-[210px] shrink-0 ${
+                    isDone
+                      ? 'bg-emerald-50/50 border-emerald-200/70'
+                      : isCancelled
+                      ? 'bg-red-50/50 border-red-200/70'
+                      : 'bg-blue-50/50 border-blue-200/70'
+                  }`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded-md bg-white/90 border border-slate-200/60 flex items-center justify-center shrink-0 shadow-2xs">
+                          <Package size={11} className={isDone ? 'text-emerald-600' : isCancelled ? 'text-red-600' : 'text-blue-600'} />
+                        </div>
+                        <span className="font-bold text-slate-900 text-xs">
+                          {row.dispatchQty} / {row.orderedQty} {unitLabel(row.unit)}
+                        </span>
+                      </div>
+                      <span className={`text-[10px] font-semibold ${
+                        isDone ? 'text-emerald-700' : isCancelled ? 'text-red-600' : 'text-blue-700'
+                      }`}>
+                        {isCancelled ? 'Cancelled' : isDone ? 'Done' : 'Planned'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-500">
+                      <div>
+                        <span>Ordered:</span>
+                        <span className="ml-1 font-semibold text-slate-800">{row.orderedQty}</span>
+                      </div>
+                      {isCancelled ? (
+                        <div>
+                          <span>Cancelled:</span>
+                          <span className="ml-1 font-bold text-red-600">{row.dispatchQty}</span>
+                        </div>
+                      ) : (
+                        <div>
+                          <span>Dispatched:</span>
+                          <span className="ml-1 font-bold text-emerald-700">{row.dispatchQty}</span>
+                        </div>
+                      )}
+                      <div>
+                        <span>Converted:</span>
+                        <span className="ml-1 font-medium text-slate-700">{row.convertedQty}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col flex-1">
       {/* ── Pending/History toggle, search, and (pending view only) filter controls — all in one row ── */}
@@ -941,7 +1397,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
           <p className="text-sm text-slate-400">Loading dispatch items...</p>
         </div>
       ) : (
-      <div className={`bg-white rounded-xl border border-slate-200 flex flex-col ${!isPendingView ? 'flex-1 min-h-0' : 'h-[420px] sm:h-[480px] md:h-[560px]'}`}>
+      <div className={`bg-white rounded-xl border border-slate-200 flex flex-col ${!isPendingView ? 'flex-1 min-h-0' : (viewMode === 'card' ? 'flex-1 min-h-[520px]' : 'h-[420px] sm:h-[480px] md:h-[560px]')}`}>
 
         {/* ── legend (shown for both Pending and History) ── */}
         <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-400 flex-wrap shrink-0">
@@ -954,27 +1410,56 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />Partial stock</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />Stock shortage</span>
 
-          {isPendingView && (
-            <label className="ml-auto flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
-              <input type="checkbox"
-                checked={currentItems.length > 0 && currentItems.every(i => selectedForDispatch.has(i.item_id))}
-                onChange={toggleSelectAllPending}
-                className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-              Select All
-            </label>
-          )}
+          <div className="ml-auto flex items-center gap-3">
+            {isPendingView && (
+              <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
+                <input type="checkbox"
+                  checked={currentItems.length > 0 && currentItems.every(i => selectedForDispatch.has(i.item_id))}
+                  onChange={toggleSelectAllPending}
+                  className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+                Select All
+              </label>
+            )}
 
-          {!isPendingView && (
-            <div className="ml-auto flex items-center gap-4">
+            {!isPendingView && (
               <span className="font-medium text-slate-500">
                 {currentDataset.length} item{currentDataset.length !== 1 ? 's' : ''}
               </span>
+            )}
+
+            <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+              <button
+                type="button"
+                onClick={() => handleViewModeChange('card')}
+                className={`p-1 rounded-md transition-colors ${
+                  viewMode === 'card'
+                    ? 'bg-white text-primary shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Card View"
+              >
+                <LayoutGrid size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleViewModeChange('table')}
+                className={`p-1 rounded-md transition-colors ${
+                  viewMode === 'table'
+                    ? 'bg-white text-primary shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Table View"
+              >
+                <LayoutList size={15} />
+              </button>
             </div>
-          )}
+          </div>
         </div>
 
-        {/* ══════════════════════ PENDING TABLE (via shared DataTable) ══════════════════════ */}
-        {isPendingView && (
+        {/* ══════════════════════ PENDING VIEW ══════════════════════ */}
+        {isPendingView && viewMode === 'card' && renderPendingCards()}
+
+        {isPendingView && viewMode === 'table' && (
           <DataTable
             emptyState={
               <div className="p-12 text-center w-full">
@@ -990,7 +1475,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
               </div>
             }
             minWidth="2050px"
-            viewMode="card"
+            viewMode="table"
             headers={[
               {
                 label: (
@@ -1097,82 +1582,14 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                 </tr>
               );
             }}
-            renderCard={(item) => {
-              const selected = selectedForDispatch.has(item.item_id);
-              const converted = getConvertedQtyPreview(item);
-              return (
-                <div key={item.item_id} className={`bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2 ${selected ? 'ring-2 ring-primary/20' : ''}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <input type="checkbox" checked={selected} onChange={() => toggleDispatchSelect(item)}
-                        className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer mt-0.5" />
-                      <div>
-                        <div className="font-semibold text-slate-800 text-sm">{item.sales_orders?.order_number || '—'}</div>
-                        <div className="text-xs text-slate-500">
-                          {item.productName} <span className="uppercase text-[10px] text-slate-400">({item.products?.unit})</span>
-                        </div>
-                      </div>
-                    </div>
-                    <OrderTypeBadge processType={item.sales_orders?.process_type} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                    <div><span className="text-slate-400">Order Date:</span> <span className="text-slate-700">{item.sales_orders?.order_date ? format(new Date(item.sales_orders.order_date), 'dd/MM/yyyy') : '—'}</span></div>
-                    <div><span className="text-slate-400">Customer:</span> <span className="text-slate-700">{item.sales_orders?.customers?.name || '—'}</span></div>
-                    <div><span className="text-slate-400">Total Qty:</span> <span className="font-semibold text-slate-900">{item.effectiveQty}</span></div>
-                    <div>
-                      <span className="text-slate-400">Pending:</span>{' '}
-                      <span className="inline-flex items-center gap-1 font-semibold text-amber-600">
-                        <StockDot status={item.stockStatus} />{item.remaining}
-                      </span>
-                    </div>
-                    <div><span className="text-slate-400">Product #:</span> <span className="text-slate-700">{item.productNo}</span></div>
-                    <div><span className="text-slate-400">Order Godown:</span> <span className="text-slate-700">{item.orderGodownName || '—'}</span></div>
-                    <div><span className="text-slate-400">Unit Price:</span> <span className="text-slate-700">{item.unit_price ? `₹${Number(item.unit_price).toLocaleString('en-IN')}` : '—'}</span></div>
-                    <div><span className="text-slate-400">Total:</span> <span className="font-medium text-slate-800">{item.unit_price ? `₹${(Number(item.unit_price) * Number(item.effectiveQty || 0)).toLocaleString('en-IN')}` : '—'}</span></div>
-                  </div>
-                  <div className="grid grid-cols-12 gap-2 pt-2 border-t border-slate-100">
-                    <div className="col-span-6">
-                      <label className="block text-[10px] text-slate-400 mb-1">Unit</label>
-                      <Dropdown value={getDraft(item, 'unit')} onValueChange={v => setUnitForItem(item, v)}
-                        options={UNIT_OPTIONS} placeholder="Unit..." align="start" disabled={!selected}
-                        className="h-9 w-full text-xs" />
-                    </div>
-                    <div className="col-span-6">
-                      <label className="block text-[10px] text-slate-400 mb-1">Qty</label>
-                      <Input type="text" inputMode="decimal" placeholder="Qty"
-                        disabled={!selected} value={getDraft(item, 'quantity')}
-                        onChange={e => setDraftValue(item.item_id, 'quantity', sanitizeQtyInput(e.target.value))}
-                        className="h-9 w-full text-xs text-center" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-12 gap-2 pt-2 border-t border-slate-100">
-                    <div className="col-span-3">
-                      <label className="block text-[10px] text-slate-400 mb-1 truncate">Dis Qty</label>
-                      <div className="h-9 w-full flex items-center justify-center text-xs text-slate-600 bg-slate-50 rounded-lg border border-slate-200">
-                        {converted ? `${converted.value} ${unitLabel(converted.unit)}` : '—'}
-                      </div>
-                    </div>
-                    <div className="col-span-5">
-                      <label className="block text-[10px] text-slate-400 mb-1">Dispatch Date</label>
-                      <DatePicker value={getDraft(item, 'dispatch_date')} disabled={!selected}
-                        onChange={e => setDispatchDateForSelected(item, e.target.value)} placeholder="Select date..."
-                        className="h-9 w-full text-xs" />
-                    </div>
-                    <div className="col-span-4">
-                      <label className="block text-[10px] text-slate-400 mb-1 truncate">Godown</label>
-                      <Dropdown value={getDraft(item, 'godown_id')} onValueChange={v => setGodownForSelected(item, v)}
-                        options={activeGodownOptions} placeholder="Godown..." searchPlaceholder="Search godowns..." align="start" disabled={!selected}
-                        className="h-9 w-full text-xs" />
-                    </div>
-                  </div>
-                </div>
-              );
-            }}
+            renderCard={() => null}
           />
         )}
 
-        {/* ══════════════════════ HISTORY TABLE ══════════════════════ */}
-        {!isPendingView && (
+        {/* ══════════════════════ HISTORY VIEW ══════════════════════ */}
+        {!isPendingView && viewMode === 'card' && renderHistoryCards()}
+
+        {!isPendingView && viewMode === 'table' && (
           <DataTable
             viewMode="table"
             emptyState={
@@ -1243,6 +1660,62 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
             )}
             renderCard={() => null}
           />
+        )}
+
+        {/* Card View Pagination Footer */}
+        {viewMode === 'card' && (
+          <div className="shrink-0 px-4 py-2.5 border-t border-royal-600/25 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-4 rounded-b-xl">
+            <div className="flex items-center gap-2">
+              <select
+                value={isPendingView ? pageSize : historyPageSize}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  if (isPendingView) {
+                    setPageSize(val);
+                  } else {
+                    setHistoryPageSize(val);
+                  }
+                  setCurrentPage(1);
+                }}
+                className="ring-1 ring-royal-600/25 rounded-xl px-2 py-1 focus:outline-none focus:ring-2 focus:ring-royal-500/30 bg-white font-medium text-xs md:text-sm"
+              >
+                {(isPendingView ? PAGE_SIZE_OPTIONS : HISTORY_PAGE_SIZE_OPTIONS).map((val) => (
+                  <option key={val} value={val}>{val}</option>
+                ))}
+              </select>
+              <span className="text-[10px] md:text-sm text-slate-600 whitespace-nowrap font-medium hidden sm:inline">
+                {currentDataset.length > 0
+                  ? ((currentPage - 1) * (isPendingView ? pageSize : historyPageSize)) + 1
+                  : 0}
+                -
+                {Math.min(
+                  currentPage * (isPendingView ? pageSize : historyPageSize),
+                  currentDataset.length
+                )}{' '}
+                of {currentDataset.length}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 md:gap-4 text-slate-700">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 md:px-2 md:py-1 ring-1 ring-royal-600/25 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-royal-50 transition flex items-center justify-center text-royal-600"
+              >
+                <ChevronLeft size={16} strokeWidth={2.5} />
+              </button>
+              <div className="flex items-center text-xs md:text-sm font-semibold text-slate-600">
+                {currentPage} / {totalPages || 1}
+              </div>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === Math.max(1, totalPages)}
+                className="p-1.5 md:px-2 md:py-1 ring-1 ring-royal-600/25 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-royal-50 transition flex items-center justify-center text-royal-600"
+              >
+                <ChevronRight size={16} strokeWidth={2.5} />
+              </button>
+            </div>
+          </div>
         )}
       </div>
       )}
