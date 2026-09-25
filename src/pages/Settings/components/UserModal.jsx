@@ -30,12 +30,20 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
 
   useEffect(() => {
     if (isOpen && editingUser) {
+      const initialTabAccess = { ...(editingUser.tab_access || {}) };
+      const currentPages = editingUser.page_access || DEFAULT_USER_PAGES;
+      Object.entries(PAGE_TABS).forEach(([pageId, tabs]) => {
+        if (currentPages.includes(pageId) && initialTabAccess[pageId] === undefined) {
+          initialTabAccess[pageId] = tabs.map(t => t.id);
+        }
+      });
+
       setFormData({
         ...DEFAULT_FORM_DATA, ...editingUser,
         password: editingUser.password || '',
         role: editingUser.role || USER_ROLES[USER_ROLES.length - 1],
         page_access: editingUser.page_access || DEFAULT_USER_PAGES,
-        tab_access: editingUser.tab_access || {},
+        tab_access: initialTabAccess,
         profile_picture: editingUser.profile_picture || '',
         designation: editingUser.designation || '',
         phone_number: editingUser.phone_number || '',

@@ -6,6 +6,7 @@ import { getAawakDeliveries, updateAawakLift, deleteDelivery } from '../../../se
 import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import FilterMenu from '@/components/FilterMenu';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -865,60 +866,65 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
           />
         </div>
 
-        {/* Calendar Filter for Delivery Date */}
-        <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 shrink-0">
-          <span className="whitespace-nowrap font-medium text-slate-500">Date:</span>
-          <input
-            type="date"
-            value={dateFilter}
-            onChange={e => setDateFilter(e.target.value)}
-            className="h-7 text-xs bg-transparent focus:outline-none text-slate-700 cursor-pointer"
-          />
-        </div>
-
-        <select
-          value={productFilter}
-          onChange={e => setProductFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
+        <FilterMenu
+          activeCount={[dateFilter, productFilter, transporterFilter, godownFilter, expDateFilter].filter(Boolean).length}
+          onClear={() => { setDateFilter(''); setProductFilter(''); setTransporterFilter(''); setGodownFilter(''); setExpDateFilter(''); }}
         >
-          <option value="">Product (-- All --)</option>
-          {productOptions.map(p => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
+          {/* Calendar Filter for Delivery Date */}
+          <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 w-full">
+            <span className="whitespace-nowrap font-medium text-slate-500">Date:</span>
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={e => setDateFilter(e.target.value)}
+              className="h-7 text-xs bg-transparent flex-1 min-w-0 focus:outline-none text-slate-700 cursor-pointer"
+            />
+          </div>
 
-        <select
-          value={transporterFilter}
-          onChange={e => setTransporterFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
-        >
-          <option value="">Transporter (-- All --)</option>
-          {transporterOptions.map(t => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
+          <select
+            value={productFilter}
+            onChange={e => setProductFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+          >
+            <option value="">Product (-- All --)</option>
+            {productOptions.map(p => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
 
-        <select
-          value={godownFilter}
-          onChange={e => setGodownFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[140px] shrink-0"
-        >
-          <option value="">Godown (-- All --)</option>
-          {ownGodowns.map(g => (
-            <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
-          ))}
-        </select>
+          <select
+            value={transporterFilter}
+            onChange={e => setTransporterFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+          >
+            <option value="">Transporter (-- All --)</option>
+            {transporterOptions.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
 
-        {/* Calendar Filter for Expected Receiving Date */}
-        <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 shrink-0">
-          <span className="whitespace-nowrap font-medium text-slate-500">Exp. Recv Date:</span>
-          <input
-            type="date"
-            value={expDateFilter}
-            onChange={e => setExpDateFilter(e.target.value)}
-            className="h-7 text-xs bg-transparent focus:outline-none text-slate-700 cursor-pointer"
-          />
-        </div>
+          <select
+            value={godownFilter}
+            onChange={e => setGodownFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+          >
+            <option value="">Godown (-- All --)</option>
+            {ownGodowns.map(g => (
+              <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
+            ))}
+          </select>
+
+          {/* Calendar Filter for Expected Receiving Date */}
+          <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 w-full">
+            <span className="whitespace-nowrap font-medium text-slate-500">Exp. Recv Date:</span>
+            <input
+              type="date"
+              value={expDateFilter}
+              onChange={e => setExpDateFilter(e.target.value)}
+              className="h-7 text-xs bg-transparent flex-1 min-w-0 focus:outline-none text-slate-700 cursor-pointer"
+            />
+          </div>
+        </FilterMenu>
 
         {(searchTerm || dateFilter || productFilter || transporterFilter || godownFilter || expDateFilter) && (
           <Button variant="outline" size="sm" onClick={clearFilters} className="h-9 text-xs border-slate-200 hover:bg-slate-50 shrink-0">

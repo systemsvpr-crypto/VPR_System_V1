@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet, Award, PackagePlus } from 'lucide-react';
+import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet, Award, PackagePlus, X } from 'lucide-react';
+import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllGodowns, getAllProducts, getAllProductStock, toggleGodownStatus, deleteGodown } from '../../services/masterService';
@@ -161,10 +162,44 @@ const Master = () => {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [products, groupNameMap]);
 
+  const stockMap = useMemo(() => {
+    const map = {};
+    for (const s of allStock) {
+      if (!map[s.product_id]) map[s.product_id] = [];
+      const godown = godowns.find(g => g.godown_id === s.godown_id);
+      if (godown) {
+        map[s.product_id].push({ godown_name: godown.name, godown_id: s.godown_id, current_stock: s.current_stock ?? 0 });
+      }
+    }
+    return map;
+  }, [allStock, godowns]);
+
   const filteredProducts = useMemo(() => {
-    let result = products.filter(p =>
-      p.name?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const term = searchTerm.toLowerCase().trim();
+    let result = products.filter(p => {
+      if (!term) return true;
+      const groupName = p.group_id ? (groupNameMap[p.group_id] || '') : '';
+      const stocks = stockMap[p.product_id] || [];
+      const godownNames = stocks.map(s => s.godown_name).join(' ');
+      const createdDate = p.created_at ? (() => {
+        try { return format(new Date(p.created_at), 'dd/MM/yyyy'); } catch { return ''; }
+      })() : '';
+
+      return (
+        p.name?.toLowerCase().includes(term) ||
+        p.unit?.toLowerCase().includes(term) ||
+        p.product_type?.toLowerCase().includes(term) ||
+        p.brand_name?.toLowerCase().includes(term) ||
+        p.category?.toLowerCase().includes(term) ||
+        p.mux?.toLowerCase().includes(term) ||
+        p.hsn_code?.toLowerCase().includes(term) ||
+        p.sku?.toLowerCase().includes(term) ||
+        p.product_code?.toLowerCase().includes(term) ||
+        groupName.toLowerCase().includes(term) ||
+        godownNames.toLowerCase().includes(term) ||
+        createdDate.includes(term)
+      );
+    });
     if (godownFilter !== 'all') {
       result = result.filter(p =>
         allStock.some(s => s.product_id === p.product_id && s.godown_id === godownFilter)
@@ -179,13 +214,28 @@ const Master = () => {
       result = result.filter(p => p.group_id === groupingFilter);
     }
     return result;
-  }, [products, searchTerm, godownFilter, transporterFilter, groupingFilter, allStock]);
+  }, [products, searchTerm, godownFilter, transporterFilter, groupingFilter, allStock, groupNameMap, stockMap]);
 
   const filteredGodowns = useMemo(() => {
-    return godowns.filter(g =>
-      g.name?.toLowerCase().includes(searchTerm.toLowerCase()) &&
-      (g.godown_type || 'Own') === godownTypeFilter
-    );
+    const term = searchTerm.toLowerCase().trim();
+    return godowns.filter(g => {
+      const matchType = (g.godown_type || 'Own') === godownTypeFilter;
+      if (!matchType) return false;
+      if (!term) return true;
+      const statusText = g.is_active ? 'active' : 'inactive';
+      return (
+        g.name?.toLowerCase().includes(term) ||
+        g.godown_type?.toLowerCase().includes(term) ||
+        g.location?.toLowerCase().includes(term) ||
+        g.address?.toLowerCase().includes(term) ||
+        g.contact_person?.toLowerCase().includes(term) ||
+        g.phone?.toLowerCase().includes(term) ||
+        g.phone_number?.toLowerCase().includes(term) ||
+        g.contact_number?.toLowerCase().includes(term) ||
+        g.remarks?.toLowerCase().includes(term) ||
+        statusText.includes(term)
+      );
+    });
   }, [godowns, searchTerm, godownTypeFilter]);
 
   const rankNameMap = useMemo(() => {
@@ -195,15 +245,29 @@ const Master = () => {
   }, [ranks]);
 
   const filteredCustomers = useMemo(() => {
-    const term = searchTerm.toLowerCase();
-    let result = customers.filter(c =>
-      c.name?.toLowerCase().includes(term) ||
-      c.location?.toLowerCase().includes(term) ||
-      c.phone_number?.toLowerCase().includes(term) ||
-      c.email?.toLowerCase().includes(term) ||
-      c.ranks?.rank_name?.toLowerCase().includes(term) ||
-      (c.rank_id && rankNameMap[c.rank_id]?.toLowerCase().includes(term))
-    );
+    const term = searchTerm.toLowerCase().trim();
+    let result = customers.filter(c => {
+      if (!term) return true;
+      const rankName = c.ranks?.rank_name || (c.rank_id ? rankNameMap[c.rank_id] : '') || '';
+      return (
+        c.name?.toLowerCase().includes(term) ||
+        c.location?.toLowerCase().includes(term) ||
+        c.phone_number?.toLowerCase().includes(term) ||
+        c.phone?.toLowerCase().includes(term) ||
+        c.mobile?.toLowerCase().includes(term) ||
+        c.email?.toLowerCase().includes(term) ||
+        c.gst_number?.toLowerCase().includes(term) ||
+        c.gst_no?.toLowerCase().includes(term) ||
+        c.gstin?.toLowerCase().includes(term) ||
+        c.pan_number?.toLowerCase().includes(term) ||
+        c.pan_no?.toLowerCase().includes(term) ||
+        c.address?.toLowerCase().includes(term) ||
+        c.contact_person?.toLowerCase().includes(term) ||
+        c.crm_follow_up?.toLowerCase().includes(term) ||
+        c.customer_code?.toLowerCase().includes(term) ||
+        rankName.toLowerCase().includes(term)
+      );
+    });
     if (customerRankFilter !== 'all') {
       result = result.filter(c => c.rank_id === customerRankFilter);
     }
@@ -211,36 +275,77 @@ const Master = () => {
   }, [customers, searchTerm, customerRankFilter, rankNameMap]);
 
   const filteredVendors = useMemo(() => {
-    const term = searchTerm.toLowerCase();
-    return vendors.filter(v =>
-      v.name?.toLowerCase().includes(term) ||
-      v.location?.toLowerCase().includes(term) ||
-      v.phone_number?.toLowerCase().includes(term) ||
-      v.email?.toLowerCase().includes(term)
-    );
+    const term = searchTerm.toLowerCase().trim();
+    return vendors.filter(v => {
+      if (!term) return true;
+      return (
+        v.name?.toLowerCase().includes(term) ||
+        v.location?.toLowerCase().includes(term) ||
+        v.phone_number?.toLowerCase().includes(term) ||
+        v.phone?.toLowerCase().includes(term) ||
+        v.email?.toLowerCase().includes(term) ||
+        v.gst_number?.toLowerCase().includes(term) ||
+        v.gst_no?.toLowerCase().includes(term) ||
+        v.gstin?.toLowerCase().includes(term) ||
+        v.pan_number?.toLowerCase().includes(term) ||
+        v.pan_no?.toLowerCase().includes(term) ||
+        v.address?.toLowerCase().includes(term) ||
+        v.contact_person?.toLowerCase().includes(term) ||
+        v.vendor_code?.toLowerCase().includes(term)
+      );
+    });
   }, [vendors, searchTerm]);
 
   const filteredTransporters = useMemo(() => {
-    const term = searchTerm.toLowerCase();
-    return transporters.filter(t =>
-      t.name?.toLowerCase().includes(term) ||
-      t.vehicle_number?.toLowerCase().includes(term) ||
-      t.driver_phone_number?.toLowerCase().includes(term)
-    );
+    const term = searchTerm.toLowerCase().trim();
+    return transporters.filter(t => {
+      if (!term) return true;
+      return (
+        t.name?.toLowerCase().includes(term) ||
+        t.vehicle_number?.toLowerCase().includes(term) ||
+        t.driver_phone_number?.toLowerCase().includes(term) ||
+        t.driver_phone?.toLowerCase().includes(term) ||
+        t.driver_name?.toLowerCase().includes(term) ||
+        t.phone_number?.toLowerCase().includes(term) ||
+        t.phone?.toLowerCase().includes(term) ||
+        t.contact_person?.toLowerCase().includes(term) ||
+        t.location?.toLowerCase().includes(term) ||
+        t.address?.toLowerCase().includes(term) ||
+        t.transporter_code?.toLowerCase().includes(term)
+      );
+    });
   }, [transporters, searchTerm]);
 
   const filteredGroups = useMemo(() => {
-    const term = searchTerm.toLowerCase();
-    return groups.filter(g =>
-      g.group_name?.toLowerCase().includes(term)
-    );
+    const term = searchTerm.toLowerCase().trim();
+    return groups.filter(g => {
+      if (!term) return true;
+      const matchGroupName = g.group_name?.toLowerCase().includes(term);
+      const matchDescription = g.description?.toLowerCase().includes(term);
+      const matchBrand = g.brand?.toLowerCase().includes(term);
+      const matchCategory = g.category?.toLowerCase().includes(term);
+      const matchProducts = g.allProducts?.some(p =>
+        p.product_name?.toLowerCase().includes(term) ||
+        p.name?.toLowerCase().includes(term)
+      );
+      return matchGroupName || matchDescription || matchBrand || matchCategory || matchProducts;
+    });
   }, [groups, searchTerm]);
 
   const filteredRanks = useMemo(() => {
-    const term = searchTerm.toLowerCase();
-    return ranks.filter(r =>
-      r.rank_name?.toLowerCase().includes(term)
-    );
+    const term = searchTerm.toLowerCase().trim();
+    return ranks.filter(r => {
+      if (!term) return true;
+      const createdDate = r.created_at ? (() => {
+        try { return format(new Date(r.created_at), 'dd/MM/yyyy'); } catch { return ''; }
+      })() : '';
+      return (
+        r.rank_name?.toLowerCase().includes(term) ||
+        r.description?.toLowerCase().includes(term) ||
+        String(r.rank_id || '').toLowerCase().includes(term) ||
+        createdDate.includes(term)
+      );
+    });
   }, [ranks, searchTerm]);
 
   const totalProductPages = Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage));
@@ -286,18 +391,6 @@ const Master = () => {
     return filteredRanks.slice(start, start + itemsPerPage);
   }, [filteredRanks, currentPage, itemsPerPage]);
 
-  const stockMap = useMemo(() => {
-    const map = {};
-    for (const s of allStock) {
-      if (!map[s.product_id]) map[s.product_id] = [];
-      const godown = godowns.find(g => g.godown_id === s.godown_id);
-      if (godown) {
-        map[s.product_id].push({ godown_name: godown.name, godown_id: s.godown_id, current_stock: s.current_stock ?? 0 });
-      }
-    }
-    return map;
-  }, [allStock, godowns]);
-
   useEffect(() => {
     if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === activeTab)) {
       setActiveTab(visibleTabs[0].id);
@@ -305,6 +398,7 @@ const Master = () => {
   }, [visibleTabs, activeTab]);
 
   useEffect(() => { loadData(); }, []);
+  useEffect(() => { setSearchTerm(''); }, [activeTab]);
   useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, godownFilter, transporterFilter, groupingFilter, godownTypeFilter, customerRankFilter]);
 
   const loadData = async () => {
@@ -449,7 +543,7 @@ const Master = () => {
         ) : (
           <div className="flex flex-col flex-1 min-h-0">
             {/* Table UI Header matching Live Stock pages */}
-            <div className="px-5 py-4 border-b border-slate-100 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 bg-white shrink-0">
+            <div className="px-5 py-3.5 border-b border-slate-100 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 bg-white shrink-0">
 
               <div className="flex items-center gap-3 shrink-0">
                 <div className="bg-blue-50 p-2 rounded-lg text-blue-600">
@@ -458,16 +552,31 @@ const Master = () => {
                     return <ActiveIcon size={18} />;
                   })()}
                 </div>
-                <h3 className="font-semibold text-slate-800 text-lg">
+                <h3 className="font-semibold text-slate-800 text-lg whitespace-nowrap">
                   {visibleTabs.find(t => t.id === activeTab)?.label || 'Master'}
                 </h3>
               </div>
 
-              <div className="flex flex-nowrap items-center gap-3 w-full xl:w-auto xl:justify-end overflow-x-auto pb-1 xl:pb-0">
-                <div className="relative w-48 shrink-0">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={14} />
-                  <Input type="text" placeholder={`Search ${activeTab}...`} className="pl-8 h-8 w-full text-sm"
-                    value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto lg:justify-end">
+                <div className="relative w-full sm:w-60 md:w-64 lg:w-72 shrink-0">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 z-10 pointer-events-none" size={14} />
+                  <Input
+                    type="text"
+                    placeholder={`Search ${visibleTabs.find(t => t.id === activeTab)?.label?.toLowerCase() || 'anything'}...`}
+                    className="pl-8 pr-8 h-8 w-full text-sm"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  {searchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchTerm('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 transition-colors"
+                      title="Clear search"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
                 </div>
                 {activeTab === 'products' && ownGodowns.length > 0 && (
                   <div className="w-36 shrink-0">
@@ -610,7 +719,7 @@ const Master = () => {
               )}
               {activeTab === 'product-grouping' && (
                 <div className="flex flex-col flex-1 min-h-0">
-                  <GroupTable groups={currentGroups} totalItems={filteredGroups.length} loading={loading} onEdit={handleEditGroup} onDelete={handleDeleteGroup}
+                  <GroupTable groups={currentGroups} totalItems={filteredGroups.length} loading={loading} onEdit={handleEditGroup} onDelete={handleDeleteGroup} searchTerm={searchTerm}
                     currentPage={currentPage} totalPages={totalGroupPages} itemsPerPage={itemsPerPage}
                     onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
                 </div>

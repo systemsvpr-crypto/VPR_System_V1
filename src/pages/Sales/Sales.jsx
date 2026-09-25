@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { TabSwitcher } from '@/components/StandardButtons';
 import OrderTable from './components/OrderTable';
+import FilterMenu from '@/components/FilterMenu';
 import OrderModal from './components/OrderModal';
 import BulkOrderProductsModal from './components/BulkOrderProductsModal';
 import DispatchPlanningTable from './components/DispatchPlanningTable';
@@ -230,7 +231,7 @@ const Sales = () => {
   };
 
   return (
-    <div className="flex flex-col gap-6 h-full min-h-0">
+    <div className="flex flex-col gap-6 shrink-0 pb-2">
 
 
       <div className="flex justify-start w-full shrink-0 overflow-x-auto pb-1 custom-scrollbar">
@@ -253,10 +254,10 @@ const Sales = () => {
           <p className="text-sm text-slate-400">You don't have access to any Sales tabs. Contact your administrator.</p>
         </div>
       ) : (
-      <div className="flex flex-col gap-4 flex-1 min-h-0">
+      <div className="flex flex-col gap-4 flex-1">
       {activeTab === 'orders' && (
-        <div className="flex flex-col gap-4 flex-1 min-h-0">
-          <div className="flex items-center justify-between gap-2.5 shrink-0 flex-nowrap overflow-x-auto custom-scrollbar pb-1">
+        <div className="flex flex-col gap-4 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-2.5 shrink-0">
             <div className="flex items-center gap-2 shrink-0">
               <div className="relative w-44 sm:w-52 lg:w-60 shrink-0">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={15} />
@@ -268,28 +269,33 @@ const Sales = () => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <select
-                value={godownFilter}
-                onChange={e => setGodownFilter(e.target.value)}
-                className="h-9 px-2.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0"
+              <FilterMenu
+                activeCount={[godownFilter, typeFilter].filter(Boolean).length}
+                onClear={() => { setGodownFilter(''); setTypeFilter(''); }}
               >
-                <option value="">All Godowns</option>
-                {ownGodowns.map(g => (
-                  <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
-                ))}
-              </select>
-              <select
-                value={typeFilter}
-                onChange={e => setTypeFilter(e.target.value)}
-                className="h-9 px-2.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0"
-              >
-                <option value="">All Types</option>
-                <option value="order_process">Process</option>
-                <option value="direct">Direct</option>
-                <option value="skip_delivered">Skip</option>
-              </select>
+                <select
+                  value={godownFilter}
+                  onChange={e => setGodownFilter(e.target.value)}
+                  className="h-9 px-2.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+                >
+                  <option value="">All Godowns</option>
+                  {ownGodowns.map(g => (
+                    <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
+                  ))}
+                </select>
+                <select
+                  value={typeFilter}
+                  onChange={e => setTypeFilter(e.target.value)}
+                  className="h-9 px-2.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+                >
+                  <option value="">All Types</option>
+                  <option value="order_process">Process</option>
+                  <option value="direct">Direct</option>
+                  <option value="skip_delivered">Skip</option>
+                </select>
+              </FilterMenu>
             </div>
-            <div className="flex items-center gap-2 shrink-0 ml-auto">
+            <div className="flex flex-wrap items-center gap-2 shrink-0 ml-auto">
               {!loading && filteredOrders.length > 0 && (
                 <Button variant="outline" size="sm" onClick={() => exportOrdersCSV(filteredOrders)} className="h-9 gap-1.5 px-3 text-xs font-medium text-slate-600 border-slate-200 hover:bg-slate-50 shrink-0">
                   <Download size={14} /><span>Export</span>
@@ -314,7 +320,7 @@ const Sales = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
+          <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1">
             <OrderTable orders={currentOrders} totalItems={filteredOrders.length} loading={loading}
               onEdit={handleEditOrder} onDelete={handleDeleteOrder} searchTerm={searchTerm}
               selectedIds={selectedOrderIds} onToggleSelect={handleToggleSelectOrder} onToggleSelectAll={handleToggleSelectAllOrders} />
@@ -385,8 +391,8 @@ const Sales = () => {
       )}
 
       {activeTab === 'dispatch-planning' && (
-        <div className="flex flex-col gap-4 flex-1 min-h-0">
-          <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col">
+        <div className="flex flex-col gap-4 flex-1">
+          <div className="flex-1 flex flex-col">
             <DispatchPlanningTable godowns={godowns} searchTerm={searchTerm} dispatchFilter={dispatchFilter}
               onSearchChange={setSearchTerm} onFilterChange={setDispatchFilter}
               onSave={loadData} user={user} products={products} customers={customers}
@@ -398,13 +404,13 @@ const Sales = () => {
       )}
 
       {activeTab === 'dispatch-completed' && (
-        <div className="flex flex-col gap-4 flex-1 min-h-0">
+        <div className="flex flex-col gap-4 flex-1">
           <DispatchCompletedTable searchTerm={searchTerm} onSearchChange={setSearchTerm} completeFilter={completeFilter} onFilterChange={setCompleteFilter} onSave={loadData} products={products} godowns={godowns} user={user} />
         </div>
       )}
 
       {activeTab === 'inform-after-dispatch' && (
-        <div className="flex flex-col gap-4 flex-1 min-h-0">
+        <div className="flex flex-col gap-4 flex-1">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <div className="relative w-full md:w-72">
@@ -434,7 +440,7 @@ const Sales = () => {
       )}
 
       {activeTab === 'skip-delivered' && (
-        <div className="flex flex-col gap-4 flex-1 min-h-0">
+        <div className="flex flex-col gap-4 flex-1">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <div className="relative w-full md:w-72">

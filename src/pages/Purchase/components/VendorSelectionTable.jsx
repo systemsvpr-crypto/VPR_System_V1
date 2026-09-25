@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
+import FilterMenu from '@/components/FilterMenu';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -405,38 +406,43 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
             value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
 
-        <select
-          value={indentFilter}
-          onChange={e => setIndentFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
+        <FilterMenu
+          activeCount={[indentFilter, productFilter, vendorFilter].filter(Boolean).length}
+          onClear={() => { setIndentFilter(''); setProductFilter(''); setVendorFilter(''); }}
         >
-          <option value="">-- All Indents --</option>
-          {indentOptions.map(num => (
-            <option key={num} value={num}>{num}</option>
-          ))}
-        </select>
+          <select
+            value={indentFilter}
+            onChange={e => setIndentFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+          >
+            <option value="">-- All Indents --</option>
+            {indentOptions.map(num => (
+              <option key={num} value={num}>{num}</option>
+            ))}
+          </select>
 
-        <select
-          value={productFilter}
-          onChange={e => setProductFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
-        >
-          <option value="">-- All Products --</option>
-          {productOptions.map(p => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
+          <select
+            value={productFilter}
+            onChange={e => setProductFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+          >
+            <option value="">-- All Products --</option>
+            {productOptions.map(p => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
 
-        <select
-          value={vendorFilter}
-          onChange={e => setVendorFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
-        >
-          <option value="">-- All Vendors --</option>
-          {indentVendorOptions.map(v => (
-            <option key={v} value={v}>{v}</option>
-          ))}
-        </select>
+          <select
+            value={vendorFilter}
+            onChange={e => setVendorFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+          >
+            <option value="">-- All Vendors --</option>
+            {indentVendorOptions.map(v => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+        </FilterMenu>
 
         {(searchTerm || indentFilter || productFilter || vendorFilter) && (
           <Button variant="outline" size="sm" onClick={() => { setSearchTerm(''); setIndentFilter(''); setProductFilter(''); setVendorFilter(''); }}

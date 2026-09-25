@@ -7,6 +7,7 @@ import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalTitle } from '@/components/ui/modal';
+import FilterMenu from '@/components/FilterMenu';
 
 const LIFT_STATUS_STYLE = {
   'In Transit': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: Timer, label: 'In Transit' },
@@ -492,38 +493,43 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
             />
           </div>
 
-          {/* Calendar Filter for Indent Date */}
-          <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30">
-            <span className="whitespace-nowrap font-medium text-slate-500">Date:</span>
-            <input
-              type="date"
-              value={dateFilter}
-              onChange={e => setDateFilter(e.target.value)}
-              className="h-7 text-xs bg-transparent focus:outline-none text-slate-700 cursor-pointer"
-            />
-          </div>
-
-          <select
-            value={productFilter}
-            onChange={e => setProductFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[160px]"
+          <FilterMenu
+            activeCount={[dateFilter, productFilter, transporterFilter].filter(Boolean).length}
+            onClear={() => { setDateFilter(''); setProductFilter(''); setTransporterFilter(''); }}
           >
-            <option value="">Product Name (-- All --)</option>
-            {productOptions.map(p => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
+            {/* Calendar Filter for Indent Date */}
+            <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 w-full">
+              <span className="whitespace-nowrap font-medium text-slate-500">Date:</span>
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={e => setDateFilter(e.target.value)}
+                className="h-7 text-xs bg-transparent flex-1 min-w-0 focus:outline-none text-slate-700 cursor-pointer"
+              />
+            </div>
 
-          <select
-            value={transporterFilter}
-            onChange={e => setTransporterFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[160px]"
-          >
-            <option value="">Transporter Name (-- All --)</option>
-            {transporterOptions.map(t => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+            <select
+              value={productFilter}
+              onChange={e => setProductFilter(e.target.value)}
+              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+            >
+              <option value="">Product Name (-- All --)</option>
+              {productOptions.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+
+            <select
+              value={transporterFilter}
+              onChange={e => setTransporterFilter(e.target.value)}
+              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+            >
+              <option value="">Transporter Name (-- All --)</option>
+              {transporterOptions.map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </FilterMenu>
 
           {(searchTerm || dateFilter || productFilter || transporterFilter) && (
             <Button variant="outline" size="sm" onClick={clearFilters} className="h-9 text-xs border-slate-200 hover:bg-slate-50">

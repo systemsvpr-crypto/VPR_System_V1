@@ -14,11 +14,40 @@ import { exportStockReport } from './exportStockReport';
 import { exportStockPdf } from './exportStockPdf';
 import DataTable from '@/components/DataTable';
 import { TabSwitcher } from '@/components/StandardButtons';
+import useAuthStore from '../../store/authStore';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
+const DASHBOARD_TABS = [
+  { id: 'live', label: 'Godown Live Stock', icon: Warehouse },
+  { id: 'transport', label: 'Transport Godown Stock', icon: Truck },
+  { id: 'vendor', label: 'Vendor Dashboard', icon: Store },
+  { id: 'sales', label: 'Sales Dashboard', icon: Users },
+];
+
 const LiveStockDashboard = () => {
+  const { user } = useAuthStore();
+  const roleUpper = String(user?.role || '').trim().toUpperCase();
+  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
+
+  const visibleTabs = useMemo(() => {
+    if (isSuperAdmin) return DASHBOARD_TABS;
+    const allowedTabs = user?.tab_access?.['live-stock-dashboard'];
+    if (allowedTabs === undefined) return DASHBOARD_TABS;
+    return DASHBOARD_TABS.filter(tab => allowedTabs.includes(tab.id));
+  }, [user, isSuperAdmin]);
+
   const [activeView, setActiveView] = useState('live'); // 'live' | 'transport' | 'vendor' | 'sales'
+
+  const currentView = visibleTabs.some(t => t.id === activeView)
+    ? activeView
+    : (visibleTabs[0]?.id || 'live');
+
+  useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === activeView)) {
+      setActiveView(visibleTabs[0].id);
+    }
+  }, [visibleTabs, activeView]);
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [data, setData] = useState([]);
   const [summaryData, setSummaryData] = useState({ godowns: [], totals: { opening: 0, stockIn: 0, stockOut: 0, closing: 0 } });
@@ -33,6 +62,10 @@ const LiveStockDashboard = () => {
   const abortRef = useRef(null);
 
   useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === 'live')) {
+      setLoading(false);
+      return;
+    }
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -60,7 +93,7 @@ const LiveStockDashboard = () => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [date, searchQuery, currentPage, pageSize]);
+  }, [date, searchQuery, currentPage, pageSize, visibleTabs]);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -164,77 +197,97 @@ const LiveStockDashboard = () => {
   return (
     <div className="flex flex-col gap-6 pb-8">
       {/* Top View Switcher Bar */}
-      <div className="flex justify-center w-full shrink-0">
-        <TabSwitcher
-          activeTab={activeView}
-          onTabChange={setActiveView}
-          tabs={[
-            { id: 'live', label: <div className="flex items-center gap-2"><Warehouse size={15} /><span>Godown Live Stock</span></div> },
-            { id: 'transport', label: <div className="flex items-center gap-2"><Truck size={15} /><span>Transport Godown Stock</span></div> },
-            { id: 'vendor', label: <div className="flex items-center gap-2"><Store size={15} /><span>Vendor Dashboard</span></div> },
-            { id: 'sales', label: <div className="flex items-center gap-2"><Users size={15} /><span>Sales Dashboard</span></div> },
-          ]}
-        />
-      </div>
+      {visibleTabs.length > 0 && (
+        <div className="flex justify-center w-full shrink-0">
+          <TabSwitcher
+            activeTab={currentView}
+            onTabChange={setActiveView}
+            tabs={visibleTabs.map(tab => {
+              const Icon = tab.icon;
+              return {
+                id: tab.id,
+                label: (
+                  <div className="flex items-center gap-2">
+                    <Icon size={15} />
+                    <span>{tab.label}</span>
+                  </div>
+                ),
+              };
+            })}
+          />
+        </div>
+      )}
 
-      {activeView === 'vendor' ? (
+      {visibleTabs.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
+            <BarChart3 size={32} className="text-slate-300" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-600 mb-1">No Tabs Available</h3>
+          <p className="text-sm text-slate-400">You don't have access to any Live Stock Dashboard tabs. Contact your administrator.</p>
+        </div>
+      ) : currentView === 'vendor' ? (
         <VendorDashboard />
-      ) : activeView === 'sales' ? (
+      ) : currentView === 'sales' ? (
         <SalesDashboard />
-      ) : activeView === 'transport' ? (
+      ) : currentView === 'transport' ? (
         <TransportGodownStock />
       ) : (
         <>
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shrink-0">
-            <div className="px-5 py-4 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="bg-primary/10 p-2 rounded-lg">
-                  <Warehouse size={18} className="text-primary" />
+            <div className="px-4 sm:px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              {/* Left: title + Own/Transporter segmented toggle */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="bg-primary/10 p-2 rounded-lg">
+                    <Warehouse size={18} className="text-primary" />
+                  </div>
+                  <h3 className="font-semibold text-slate-800 text-lg whitespace-nowrap">Godown Summary</h3>
                 </div>
-                <h3 className="font-semibold text-slate-800 text-lg whitespace-nowrap">Godown Summary</h3>
+
+                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
+                  {['Own', 'Transporter'].map(type => (
+                    <button key={type} type="button" onClick={() => setGodownTypeFilter(type)}
+                      className={`px-3 h-8 text-xs font-medium rounded-md transition-all ${
+                        godownTypeFilter === type ? 'bg-white text-primary shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                      }`}>
+                      {type}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="flex items-center gap-2 w-fit shrink-0">
-                <button type="button" onClick={() => setGodownTypeFilter('Own')}
-                  className={`px-3 py-1.5 h-[32px] text-xs font-medium rounded-lg border ${
-                    godownTypeFilter === 'Own' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900'
-                  }`}>
-                  Own
-                </button>
-                <button type="button" onClick={() => setGodownTypeFilter('Transporter')}
-                  className={`px-3 py-1.5 h-[32px] text-xs font-medium rounded-lg border ${
-                    godownTypeFilter === 'Transporter' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900'
-                  }`}>
-                  Transporter
-                </button>
-              </div>
+              {/* Right: total badge, date navigation, search — all h-9 */}
+              <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                {data.length > 0 && (
+                  <div className="flex items-center gap-2 px-3 h-9 bg-blue-50 border border-blue-200 rounded-lg shrink-0">
+                    <span className="text-xs text-blue-600 font-medium whitespace-nowrap">Total Closing:</span>
+                    {/* Always the combined Own + Transporter total, regardless of the type filter below */}
+                    <span className="text-sm font-bold text-blue-700">{summaryData.totals.closing.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                  </div>
+                )}
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="icon" onClick={handlePrevDay} title="Previous day">
-                  <ChevronLeft size={16} />
-                </Button>
-                <div className="relative w-full sm:w-56">
-                  <DatePicker value={date} onChange={handleDateChange} className="w-full" />
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button variant="outline" size="icon" onClick={handlePrevDay} title="Previous day" className="size-9 shrink-0">
+                    <ChevronLeft size={16} />
+                  </Button>
+                  <div className="w-36">
+                    <DatePicker value={date} onChange={handleDateChange} className="w-full h-9 text-sm" />
+                  </div>
+                  <Button variant="outline" size="icon" onClick={handleNextDay} disabled={date === today} title="Next day" className="size-9 shrink-0">
+                    <ChevronRight size={16} />
+                  </Button>
                 </div>
-                <Button variant="outline" size="icon" onClick={handleNextDay} disabled={date === today} title="Next day">
-                  <ChevronRight size={16} />
-                </Button>
-                <div className="relative">
+
+                <div className="relative flex-1 min-w-[160px] lg:flex-none lg:w-52">
                   <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <Input
                     placeholder="Search products..."
                     value={searchQuery}
                     onChange={handleSearchChange}
-                    className="pl-8 h-8 w-48"
+                    className="pl-8 h-9 w-full"
                   />
                 </div>
-                {data.length > 0 && (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg shrink-0">
-                    <span className="text-xs text-blue-600 font-medium">Total Closing:</span>
-                    {/* Always the combined Own + Transporter total, regardless of the type filter below */}
-                    <span className="text-sm font-bold text-blue-700">{summaryData.totals.closing.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -258,21 +311,23 @@ const LiveStockDashboard = () => {
 
           {showTables && (
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="flex items-center justify-center gap-3">
-                  <div className="bg-primary/10 p-2 rounded-lg">
-                    <Package size={18} className="text-primary" />
+              <div className="px-4 sm:px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-primary/10 p-2 rounded-lg">
+                      <Package size={18} className="text-primary" />
+                    </div>
+                    <h3 className="font-semibold text-slate-800 text-lg whitespace-nowrap">Product-wise Breakdown</h3>
                   </div>
-                  <h3 className="font-semibold text-slate-800 text-lg">Product-wise Breakdown</h3>
                   <div
-                    className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg shrink-0"
+                    className="flex items-center gap-2 px-3 h-9 bg-blue-50 border border-blue-200 rounded-lg shrink-0 whitespace-nowrap"
                     title="Sum across every product and godown — not just the rows on this page. Matches the Godown Summary total above."
                   >
                     <span className="text-xs text-blue-600 font-medium">Total Closing (All Products):</span>
                     <span className="text-sm font-bold text-blue-700">{summaryData.totals.closing.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
                   <button
                     type="button"
                     onClick={handleExportExcel}
@@ -293,7 +348,7 @@ const LiveStockDashboard = () => {
                     {exportingPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
                     Export PDF
                   </button>
-                  <div className="relative w-full sm:w-64">
+                  <div className="relative flex-1 min-w-[160px] lg:flex-none lg:w-52">
                     <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                     <Input
                       placeholder="Search products..."
@@ -304,7 +359,7 @@ const LiveStockDashboard = () => {
                   </div>
                 </div>
               </div>
-              <div className="flex-1 min-h-0 overflow-hidden flex flex-col max-h-[560px]">
+              <div className="flex flex-col">
                 <DataTable
                   headers={[
                     { label: 'Product Name', className: 'text-center' },

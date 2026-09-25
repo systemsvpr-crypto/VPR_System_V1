@@ -18,6 +18,7 @@ import VendorApprovalTable from './components/VendorApprovalTable';
 import DeliveryTable from './components/DeliveryTable';
 import AawakDetailsTable from './components/AawakDetailsTable';
 import PurchaseCompleteTable from './components/PurchaseCompleteTable';
+import FilterMenu from '@/components/FilterMenu';
 
 // "Vendor Approval" (VendorSelectionTable) is planning — picking vendor,
 // rate, qty, expected delivery date. "Approval" (VendorApprovalTable) is the
@@ -193,7 +194,7 @@ const Purchase = () => {
   };
 
   return (
-    <div className="flex flex-col gap-6 h-full min-h-0">
+    <div className="flex flex-col gap-6 shrink-0 pb-2">
 
 
       <div className="flex items-center gap-6 border-b border-slate-200 shrink-0">
@@ -217,9 +218,9 @@ const Purchase = () => {
           <p className="text-sm text-slate-400">You don't have access to any Purchase tabs. Contact your administrator.</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-4 flex-1 min-h-0">
+        <div className="flex flex-col gap-4 flex-1">
           {activeTab === 'indent' && (
-            <div className="flex flex-col gap-4 flex-1 min-h-0">
+            <div className="flex flex-col gap-4 flex-1">
               <IndentPendingHistoryTable
                 vendors={vendors}
                 user={user}
@@ -232,25 +233,30 @@ const Purchase = () => {
                 godowns={godowns}
                 toolbarExtra={
                   <>
-                    <select
-                      value={godownFilter}
-                      onChange={e => setGodownFilter(e.target.value)}
-                      className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px] shrink-0"
+                    <FilterMenu
+                      activeCount={[godownFilter, typeFilter].filter(Boolean).length}
+                      onClear={() => { setGodownFilter(''); setTypeFilter(''); }}
                     >
-                      <option value="">All Godowns</option>
-                      {ownGodowns.map(g => (
-                        <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={typeFilter}
-                      onChange={e => setTypeFilter(e.target.value)}
-                      className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[130px] shrink-0"
-                    >
-                      <option value="">All Types</option>
-                      <option value="direct">Direct</option>
-                      <option value="process">Process</option>
-                    </select>
+                      <select
+                        value={godownFilter}
+                        onChange={e => setGodownFilter(e.target.value)}
+                        className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+                      >
+                        <option value="">All Godowns</option>
+                        {ownGodowns.map(g => (
+                          <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={typeFilter}
+                        onChange={e => setTypeFilter(e.target.value)}
+                        className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+                      >
+                        <option value="">All Types</option>
+                        <option value="direct">Direct</option>
+                        <option value="process">Process</option>
+                      </select>
+                    </FilterMenu>
                     {filteredIndents.length > 0 && (
                       <Button variant="outline" onClick={() => exportIndentsCSV(filteredIndents)} className="gap-2 px-4 font-medium text-xs h-9 text-slate-600 border-slate-200 hover:bg-slate-50 shrink-0">
                         <Download size={16} /><span>Export</span>

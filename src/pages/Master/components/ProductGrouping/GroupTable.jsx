@@ -3,7 +3,7 @@ import { FolderTree, Edit2, Trash2, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DataTable from '@/components/DataTable';
 
-const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
+const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, searchTerm, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
   const [expandedGroups, setExpandedGroups] = useState(new Set());
 
   const toggleExpand = (groupId) => {
@@ -42,8 +42,14 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, currentPage
         <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
           <FolderTree size={32} className="text-slate-300" />
         </div>
-        <h3 className="text-base font-semibold text-slate-600 mb-1">No Product Groups</h3>
-        <p className="text-sm text-slate-400">Product groups will automatically appear here when products are created.</p>
+        <h3 className="text-base font-semibold text-slate-600 mb-1">
+          {searchTerm ? 'No Product Groups Found' : 'No Product Groups'}
+        </h3>
+        <p className="text-sm text-slate-400">
+          {searchTerm
+            ? 'No product groups match your search criteria.'
+            : 'Product groups will automatically appear here when products are created.'}
+        </p>
       </div>
     );
   }

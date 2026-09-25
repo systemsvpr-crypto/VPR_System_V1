@@ -7,6 +7,7 @@ import autoTable from 'jspdf-autotable';
 import { getVendorDashboardData } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import FilterMenu from '@/components/FilterMenu';
 import { Dropdown } from '@/components/ui/dropdown';
 import { DatePicker } from '@/components/ui/date-picker';
 
@@ -465,8 +466,8 @@ const VendorDashboard = () => {
   // vendor row is open, rather than expanding inline underneath it.
   if (detailVendor) {
     return (
-      <div className="flex flex-col gap-6 font-sans h-[calc(100vh-160px)] min-h-0">
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex-1 flex flex-col min-h-0">
+      <div className="flex flex-col gap-6 font-sans">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
           {/* Header: back button, vendor name/counts, and every qty metric
               all in a single row instead of a name row stacked on top of a
               separate stats-grid section. */}
@@ -510,46 +511,8 @@ const VendorDashboard = () => {
           </div>
 
           {/* Detail Search & Filters */}
-          <div className="p-4 bg-white border-b border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <Dropdown
-                value={detailSelectedIndent || "all"}
-                onValueChange={(v) => {
-                  setDetailSelectedIndent(v === "all" ? "" : v);
-                  setDetailCurrentPage(1);
-                }}
-                options={[{ value: "all", label: "All Indents" }, ...detailUniqueIndents.map(no => ({ value: no, label: no }))]}
-                placeholder="All Indents"
-                className="h-10 bg-white"
-              />
-            </div>
-            
-            <div>
-              <Dropdown
-                value={detailSelectedProduct || "all"}
-                onValueChange={(v) => {
-                  setDetailSelectedProduct(v === "all" ? "" : v);
-                  setDetailCurrentPage(1);
-                }}
-                options={[{ value: "all", label: "All Products" }, ...detailUniqueProducts.map(p => ({ value: p, label: p }))]}
-                placeholder="All Products"
-                className="h-10 bg-white"
-              />
-            </div>
-
-            <div>
-              <DatePicker
-                placeholder="Select Date"
-                value={detailSelectedDate}
-                className="h-10 w-full bg-white"
-                onChange={(e) => {
-                  setDetailSelectedDate(e.target.value);
-                  setDetailCurrentPage(1);
-                }}
-              />
-            </div>
-
-            <div className="relative">
+          <div className="p-4 bg-white border-b border-slate-100 flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[200px]">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <Input
                 placeholder="Search indent, product, remark..."
@@ -561,11 +524,55 @@ const VendorDashboard = () => {
                 className="pl-8 h-10 w-full"
               />
             </div>
+
+            <FilterMenu
+              activeCount={[detailSelectedIndent, detailSelectedProduct, detailSelectedDate].filter(Boolean).length}
+              onClear={() => { setDetailSelectedIndent(''); setDetailSelectedProduct(''); setDetailSelectedDate(''); setDetailCurrentPage(1); }}
+            >
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">Indent No.</label>
+                <Dropdown
+                  value={detailSelectedIndent || "all"}
+                  onValueChange={(v) => {
+                    setDetailSelectedIndent(v === "all" ? "" : v);
+                    setDetailCurrentPage(1);
+                  }}
+                  options={[{ value: "all", label: "All Indents" }, ...detailUniqueIndents.map(no => ({ value: no, label: no }))]}
+                  placeholder="All Indents"
+                  className="h-10 bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">Product Name</label>
+                <Dropdown
+                  value={detailSelectedProduct || "all"}
+                  onValueChange={(v) => {
+                    setDetailSelectedProduct(v === "all" ? "" : v);
+                    setDetailCurrentPage(1);
+                  }}
+                  options={[{ value: "all", label: "All Products" }, ...detailUniqueProducts.map(p => ({ value: p, label: p }))]}
+                  placeholder="All Products"
+                  className="h-10 bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">Date</label>
+                <DatePicker
+                  placeholder="Select Date"
+                  value={detailSelectedDate}
+                  className="h-10 w-full bg-white"
+                  onChange={(e) => {
+                    setDetailSelectedDate(e.target.value);
+                    setDetailCurrentPage(1);
+                  }}
+                />
+              </div>
+            </FilterMenu>
           </div>
 
           {/* Indent-wise Detail Table */}
-          <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-            <div className="overflow-x-auto overflow-y-auto flex-1">
+          <div className="flex flex-col">
+            <div className="overflow-x-auto">
               <table className="w-full text-xs relative">
                 <thead className="sticky top-0 z-10 shadow-sm">
                 <tr className="bg-blue-50 border-b border-slate-200">
@@ -687,11 +694,11 @@ const VendorDashboard = () => {
   }
 
   return (
-    <div className="flex flex-col gap-6 font-sans h-[calc(100vh-160px)] min-h-0">
+    <div className="flex flex-col gap-6 font-sans">
 
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex-1 flex flex-col min-h-0">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
         {/* Quick Stats Grid */}
-        <div className="grid grid-cols-5 gap-3 p-4 bg-slate-50/50 border-b border-slate-100">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 p-4 bg-slate-50/50 border-b border-slate-100">
           <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
               <Package size={16} />
@@ -744,80 +751,75 @@ const VendorDashboard = () => {
         </div>
 
         {/* Filter Controls Bar */}
-        <div className="p-4 bg-white grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border-b border-slate-100">
-          {/* Indent Filter */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">
-              Indent No.
-            </label>
-            <Dropdown
-              value={selectedIndent || "all"}
-              onValueChange={(v) => {
-                setSelectedIndent(v === "all" ? "" : v);
-                setCurrentPage(1);
-              }}
-              options={[{ value: "all", label: "All Indents" }, ...uniqueIndents.map(no => ({ value: no, label: no }))]}
-              placeholder="All Indents"
-              className="h-10 bg-white"
-            />
-          </div>
-
-          {/* Vendor Filter */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">
-              Vendor Name
-            </label>
-            <Dropdown
-              value={selectedVendor || "all"}
-              onValueChange={(v) => {
-                setSelectedVendor(v === "all" ? "" : v);
-                setCurrentPage(1);
-              }}
-              options={[{ value: "all", label: "All Vendors" }, ...uniqueVendors.map(v => ({ value: v, label: v }))]}
-              placeholder="All Vendors"
-              className="h-10 bg-white"
-            />
-          </div>
-
-          {/* Product Filter */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">
-              Product Name
-            </label>
-            <Dropdown
-              value={selectedProduct || "all"}
-              onValueChange={(v) => {
-                setSelectedProduct(v === "all" ? "" : v);
-                setCurrentPage(1);
-              }}
-              options={[{ value: "all", label: "All Products" }, ...uniqueProducts.map(p => ({ value: p, label: p }))]}
-              placeholder="All Products"
-              className="h-10 bg-white"
-            />
-          </div>
-
+        <div className="p-4 bg-white flex flex-wrap items-center gap-2 border-b border-slate-100">
           {/* Global Search */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">
-              Search
-            </label>
-            <div className="relative">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <Input
-                placeholder="Search anything..."
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Input
+              placeholder="Search anything..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="pl-8 h-10 text-xs w-full"
+            />
+          </div>
+
+          <FilterMenu
+            activeCount={[selectedIndent, selectedVendor, selectedProduct].filter(Boolean).length}
+            onClear={() => { setSelectedIndent(''); setSelectedVendor(''); setSelectedProduct(''); setCurrentPage(1); }}
+          >
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">
+                Indent No.
+              </label>
+              <Dropdown
+                value={selectedIndent || "all"}
+                onValueChange={(v) => {
+                  setSelectedIndent(v === "all" ? "" : v);
                   setCurrentPage(1);
                 }}
-                className="pl-8 h-10 text-xs w-full"
+                options={[{ value: "all", label: "All Indents" }, ...uniqueIndents.map(no => ({ value: no, label: no }))]}
+                placeholder="All Indents"
+                className="h-10 bg-white"
               />
             </div>
-          </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">
+                Vendor Name
+              </label>
+              <Dropdown
+                value={selectedVendor || "all"}
+                onValueChange={(v) => {
+                  setSelectedVendor(v === "all" ? "" : v);
+                  setCurrentPage(1);
+                }}
+                options={[{ value: "all", label: "All Vendors" }, ...uniqueVendors.map(v => ({ value: v, label: v }))]}
+                placeholder="All Vendors"
+                className="h-10 bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase tracking-wider">
+                Product Name
+              </label>
+              <Dropdown
+                value={selectedProduct || "all"}
+                onValueChange={(v) => {
+                  setSelectedProduct(v === "all" ? "" : v);
+                  setCurrentPage(1);
+                }}
+                options={[{ value: "all", label: "All Products" }, ...uniqueProducts.map(p => ({ value: p, label: p }))]}
+                placeholder="All Products"
+                className="h-10 bg-white"
+              />
+            </div>
+          </FilterMenu>
 
           {/* Reset Filters Button */}
           {hasActiveFilters && (
-            <div className="self-end">
+            <div>
               <Button
                 variant="ghost"
                 size="sm"
@@ -833,7 +835,7 @@ const VendorDashboard = () => {
 
         {/* Data Table — one row per vendor; click a row to open its
             dedicated detail page with the full indent-wise breakdown. */}
-        <div className="overflow-x-auto overflow-y-auto flex-1 min-h-0">
+        <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-10">
               <tr className="bg-blue-50 border-b border-slate-200">

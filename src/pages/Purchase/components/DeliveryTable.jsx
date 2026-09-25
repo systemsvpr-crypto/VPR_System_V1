@@ -16,6 +16,7 @@ import { sendPurchaseDeliveredWhatsapp } from '../../../services/whatsappService
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { roundQty } from '@/lib/qty';
+import FilterMenu from '@/components/FilterMenu';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -1212,51 +1213,56 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
           />
         </div>
 
-        <select
-          value={indentFilter}
-          onChange={e => setIndentFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
+        <FilterMenu
+          activeCount={[indentFilter, productFilter, vendorFilter].filter(Boolean).length}
+          onClear={() => { setIndentFilter(''); setProductFilter(''); setVendorFilter(''); }}
         >
-          <option value="">-- All Indents --</option>
-          {indentOptions.map(num => (
-            <option key={num} value={num}>{num}</option>
-          ))}
-        </select>
-
-        <select
-          value={productFilter}
-          onChange={e => setProductFilter(e.target.value)}
-          className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
-        >
-          <option value="">-- All Products --</option>
-          {productOptions.map(p => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
-
-        {activeSubTab === 'pending' ? (
           <select
-            value={vendorFilter}
-            onChange={e => setVendorFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
+            value={indentFilter}
+            onChange={e => setIndentFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
           >
-            <option value="">-- All Vendors --</option>
-            {vendorOptions.map(v => (
-              <option key={v.id} value={v.id}>{v.name}</option>
+            <option value="">-- All Indents --</option>
+            {indentOptions.map(num => (
+              <option key={num} value={num}>{num}</option>
             ))}
           </select>
-        ) : (
+
           <select
-            value={vendorFilter}
-            onChange={e => setVendorFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto sm:min-w-[150px] shrink-0"
+            value={productFilter}
+            onChange={e => setProductFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
           >
-            <option value="">-- All Transporters --</option>
-            {transporters.map(t => (
-              <option key={t.transporter_id} value={t.name}>{t.name}</option>
+            <option value="">-- All Products --</option>
+            {productOptions.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
-        )}
+
+          {activeSubTab === 'pending' ? (
+            <select
+              value={vendorFilter}
+              onChange={e => setVendorFilter(e.target.value)}
+              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+            >
+              <option value="">-- All Vendors --</option>
+              {vendorOptions.map(v => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+          ) : (
+            <select
+              value={vendorFilter}
+              onChange={e => setVendorFilter(e.target.value)}
+              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+            >
+              <option value="">-- All Transporters --</option>
+              {transporters.map(t => (
+                <option key={t.transporter_id} value={t.name}>{t.name}</option>
+              ))}
+            </select>
+          )}
+        </FilterMenu>
 
         {(searchTerm || indentFilter || productFilter || vendorFilter) && (
           <Button variant="outline" size="sm" onClick={clearFilters} className="h-9 text-xs border-slate-200 hover:bg-slate-50 shrink-0">

@@ -17,6 +17,12 @@ export const PAGES = [
 export const DEFAULT_USER_PAGES = ['my-profile'];
 
 export const PAGE_TABS = {
+  'live-stock-dashboard': [
+    { id: 'live', label: 'Godown Live Stock' },
+    { id: 'transport', label: 'Transport Godown Stock' },
+    { id: 'vendor', label: 'Vendor Dashboard' },
+    { id: 'sales', label: 'Sales Dashboard' },
+  ],
   master: [
     { id: 'products', label: 'Products' },
     { id: 'godowns', label: 'Godowns' },
