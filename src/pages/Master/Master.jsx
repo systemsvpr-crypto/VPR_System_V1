@@ -516,7 +516,7 @@ const Master = () => {
   };
 
   return (
-    <div className="flex flex-col gap-6 h-[calc(100vh-140px)]">
+    <div className="flex flex-col gap-4 sm:gap-6 shrink-0 pb-2 min-w-0">
 
       {/* Tabs (Outer from table div) */}
       <div className="flex justify-center w-full shrink-0">
@@ -530,7 +530,7 @@ const Master = () => {
         />
       </div>
 
-      <div className="flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex-1 min-h-0">
+      <div className="flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm flex-1">
 
         {visibleTabs.length === 0 ? (
           <div className="p-12 text-center">
@@ -541,9 +541,9 @@ const Master = () => {
             <p className="text-sm text-slate-400">You don't have access to any Master tabs. Contact your administrator.</p>
           </div>
         ) : (
-          <div className="flex flex-col flex-1 min-h-0">
+          <div className="flex flex-col flex-1">
             {/* Table UI Header matching Live Stock pages */}
-            <div className="px-5 py-3.5 border-b border-slate-100 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 bg-white shrink-0">
+            <div className="px-3 sm:px-5 py-3 sm:py-3.5 border-b border-slate-100 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 bg-white shrink-0">
 
               <div className="flex items-center gap-3 shrink-0">
                 <div className="bg-blue-50 p-2 rounded-lg text-blue-600">
@@ -579,7 +579,7 @@ const Master = () => {
                   )}
                 </div>
                 {activeTab === 'products' && ownGodowns.length > 0 && (
-                  <div className="w-36 shrink-0">
+                  <div className="w-[calc(50%-0.3125rem)] sm:w-36 shrink-0">
                     <FilterSelect
                       value={godownFilter}
                       onValueChange={setGodownFilter}
@@ -591,7 +591,7 @@ const Master = () => {
                   </div>
                 )}
                 {activeTab === 'products' && transporterGodowns.length > 0 && (
-                  <div className="w-36 shrink-0">
+                  <div className="w-[calc(50%-0.3125rem)] sm:w-36 shrink-0">
                     <FilterSelect
                       value={transporterFilter}
                       onValueChange={setTransporterFilter}
@@ -603,7 +603,7 @@ const Master = () => {
                   </div>
                 )}
                 {activeTab === 'products' && productGroupings.length > 0 && (
-                  <div className="w-36 shrink-0">
+                  <div className="w-[calc(50%-0.3125rem)] sm:w-36 shrink-0">
                     <FilterSelect
                       value={groupingFilter}
                       onValueChange={setGroupingFilter}
@@ -615,7 +615,7 @@ const Master = () => {
                   </div>
                 )}
                 {activeTab === 'customers' && ranks.length > 0 && (
-                  <div className="w-36 shrink-0">
+                  <div className="w-[calc(50%-0.3125rem)] sm:w-36 shrink-0">
                     <FilterSelect
                       value={customerRankFilter}
                       onValueChange={setCustomerRankFilter}
@@ -641,7 +641,7 @@ const Master = () => {
                   </div>
                 )}
                 {!loading && (
-                  <div className="flex items-center gap-3 shrink-0 ml-2">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto sm:ml-2">
                     {['products', 'customers', 'vendors', 'transporters'].includes(activeTab) && (
                       <Button onClick={() => {
                         if (activeTab === 'products') setImportModalOpen(true);
@@ -680,23 +680,23 @@ const Master = () => {
               </div>
             </div>
 
-            <div className="flex flex-col flex-1 min-h-0">
+            <div className="flex flex-col flex-1">
               {activeTab === 'products' && (
-                <div className="flex flex-col flex-1 min-h-0">
+                <div className="flex flex-col flex-1">
                   <ProductTable products={currentProducts} totalItems={filteredProducts.length} loading={loading} onEdit={handleEditProduct} searchTerm={searchTerm} stockMap={stockMap} groupNameMap={groupNameMap}
                     currentPage={currentPage} totalPages={totalProductPages} itemsPerPage={itemsPerPage}
                     onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
                 </div>
               )}
               {activeTab === 'godowns' && (
-                <div className="flex flex-col flex-1 min-h-0">
+                <div className="flex flex-col flex-1">
                   <GodownTable godowns={currentGodowns} totalItems={filteredGodowns.length} loading={loading} onToggle={handleToggleGodown} searchTerm={searchTerm} user={user} onDelete={handleDeleteGodown} typeFilter={godownTypeFilter}
                     currentPage={currentPage} totalPages={totalGodownPages} itemsPerPage={itemsPerPage}
                     onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
                 </div>
               )}
               {activeTab === 'customers' && (
-                <div className="flex flex-col flex-1 min-h-0">
+                <div className="flex flex-col flex-1">
                   <CustomerTable customers={currentCustomers} totalItems={filteredCustomers.length} loading={loading} onEdit={handleEditCustomer} searchTerm={searchTerm}
                     currentPage={currentPage} totalPages={totalCustomerPages} itemsPerPage={itemsPerPage}
                     onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage}
@@ -704,28 +704,28 @@ const Master = () => {
                 </div>
               )}
               {activeTab === 'vendors' && (
-                <div className="flex flex-col flex-1 min-h-0">
+                <div className="flex flex-col flex-1">
                   <VendorTable vendors={currentVendors} totalItems={filteredVendors.length} loading={loading} onEdit={handleEditVendor} searchTerm={searchTerm}
                     currentPage={currentPage} totalPages={totalVendorPages} itemsPerPage={itemsPerPage}
                     onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
                 </div>
               )}
               {activeTab === 'transporters' && (
-                <div className="flex flex-col flex-1 min-h-0">
+                <div className="flex flex-col flex-1">
                   <TransporterTable transporters={currentTransporters} totalItems={filteredTransporters.length} loading={loading} onEdit={handleEditTransporter} searchTerm={searchTerm}
                     currentPage={currentPage} totalPages={totalTransporterPages} itemsPerPage={itemsPerPage}
                     onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
                 </div>
               )}
               {activeTab === 'product-grouping' && (
-                <div className="flex flex-col flex-1 min-h-0">
+                <div className="flex flex-col flex-1">
                   <GroupTable groups={currentGroups} totalItems={filteredGroups.length} loading={loading} onEdit={handleEditGroup} onDelete={handleDeleteGroup} searchTerm={searchTerm}
                     currentPage={currentPage} totalPages={totalGroupPages} itemsPerPage={itemsPerPage}
                     onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
                 </div>
               )}
               {activeTab === 'ranks' && (
-                <div className="flex flex-col flex-1 min-h-0">
+                <div className="flex flex-col flex-1">
                   <RankTable ranks={currentRanks} totalItems={filteredRanks.length} loading={loading} onEdit={handleEditRank} onDelete={handleDeleteRank} searchTerm={searchTerm}
                     currentPage={currentPage} totalPages={totalRankPages} itemsPerPage={itemsPerPage}
                     onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />

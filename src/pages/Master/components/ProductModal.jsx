@@ -373,17 +373,17 @@ const ProductModal = ({
 
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <ModalContent className={quickAdd ? "max-w-4xl z-[60]" : "max-w-4xl"}>
-        <ModalHeader>
-          <div className="bg-primary/10 p-2 rounded-lg"><Package size={20} className="text-primary" /></div>
+      <ModalContent className={`w-[calc(100vw-1.5rem)] sm:w-full max-w-4xl max-h-[92vh] sm:max-h-[90vh] ${quickAdd ? "z-[60]" : ""}`}>
+        <ModalHeader className="px-4 sm:px-6 py-3 sm:py-4 pr-12">
+          <div className="bg-primary/10 p-2 rounded-lg shrink-0"><Package size={20} className="text-primary" /></div>
           <ModalTitle asChild>
-            <h2 className="text-xl font-bold text-slate-800">
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 truncate">
               {isEditing ? 'Edit Product' : (totalProductsCount > 1 ? `Add Products (${totalProductsCount})` : 'Add Product')}
             </h2>
           </ModalTitle>
         </ModalHeader>
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <ModalBody className="space-y-4">
+          <ModalBody className="space-y-4 px-3 sm:px-6 py-4 sm:py-5">
             {duplicateNotice && (
               <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800">
                 <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -395,10 +395,10 @@ const ProductModal = ({
               const derivedGroupName = `${(group.brand_name || '').trim()}${(group.category || '').trim()}`;
 
               return (
-                <div key={group.id} className="p-4 rounded-xl border border-slate-200 bg-white shadow-xs space-y-3.5 relative">
+                <div key={group.id} className="p-3 sm:p-4 rounded-xl border border-slate-200 bg-white shadow-xs space-y-3.5 relative">
                   {/* Group Block Header (if multiple groups exist) */}
                   {!isEditing && groupBlocks.length > 1 && (
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
                       <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                         <FolderPlus size={14} className="text-primary" /> Group {gIdx + 1}
                       </span>
@@ -414,7 +414,7 @@ const ProductModal = ({
                   )}
 
                   {/* Single Row: Group Name, Brand Name, Category */}
-                  <div className="grid grid-cols-3 gap-3 items-start">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
                     {/* 1. Group Name */}
                     <div>
                       <div className="flex items-center justify-between mb-1 h-5">
@@ -526,7 +526,7 @@ const ProductModal = ({
                   {/* Single Row: Size, Unit, Mux, Product Name */}
                   <div className="space-y-2 pt-1">
                     {/* Header for Product Row */}
-                    <div className="grid grid-cols-12 gap-2.5 px-0.5 text-xs font-semibold text-slate-700">
+                    <div className="hidden md:grid grid-cols-12 gap-2.5 px-0.5 text-xs font-semibold text-slate-700">
                       <div className="col-span-3">
                         Size <span className="text-slate-400 font-normal">(Product Type)</span>
                       </div>
@@ -548,9 +548,10 @@ const ProductModal = ({
                       const computedName = formattedMux ? `${baseName} (${formattedMux})` : baseName;
 
                       return (
-                        <div key={prod.id} className="grid grid-cols-12 gap-2.5 items-center">
+                        <div key={prod.id} className="grid grid-cols-2 md:grid-cols-12 gap-2.5 items-end md:items-center p-2.5 md:p-0 rounded-lg border border-slate-100 md:border-0 bg-slate-50/60 md:bg-transparent">
                           {/* 1. Size */}
-                          <div className="col-span-3">
+                          <div className="col-span-1 md:col-span-3 min-w-0">
+                            <label className="md:hidden block text-[11px] font-semibold text-slate-600 mb-1">Size</label>
                             <Input
                               value={prod.product_type}
                               onChange={(e) => updateProductInGroup(gIdx, pIdx, { product_type: e.target.value })}
@@ -560,7 +561,8 @@ const ProductModal = ({
                           </div>
 
                           {/* 2. Unit */}
-                          <div className="col-span-2">
+                          <div className="col-span-1 md:col-span-2 min-w-0">
+                            <label className="md:hidden block text-[11px] font-semibold text-slate-600 mb-1">Unit</label>
                             <Select value={prod.unit} onValueChange={(v) => updateProductInGroup(gIdx, pIdx, { unit: v })}>
                               <SelectTrigger className="w-full h-9 text-xs"><SelectValue /></SelectTrigger>
                               <SelectContent>
@@ -575,7 +577,8 @@ const ProductModal = ({
                           </div>
 
                           {/* 3. Mux (Weight) */}
-                          <div className="col-span-2">
+                          <div className="col-span-2 md:col-span-2 min-w-0">
+                            <label className="md:hidden block text-[11px] font-semibold text-slate-600 mb-1">Mux (Weight)</label>
                             <Input
                               value={prod.mux}
                               onChange={(e) => updateProductInGroup(gIdx, pIdx, { mux: e.target.value })}
@@ -585,7 +588,8 @@ const ProductModal = ({
                           </div>
 
                           {/* 4. Product Name */}
-                          <div className={group.products.length > 1 && !isEditing ? "col-span-4" : "col-span-5"}>
+                          <div className={`col-span-2 min-w-0 ${group.products.length > 1 && !isEditing ? "md:col-span-4" : "md:col-span-5"}`}>
+                            <label className="md:hidden block text-[11px] font-semibold text-slate-600 mb-1">Product Name (Preview)</label>
                             <Input
                               value={computedName}
                               disabled
@@ -598,14 +602,14 @@ const ProductModal = ({
 
                           {/* Remove row button */}
                           {group.products.length > 1 && !isEditing && (
-                            <div className="col-span-1 flex justify-center">
+                            <div className="col-span-2 md:col-span-1 flex justify-end md:justify-center">
                               <button
                                 type="button"
                                 onClick={() => removeProductFromGroup(gIdx, pIdx)}
-                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors flex items-center gap-1 text-xs"
                                 title="Remove this product"
                               >
-                                <Trash2 size={15} />
+                                <Trash2 size={15} /><span className="md:hidden">Remove</span>
                               </button>
                             </div>
                           )}
@@ -649,10 +653,10 @@ const ProductModal = ({
               </button>
             )}
           </ModalBody>
-          <ModalFooter>
+          <ModalFooter className="px-4 sm:px-6 py-3 sm:py-4 flex-wrap gap-2 sm:gap-3">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             {isEditing && isSuperAdmin && (
-              <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
+              <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="sm:mr-auto">
                 <Trash2 size={16} className="mr-1" />
                 {deleting ? 'Deleting...' : 'Delete'}
               </Button>

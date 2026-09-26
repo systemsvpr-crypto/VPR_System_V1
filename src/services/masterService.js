@@ -240,7 +240,7 @@ export const updateProduct = async ({ product_id, name, unit, allow_negative_sto
 
   const { data, error } = await supabase
     .from('products')
-    .update({ name: resolvedName, unit, allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id: finalGroupId })
+    .update({ name: resolvedName, unit, allow_negative_stock: !!allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id: finalGroupId })
     .eq('product_id', product_id)
     .select()
     .single();
@@ -272,6 +272,35 @@ export const deleteProduct = async (product_id) => {
     .select('group_id')
     .eq('product_id', product_id)
     .maybeSingle();
+
+  // A product that's already been used anywhere can't be deleted — its
+  // stock/sales/purchase history references it by foreign key, and those
+  // rows are real business records, never cascaded away. Checked up front so
+  // the user gets a readable reason instead of a raw FK violation.
+  const usageChecks = [
+    { table: 'purchase_indent_items', label: 'purchase indents' },
+    { table: 'sales_order_items', label: 'sales orders' },
+    { table: 'transactions', label: 'stock transactions' },
+    { table: 'daily_snapshots', label: 'daily stock snapshots' },
+  ];
+  const counts = await Promise.all(usageChecks.map(({ table }) =>
+    supabase.from(table).select('product_id', { count: 'exact', head: true }).eq('product_id', product_id)
+  ));
+  const usedIn = usageChecks.filter((_, i) => {
+    if (counts[i].error) throw counts[i].error;
+    return (counts[i].count || 0) > 0;
+  });
+  if (usedIn.length > 0) {
+    throw new Error(`This product can't be deleted because it is already used in ${usedIn.map(u => u.label).join(', ')}.`);
+  }
+
+  // Manual Product Grouping memberships only group the product — safe to
+  // drop along with it.
+  const { error: memberErr } = await supabase
+    .from('product_group_members')
+    .delete()
+    .eq('product_id', product_id);
+  if (memberErr) throw memberErr;
 
   const { error } = await supabase
     .from('products')

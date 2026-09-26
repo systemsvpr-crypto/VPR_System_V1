@@ -29,18 +29,18 @@ const DataTable = ({
   const isTableView = viewMode === 'table';
 
   const cardWrapperClass = isCardView 
-    ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-5 p-4 overflow-y-auto flex-1 bg-slate-50/50 scrollbar-hide content-start'
+    ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-5 p-4 flex-1 bg-slate-50/50 content-start'
     : isTableView
     ? 'hidden'
-    : 'md:hidden grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 overflow-y-auto flex-1 bg-slate-50/50 scrollbar-hide content-start';
+    : 'md:hidden grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 flex-1 bg-slate-50/50 content-start';
 
   const tableWrapperClass = isTableView
-    ? 'flex flex-col flex-1 min-h-0 overflow-hidden'
+    ? 'flex flex-col flex-1'
     : isCardView
     ? 'hidden'
-    : 'hidden md:flex flex-col flex-1 min-h-0 overflow-hidden';
+    : 'hidden md:flex flex-col flex-1';
   return (
-    <div className="flex flex-col h-full min-h-0 bg-white w-full">
+    <div className="flex flex-col flex-1 bg-white w-full">
       {/* Card View */}
       <div className={cardWrapperClass}>
         {data.length > 0 && (
@@ -50,7 +50,7 @@ const DataTable = ({
 
       {/* Table View */}
       <div className={tableWrapperClass}>
-        <DragScrollTable className="w-full flex-1 min-h-0">
+        <DragScrollTable className="w-full flex-1">
           <table className={`w-full relative border-collapse ${minWidth}`}>
             <thead className="bg-blue-50 border-b-2 border-slate-200 sticky top-0 z-10 shadow-sm">
               <tr>

@@ -427,7 +427,7 @@ const Pricing = () => {
   };
 
   return (
-    <div className="flex flex-col h-full space-y-3 min-h-0">
+    <div className="flex flex-col gap-4 shrink-0 pb-2">
       {/* Tab Switcher: All Pricing (Main Tab) vs Needs Review */}
       <div className="flex justify-start w-full shrink-0 overflow-x-auto pb-0.5 custom-scrollbar">
         <TabSwitcher
@@ -538,7 +538,7 @@ const Pricing = () => {
       </div>
 
       {/* Main Table Container */}
-      <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden flex flex-col min-h-0">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-xs flex flex-col flex-1">
         <PricingTable
           groups={paginatedGroups}
           totalItems={displayedGroups.length}

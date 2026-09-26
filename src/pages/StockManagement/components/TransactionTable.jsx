@@ -61,7 +61,7 @@ const canEdit = (type) => ['IN_FACTORY', 'PRODUCTION_IN', 'OUT_GODOWN', 'TRANSFE
 const displayDate = (t) => t.dispatch_plans?.dispatch_date || t.txn_date;
 
 const TransactionTable = ({
-  transactions, totalItems, loading, onEdit, onDelete,
+  transactions, totalItems, searchTerm, loading, onEdit, onDelete,
   currentPage, totalPages, pageSize, onPageChange, onPageSizeChange
 }) => {
   if (loading) {
@@ -80,13 +80,15 @@ const TransactionTable = ({
           <Filter size={32} className="text-slate-300" />
         </div>
         <h3 className="text-base font-semibold text-slate-600 mb-1">No Transactions Found</h3>
-        <p className="text-sm text-slate-400">Try adjusting your filters or add a new transaction.</p>
+        <p className="text-sm text-slate-400">
+          {searchTerm ? 'No transactions match your search criteria.' : 'Try adjusting your filters or add a new transaction.'}
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+    <div className="flex-1 flex flex-col">
       <DataTable
         headers={[
           { label: 'Date', className: 'text-center' },

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, Boxes, ChevronLeft, ChevronRight, Save } from 'lucide-react';
+import { Search, Boxes, ChevronLeft, ChevronRight, Save, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllProductStock, getAllProducts, getAllGodowns } from '../../services/masterService';
@@ -219,6 +219,7 @@ const UltimateIMS = () => {
     }).filter(r => {
       const matchSearch = !term ||
         r.productName.toLowerCase().includes(term) ||
+        (r.unit && r.unit.toLowerCase().includes(term)) ||
         r.filteredStats.some(st => st.godownName.toLowerCase().includes(term));
       return matchSearch;
     }).map(r => {
@@ -353,12 +354,26 @@ const UltimateIMS = () => {
   };
 
   return (
-    <div className="flex flex-col gap-4 h-full min-h-0">
+    <div className="flex flex-col gap-6 shrink-0 pb-2">
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
         <div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
-          <Input type="text" placeholder="Search product or godown..." className="pl-9"
-            value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          <Input
+            type="text"
+            placeholder="Search product or godown..."
+            className="pl-9 pr-8"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
         <select
           value={godownFilter}
@@ -392,8 +407,8 @@ const UltimateIMS = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
-        <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0 flex flex-col">
+      <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1">
+        <div className="overflow-x-auto custom-scrollbar flex-1 flex flex-col">
           <table className="w-full text-xs relative">
             <thead className="sticky top-0 z-10 shadow-sm">
               <tr className="bg-blue-50 border-b border-slate-200">

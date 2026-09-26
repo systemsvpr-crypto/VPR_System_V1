@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Factory, ArrowLeftRight, Truck, Package, Warehouse, Download, PackagePlus } from 'lucide-react';
+import { Factory, ArrowLeftRight, Truck, Package, Warehouse, Download, PackagePlus, Search, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllProducts, getAllGodowns, getAllProductStock } from '../../services/masterService';
 import { getAllTransactions, deleteTransactionRow } from '../../services/stockService';
 import Pagination from '@/components/ui/pagination';
+import { Input } from '@/components/ui/input';
 import { formatQty } from '@/lib/qty';
 
 const GODOWN_COLORS = [
@@ -49,6 +50,11 @@ const StockManagement = () => {
   const [filters, setFilters] = useState({ product_id: '', godown_id: '', txn_type: '', from_date: '', to_date: '' });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters, searchTerm]);
 
   useEffect(() => {
     Promise.all([getAllProducts(), getAllGodowns(), getAllProductStock()])
@@ -162,16 +168,42 @@ const StockManagement = () => {
 
   const handleSuccess = () => { setActiveModal(null); setEditingTransaction(null); fetchTransactions(); refreshProductStock(); };
 
-  // Exports every transaction matching the current filters (not just the
+  const filteredTransactions = useMemo(() => {
+    if (!searchTerm.trim()) return transactions;
+    const term = searchTerm.trim().toLowerCase();
+    return transactions.filter(t => {
+      const productName = (t.products?.name || '').toLowerCase();
+      const godownName = (t.godowns?.name || '').toLowerCase();
+      const liftNum = (t.lifting_number || '').toLowerCase();
+      const dispatchNum = (t.dispatch_number || '').toLowerCase();
+      const lrNum = (t.lr_number || '').toLowerCase();
+      const typeStr = (t.txn_type === 'IN_FACTORY' ? 'godown in' : t.txn_type || '').replace(/_/g, ' ').toLowerCase();
+      const dateStr = (t.dispatch_plans?.dispatch_date || t.txn_date || '').toLowerCase();
+      const qtyStr = String(t.qty || '');
+      const notesStr = (t.notes || t.remarks || '').toLowerCase();
+
+      return productName.includes(term) ||
+        godownName.includes(term) ||
+        liftNum.includes(term) ||
+        dispatchNum.includes(term) ||
+        lrNum.includes(term) ||
+        typeStr.includes(term) ||
+        dateStr.includes(term) ||
+        qtyStr.includes(term) ||
+        notesStr.includes(term);
+    });
+  }, [transactions, searchTerm]);
+
+  // Exports every transaction matching current filters and search (not just the
   // current page) — same columns and Type/Lift-Dispatch/Qty-sign conventions
   // as the on-screen table, so the file reads exactly like what's shown.
   const IN_TYPES = ['OPEN_STOCK', 'IN_FACTORY', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN', 'PURCHASE_IN(TPT)'];
   const handleExport = () => {
-    if (transactions.length === 0) {
+    if (filteredTransactions.length === 0) {
       toast.error('No transactions to export.');
       return;
     }
-    const rows = transactions.map(t => ({
+    const rows = filteredTransactions.map(t => ({
       // OUT_GODOWN rows read as their planned Dispatch Date (from the linked
       // dispatch_plans row), not the capped txn_date — same as the on-screen
       // table (see displayDate in TransactionTable.jsx).
@@ -189,14 +221,14 @@ const StockManagement = () => {
     XLSX.writeFile(wb, `Transaction_History_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  const totalTransactionPages = Math.max(1, Math.ceil(transactions.length / pageSize));
+  const totalTransactionPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
   const currentTransactions = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return transactions.slice(start, start + pageSize);
-  }, [transactions, currentPage, pageSize]);
+    return filteredTransactions.slice(start, start + pageSize);
+  }, [filteredTransactions, currentPage, pageSize]);
 
   return (
-    <div className="flex flex-col gap-6 h-full min-h-0">
+    <div className="flex flex-col gap-6 shrink-0 pb-2">
 
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 shrink-0">
@@ -217,20 +249,47 @@ const StockManagement = () => {
       <div className="shrink-0">
         <TransactionFilters filters={filters} onChange={handleFilterChange} products={products} godowns={godowns} />
       </div>
-      <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
-        <div className="px-5 py-4 border-b border-slate-100 shrink-0 flex items-center justify-between gap-3">
-          <h3 className="font-semibold text-slate-800">Transaction History</h3>
-          <button
-            type="button"
-            onClick={handleExport}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline shrink-0"
-          >
-            <Download size={14} /> Export
-          </button>
+      <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1">
+        <div className="px-5 py-3.5 border-b border-slate-100 shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-slate-800">Transaction History</h3>
+            <span className="text-xs text-slate-400 font-normal">
+              ({filteredTransactions.length}{filteredTransactions.length !== transactions.length ? ` of ${transactions.length}` : ''})
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={15} />
+              <Input
+                type="text"
+                placeholder="Search transactions..."
+                className="pl-8 pr-8 h-9 text-xs w-full bg-slate-50/50 focus:bg-white"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleExport}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline shrink-0"
+            >
+              <Download size={14} /> Export
+            </button>
+          </div>
         </div>
         <TransactionTable 
           transactions={currentTransactions} 
-          totalItems={transactions.length} 
+          totalItems={filteredTransactions.length}
+          searchTerm={searchTerm}
           loading={txnLoading} 
           onEdit={handleEdit}
           onDelete={handleDeleteClick}
