@@ -112,15 +112,15 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDe
 
   return (
     <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <ModalContent className="max-w-lg">
+      <ModalContent className="max-w-lg w-[calc(100%-1.5rem)] sm:w-full max-h-[90dvh]">
         <ModalHeader>
           <div className="bg-primary/10 p-2 rounded-lg"><Users size={20} className="text-primary" /></div>
           <ModalTitle asChild>
             <h2 className="text-xl font-bold text-slate-800">{isEditing ? 'Edit Customer' : 'Add Customer'}</h2>
           </ModalTitle>
         </ModalHeader>
-        <form onSubmit={handleSubmit}>
-          <ModalBody>
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <ModalBody className="px-4 sm:px-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-slate-700 mb-1">Customer Name <span className="text-red-500">*</span></label>
@@ -162,7 +162,7 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDe
               </div>
             </div>
           </ModalBody>
-          <ModalFooter>
+          <ModalFooter className="px-4 sm:px-6 flex-wrap">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             {isEditing && isSuperAdmin && (
               <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">

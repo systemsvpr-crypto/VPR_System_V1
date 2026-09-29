@@ -114,6 +114,7 @@ const Master = () => {
   const [editingTransporter, setEditingTransporter] = useState(null);
   const [editingGroup, setEditingGroup] = useState(null);
   const [editingRank, setEditingRank] = useState(null);
+  const [editingGodown, setEditingGodown] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [godownFilter, setGodownFilter] = useState('all');
   const [transporterFilter, setTransporterFilter] = useState('all');
@@ -430,6 +431,16 @@ const Master = () => {
     setEditingProduct(null);
   };
 
+  const handleEditGodown = (godown) => {
+    setEditingGodown(godown);
+    setGodownModalOpen(true);
+  };
+
+  const handleCloseGodownModal = () => {
+    setGodownModalOpen(false);
+    setEditingGodown(null);
+  };
+
   const handleToggleGodown = async (godown) => {
     try {
       await toggleGodownStatus(godown.godown_id, !godown.is_active);
@@ -658,7 +669,7 @@ const Master = () => {
                     {activeTab !== 'product-grouping' && !(activeTab === 'godowns' && godownTypeFilter === 'Transporter') && (
                       <Button onClick={() => {
                         if (activeTab === 'products') { setEditingProduct(null); setProductModalOpen(true); }
-                        else if (activeTab === 'godowns') setGodownModalOpen(true);
+                        else if (activeTab === 'godowns') { setEditingGodown(null); setGodownModalOpen(true); }
                         else if (activeTab === 'customers') { setEditingCustomer(null); setCustomerModalOpen(true); }
                         else if (activeTab === 'vendors') { setEditingVendor(null); setVendorModalOpen(true); }
                         else if (activeTab === 'transporters') { setEditingTransporter(null); setTransporterModalOpen(true); }
@@ -690,7 +701,7 @@ const Master = () => {
               )}
               {activeTab === 'godowns' && (
                 <div className="flex flex-col flex-1">
-                  <GodownTable godowns={currentGodowns} totalItems={filteredGodowns.length} loading={loading} onToggle={handleToggleGodown} searchTerm={searchTerm} user={user} onDelete={handleDeleteGodown} typeFilter={godownTypeFilter}
+                  <GodownTable godowns={currentGodowns} totalItems={filteredGodowns.length} loading={loading} onToggle={handleToggleGodown} onEdit={handleEditGodown} searchTerm={searchTerm} user={user} onDelete={handleDeleteGodown} typeFilter={godownTypeFilter}
                     currentPage={currentPage} totalPages={totalGodownPages} itemsPerPage={itemsPerPage}
                     onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
                 </div>
@@ -738,8 +749,8 @@ const Master = () => {
 
       <ProductModal isOpen={productModalOpen} onClose={handleCloseProductModal}
         godowns={godowns} groups={groups} products={products} user={user} onSuccess={loadData} editingProduct={editingProduct} />
-      <GodownModal isOpen={godownModalOpen} onClose={() => setGodownModalOpen(false)}
-        onSuccess={loadData} />
+      <GodownModal isOpen={godownModalOpen} onClose={handleCloseGodownModal}
+        onSuccess={loadData} editingGodown={editingGodown} />
       <BulkImportModal isOpen={importModalOpen} onClose={() => setImportModalOpen(false)}
         godowns={godowns} products={products} user={user} onSuccess={loadData} />
       <BulkImportOpeningStockModal isOpen={openingStockImportOpen} onClose={() => setOpeningStockImportOpen(false)}

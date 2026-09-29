@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, ClipboardList, Bell, CheckCircle, Mail, Truck, Download, Upload, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Search, ShoppingCart, Plus, ClipboardList, Sparkles, Bell, CheckCircle, Mail, Truck, Download, Upload, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllOrders, deleteOrder, deleteOrdersBulk } from '../../services/salesService';
@@ -17,12 +17,14 @@ import FilterMenu from '@/components/FilterMenu';
 import OrderModal from './components/OrderModal';
 import BulkOrderProductsModal from './components/BulkOrderProductsModal';
 import DispatchPlanningTable from './components/DispatchPlanningTable';
+import SmartDispatchPlanning from './components/SmartDispatchPlanning';
 import DispatchCompletedTable from './components/DispatchCompletedTable';
 import InformAfterDispatchTable from './components/InformAfterDispatchTable';
 import SkipDeliveredTable from './components/SkipDeliveredTable';
 
 const TABS = [
   { id: 'orders', label: 'Orders', icon: ShoppingCart },
+  { id: 'smart-dispatch', label: 'Smart Dispatch Planning', icon: Sparkles },
   { id: 'dispatch-planning', label: 'Dispatch Planning', icon: ClipboardList },
   { id: 'dispatch-completed', label: 'Dispatch Completed', icon: CheckCircle },
   { id: 'skip-delivered', label: 'Skip Delivered', icon: Truck, hidden: true },
@@ -69,7 +71,11 @@ const Sales = () => {
   const visibleTabs = useMemo(() => {
     const allowedTabs = user?.tab_access?.sales;
     if (!allowedTabs || allowedTabs.length === 0) return [];
-    return TABS.filter(tab => allowedTabs.includes(tab.id) && !tab.hidden);
+    // Smart Dispatch Planning was split out of Dispatch Planning, so anyone
+    // who already had that tab keeps access without a settings change.
+    const canSee = (id) => allowedTabs.includes(id) ||
+      (id === 'smart-dispatch' && allowedTabs.includes('dispatch-planning'));
+    return TABS.filter(tab => canSee(tab.id) && !tab.hidden);
   }, [user]);
 
   // Orders are only ever fulfilled from a real "own" godown, not a
@@ -388,6 +394,10 @@ const Sales = () => {
             onSuccess={loadData}
           />
         </div>
+      )}
+
+      {activeTab === 'smart-dispatch' && (
+        <SmartDispatchPlanning godowns={godowns} />
       )}
 
       {activeTab === 'dispatch-planning' && (

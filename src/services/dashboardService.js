@@ -10,6 +10,26 @@ export const getAllGodowns = async () => {
   return data || [];
 };
 
+// product_ids of every product in a Product Group whose name contains "sheet"
+// (case-insensitive). Two plain queries rather than an embedded join, so it
+// doesn't depend on PostgREST resolving the products -> product_groups FK.
+const getSheetProductIds = async (signal) => {
+  const { data: groups, error } = await supabase
+    .from('product_groups')
+    .select('group_id')
+    .ilike('group_name', '%sheet%')
+    .abortSignal(signal);
+  if (error) throw error;
+  const groupIds = (groups || []).map(g => g.group_id);
+  if (groupIds.length === 0) return [];
+  const products = await fetchAllRows(() => supabase
+    .from('products')
+    .select('product_id')
+    .in('group_id', groupIds)
+    .abortSignal(signal));
+  return (products || []).map(p => p.product_id);
+};
+
 export const getGodownSummary = async (date, signal) => {
   const prevDate = new Date(date);
   prevDate.setDate(prevDate.getDate() - 1);
@@ -22,31 +42,32 @@ export const getGodownSummary = async (date, signal) => {
     stockOuts,
     openingStocks,
     transportDeliveries,
+    sheetProducts,
   ] = await Promise.all([
     getAllGodowns(),
     fetchAllRows(() => supabase
       .from('transactions')
-      .select('godown_id, qty, txn_type')
+      .select('product_id, godown_id, qty, txn_type')
       .eq('is_void', false)
       .lte('txn_date', prevDateStr)
       .abortSignal(signal)),
     fetchAllRows(() => supabase
       .from('transactions')
-      .select('godown_id, qty')
+      .select('product_id, godown_id, qty')
       .eq('is_void', false)
       .eq('txn_date', date)
       .in('txn_type', ['IN_FACTORY', 'PRODUCTION_IN', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'])
       .abortSignal(signal)),
     fetchAllRows(() => supabase
       .from('transactions')
-      .select('godown_id, qty')
+      .select('product_id, godown_id, qty')
       .eq('is_void', false)
       .eq('txn_date', date)
       .in('txn_type', ['OUT_GODOWN', 'TRANSFER_OUT', 'ADJUSTMENT_OUT'])
       .abortSignal(signal)),
     fetchAllRows(() => supabase
       .from('transactions')
-      .select('godown_id, qty')
+      .select('product_id, godown_id, qty')
       .eq('is_void', false)
       .eq('txn_date', date)
       .eq('txn_type', 'OPEN_STOCK')
@@ -56,11 +77,25 @@ export const getGodownSummary = async (date, signal) => {
       .select('received_quantity, transporters:transporter_id(name)')
       .in('status', ['In Transport Godown', 'AT TPT GDN'])
       .abortSignal(signal)),
+    getSheetProductIds(signal),
   ]);
+
+  // Products whose Product Group name contains "sheet" are physically kept in
+  // the "Godown" godown, but are reported as their own "Sheet" row here —
+  // their Godown transactions are re-keyed onto a virtual godown id so the
+  // Godown row no longer includes them. Totals are unaffected.
+  const SHEET_GODOWN_ID = 'virtual-sheet';
+  const sheetProductIds = new Set(sheetProducts);
+  const mainGodown = godowns.find(g => g.name?.trim().toLowerCase() === 'godown');
+  const godownKeyOf = (txn) => (
+    mainGodown && txn.godown_id === mainGodown.godown_id && sheetProductIds.has(txn.product_id)
+      ? SHEET_GODOWN_ID
+      : txn.godown_id
+  );
 
   const openingMap = {};
   for (const txn of balances || []) {
-    const gid = txn.godown_id;
+    const gid = godownKeyOf(txn);
     if (['OPEN_STOCK', 'IN_FACTORY', 'PRODUCTION_IN', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN'].includes(txn.txn_type)) {
       openingMap[gid] = (openingMap[gid] || 0) + Number(txn.qty);
     } else {
@@ -68,29 +103,40 @@ export const getGodownSummary = async (date, signal) => {
     }
   }
   for (const txn of openingStocks || []) {
-    const gid = txn.godown_id;
+    const gid = godownKeyOf(txn);
     openingMap[gid] = (openingMap[gid] || 0) + Number(txn.qty);
   }
 
   const stockInMap = {};
   for (const txn of stockIns || []) {
-    stockInMap[txn.godown_id] = (stockInMap[txn.godown_id] || 0) + Number(txn.qty);
+    const gid = godownKeyOf(txn);
+    stockInMap[gid] = (stockInMap[gid] || 0) + Number(txn.qty);
   }
 
   const stockOutMap = {};
   for (const txn of stockOuts || []) {
-    stockOutMap[txn.godown_id] = (stockOutMap[txn.godown_id] || 0) + Number(txn.qty);
+    const gid = godownKeyOf(txn);
+    stockOutMap[gid] = (stockOutMap[gid] || 0) + Number(txn.qty);
   }
 
-  const rows = godowns.map(g => ({
-    godownId: g.godown_id,
-    godownName: g.name,
-    godownType: g.godown_type || '',
-    opening: openingMap[g.godown_id] || 0,
-    stockIn: stockInMap[g.godown_id] || 0,
-    stockOut: stockOutMap[g.godown_id] || 0,
-    closing: (openingMap[g.godown_id] || 0) + (stockInMap[g.godown_id] || 0) - (stockOutMap[g.godown_id] || 0),
-  }));
+  const buildRow = (godownId, godownName, godownType) => ({
+    godownId,
+    godownName,
+    godownType,
+    opening: openingMap[godownId] || 0,
+    stockIn: stockInMap[godownId] || 0,
+    stockOut: stockOutMap[godownId] || 0,
+    closing: (openingMap[godownId] || 0) + (stockInMap[godownId] || 0) - (stockOutMap[godownId] || 0),
+  });
+
+  const rows = [];
+  for (const g of godowns) {
+    rows.push(buildRow(g.godown_id, g.name, g.godown_type || ''));
+    // Sheet row sits directly under the Godown it was split out of.
+    if (mainGodown && g.godown_id === mainGodown.godown_id) {
+      rows.push(buildRow(SHEET_GODOWN_ID, 'Sheet', g.godown_type || 'Own'));
+    }
+  }
 
   // Transport Godown stock is shown on its own "Transport Godown Stock" tab —
   // it isn't a real godown, so it's excluded from this Godown Summary table/totals.

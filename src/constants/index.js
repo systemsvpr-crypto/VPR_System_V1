@@ -34,6 +34,7 @@ export const PAGE_TABS = {
   ],
   sales: [
     { id: 'orders', label: 'Orders' },
+    { id: 'smart-dispatch', label: 'Smart Dispatch Planning' },
     { id: 'dispatch-planning', label: 'Dispatch Planning' },
     { id: 'dispatch-completed', label: 'Dispatch Completed' },
     { id: 'inform-after-dispatch', label: 'Inform After Dispatch' },

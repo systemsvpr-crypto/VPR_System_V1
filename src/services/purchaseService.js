@@ -1,4 +1,4 @@
-import { supabase, fetchAllRows } from '../supabase';
+import { supabase, fetchAllRows, fetchAllRowsInChunks } from '../supabase';
 import { sendPurchaseDeliveredWhatsapp } from './whatsappService';
 
 const getTodayLocal = () => {
@@ -136,13 +136,11 @@ export const getAllIndents = async () => {
 
   let deliverySums = [];
   if (itemIds.length > 0) {
-    const { data: sums, error: sumsErr } = await supabase
+    deliverySums = await fetchAllRowsInChunks(itemIds, (chunk) => supabase
       .from('purchase_deliveries')
       .select('item_id, received_quantity')
       .eq('status', 'Arrived')
-      .in('item_id', itemIds);
-    if (sumsErr) throw sumsErr;
-    deliverySums = sums || [];
+      .in('item_id', chunk));
   }
 
   const sumMap = {};
@@ -696,33 +694,21 @@ export const getApprovedItemsForDelivery = async () => {
   let allocatedSums = [];
   let vendorsData = [];
 
-  const promises = [];
-  if (itemIds.length > 0) {
-    promises.push(
-      supabase.from('purchase_deliveries').select('item_id, received_quantity').eq('status', 'Arrived').in('item_id', itemIds),
-      supabase.from('purchase_deliveries').select('item_id, received_quantity, status').in('item_id', itemIds)
-    );
-  }
-  if (vendorIds.length > 0) {
-    promises.push(
-      supabase.from('vendors').select('vendor_id, name').in('vendor_id', vendorIds)
-    );
-  }
-
-  if (promises.length > 0) {
-    const results = await Promise.all(promises);
-    if (itemIds.length > 0) {
-      if (results[0].error) throw results[0].error;
-      if (results[1].error) throw results[1].error;
-      deliverySums = results[0].data || [];
-      allocatedSums = results[1].data || [];
-    }
-    if (vendorIds.length > 0) {
-      const vendorRes = itemIds.length > 0 ? results[2] : results[0];
-      if (vendorRes.error) throw vendorRes.error;
-      vendorsData = vendorRes.data || [];
-    }
-  }
+  // One chunked fetch of every delivery for these items; the Arrived-only
+  // sums are derived from it rather than re-querying.
+  const [allDeliveries, vendorsRes] = await Promise.all([
+    itemIds.length > 0
+      ? fetchAllRowsInChunks(itemIds, (chunk) =>
+          supabase.from('purchase_deliveries').select('item_id, received_quantity, status').in('item_id', chunk))
+      : [],
+    vendorIds.length > 0
+      ? supabase.from('vendors').select('vendor_id, name').in('vendor_id', vendorIds)
+      : { data: [] },
+  ]);
+  if (vendorsRes.error) throw vendorsRes.error;
+  allocatedSums = allDeliveries;
+  deliverySums = allDeliveries.filter(d => d.status === 'Arrived');
+  vendorsData = vendorsRes.data || [];
 
   const vendorMap = {};
   vendorsData.forEach(v => { vendorMap[v.vendor_id] = v.name; });
@@ -795,22 +781,12 @@ export const getDirectItemsForAawak = async () => {
   let deliverySums = [];
   let allocatedSums = [];
   if (itemIds.length > 0) {
-    const [sumsRes, allocRes] = await Promise.all([
-      supabase
-        .from('purchase_deliveries')
-        .select('item_id, received_quantity')
-        .eq('status', 'Arrived')
-        .in('item_id', itemIds),
-      supabase
-        .from('purchase_deliveries')
-        .select('item_id, received_quantity')
-        .neq('status', 'In Transit')
-        .in('item_id', itemIds)
-    ]);
-    if (sumsRes.error) throw sumsRes.error;
-    if (allocRes.error) throw allocRes.error;
-    deliverySums = sumsRes.data || [];
-    allocatedSums = allocRes.data || [];
+    const allDeliveries = await fetchAllRowsInChunks(itemIds, (chunk) => supabase
+      .from('purchase_deliveries')
+      .select('item_id, received_quantity, status')
+      .in('item_id', chunk));
+    deliverySums = allDeliveries.filter(d => d.status === 'Arrived');
+    allocatedSums = allDeliveries.filter(d => d.status !== 'In Transit');
   }
 
   const sumMap = {};
@@ -1350,21 +1326,11 @@ export const getPurchaseCompleteItems = async () => {
   let deliverySums = [];
   let allocatedSums = [];
   if (itemIds.length > 0) {
-    const [sumsRes, allocRes] = await Promise.all([
-      supabase
-        .from('purchase_deliveries')
-        .select('item_id, received_quantity')
-        .eq('status', 'Arrived')
-        .in('item_id', itemIds),
-      supabase
-        .from('purchase_deliveries')
-        .select('item_id, received_quantity')
-        .in('item_id', itemIds)
-    ]);
-    if (sumsRes.error) throw sumsRes.error;
-    if (allocRes.error) throw allocRes.error;
-    deliverySums = sumsRes.data || [];
-    allocatedSums = allocRes.data || [];
+    allocatedSums = await fetchAllRowsInChunks(itemIds, (chunk) => supabase
+      .from('purchase_deliveries')
+      .select('item_id, received_quantity, status')
+      .in('item_id', chunk));
+    deliverySums = allocatedSums.filter(d => d.status === 'Arrived');
   }
 
   const sumMap = {};

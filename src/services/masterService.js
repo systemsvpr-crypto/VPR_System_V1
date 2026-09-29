@@ -20,6 +20,17 @@ export const createGodown = async (name) => {
   return data;
 };
 
+export const updateGodown = async (godownId, { name, godownType }) => {
+  const { data, error } = await supabase
+    .from('godowns')
+    .update({ name, godown_type: godownType })
+    .eq('godown_id', godownId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
 export const toggleGodownStatus = async (godownId, isActive) => {
   const { error } = await supabase
     .from('godowns')

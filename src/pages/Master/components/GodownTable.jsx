@@ -1,6 +1,6 @@
-import { ToggleLeft, ToggleRight, Warehouse, Trash2 } from 'lucide-react';
+import { ToggleLeft, ToggleRight, Warehouse, Trash2, Edit2 } from 'lucide-react';
 import DataTable from '@/components/DataTable';
-const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user, onDelete, typeFilter, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
+const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTerm, user, onDelete, typeFilter, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
   const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
   if (loading) {
     return (
@@ -55,6 +55,9 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user,
           </td>
           <td className="px-4 py-3 text-center">
             <div className="flex items-center justify-center gap-2">
+              <button onClick={() => onEdit(g)} className="text-slate-400 hover:text-primary transition-colors" title="Edit Godown">
+                <Edit2 size={15} />
+              </button>
               <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary transition-colors">
                 {g.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
               </button>
@@ -75,6 +78,9 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, searchTerm, user,
               <p className="text-xs text-slate-500 mt-0.5">{g.godown_type || 'Own'}</p>
             </div>
             <div className="flex gap-2">
+              <button onClick={() => onEdit(g)} className="text-slate-400 hover:text-primary h-8 w-8" title="Edit Godown">
+                <Edit2 size={14} />
+              </button>
               <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary h-8 w-8">
                 {g.is_active ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
               </button>

@@ -1,17 +1,35 @@
 import ExcelJS from 'exceljs';
+import { getProductGrouping } from '@/lib/productGrouping';
 
 const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E6F5' } };
 const THIN_BORDER = { style: 'thin', color: { argb: 'FFB9C4D0' } };
 const BORDER_ALL = { top: THIN_BORDER, left: THIN_BORDER, bottom: THIN_BORDER, right: THIN_BORDER };
 
-// Flat one-row-per-product report: Date / Product Name / Current Stock
-// (summed across every godown, same total already shown in the Product-wise
-// Breakdown table's "Current Stock" column) — sorted by product name.
+// A product's group is its Brand Name + Category (same definition as the
+// Products page's Grouping column). Products with neither fall back to their
+// own name, so each one is treated as a group of one.
+const groupKeyOf = (p) =>
+  getProductGrouping({ brand_name: p.brandName, category: p.category }) || `__product__${p.productName}`;
+
+// Drop every group whose products ALL have zero current stock; if even one
+// product in a group has stock, keep the whole group (including its zeros).
+const filterEmptyGroups = (products) => {
+  const groupsWithStock = new Set();
+  for (const p of products) {
+    if ((p.totals?.current || 0) > 0) groupsWithStock.add(groupKeyOf(p));
+  }
+  return products.filter((p) => groupsWithStock.has(groupKeyOf(p)));
+};
+
+// Report rows: Date / Product Name / Godown / Current Stock — one row per
+// godown that holds non-zero stock of the product (highest first). A product
+// with no stock anywhere still gets a single row with "-" as the godown so
+// its group stays complete. Sorted by product name.
 const addStockSheet = (workbook, products, date) => {
   const sheet = workbook.addWorksheet('Live Stock Report', { views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }] });
 
   const headerRow = sheet.getRow(1);
-  headerRow.values = ['Date', 'Product Name', 'Current Stock'];
+  headerRow.values = ['Date', 'Product Name', 'Godown', 'Current Stock'];
   headerRow.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: 'FF1F2937' } };
     cell.fill = HEADER_FILL;
@@ -20,39 +38,48 @@ const addStockSheet = (workbook, products, date) => {
   });
   headerRow.height = 20;
 
-  const sorted = [...products].sort((a, b) => a.productName.localeCompare(b.productName));
+  const sorted = filterEmptyGroups(products).sort((a, b) => a.productName.localeCompare(b.productName));
 
   let rowNum = 2;
   let totalStock = 0;
   for (const p of sorted) {
-    const qty = p.totals?.current || 0;
-    totalStock += qty;
+    const godownRows = (p.godowns || [])
+      .filter((g) => g.current !== 0)
+      .sort((a, b) => b.current - a.current)
+      .map((g) => [g.godownName, g.current]);
+    if (godownRows.length === 0) godownRows.push(['-', 0]);
 
-    const row = sheet.getRow(rowNum);
-    row.values = [date, p.productName, qty];
-    row.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
-    row.getCell(2).alignment = { vertical: 'middle', horizontal: 'left' };
-    row.getCell(3).alignment = { vertical: 'middle', horizontal: 'center' };
-    row.getCell(3).font = qty === 0
-      ? { color: { argb: 'FFB0B7C3' } }
-      : { bold: true, color: { argb: 'FF111827' } };
-    row.eachCell((cell) => { cell.border = BORDER_ALL; });
+    for (const [godownName, qty] of godownRows) {
+      totalStock += qty;
 
-    rowNum += 1;
+      const row = sheet.getRow(rowNum);
+      row.values = [date, p.productName, godownName, qty];
+      row.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+      row.getCell(2).alignment = { vertical: 'middle', horizontal: 'left' };
+      row.getCell(3).alignment = { vertical: 'middle', horizontal: 'left' };
+      row.getCell(4).alignment = { vertical: 'middle', horizontal: 'center' };
+      row.getCell(4).font = qty === 0
+        ? { color: { argb: 'FFB0B7C3' } }
+        : { bold: true, color: { argb: 'FF111827' } };
+      row.eachCell((cell) => { cell.border = BORDER_ALL; });
+
+      rowNum += 1;
+    }
   }
 
   // Add total row
   const totalRow = sheet.getRow(rowNum);
-  totalRow.values = ['', 'Total', totalStock];
-  totalRow.getCell(2).font = { bold: true, color: { argb: 'FF1F2937' } };
-  totalRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'right' };
+  totalRow.values = ['', '', 'Total', totalStock];
   totalRow.getCell(3).font = { bold: true, color: { argb: 'FF1F2937' } };
-  totalRow.getCell(3).alignment = { vertical: 'middle', horizontal: 'center' };
+  totalRow.getCell(3).alignment = { vertical: 'middle', horizontal: 'right' };
+  totalRow.getCell(4).font = { bold: true, color: { argb: 'FF1F2937' } };
+  totalRow.getCell(4).alignment = { vertical: 'middle', horizontal: 'center' };
   totalRow.eachCell((cell) => { cell.border = BORDER_ALL; cell.fill = HEADER_FILL; });
 
   sheet.getColumn(1).width = 14;
   sheet.getColumn(2).width = 40;
-  sheet.getColumn(3).width = 16;
+  sheet.getColumn(3).width = 22;
+  sheet.getColumn(4).width = 16;
 };
 
 export const exportStockReport = async (products, date) => {

@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Package, Truck, Search, Trash2, Ban,
   AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
-  Sparkles, PackageCheck, PackageX, PackageSearch, Zap,
-  LayoutGrid, LayoutList, Calendar, MapPin, User, Check, Clock, RotateCw,
+  Zap,
+  LayoutGrid, LayoutList, Calendar, MapPin, User, Check, Clock, RotateCw, Warehouse,
 } from 'lucide-react';
 import { format, differenceInCalendarDays } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -60,28 +60,6 @@ const comparePriority = (a, b, threshold) => {
   const bLow = b.remaining > 0 && b.remaining <= threshold;
   if (aLow !== bLow) return aLow ? -1 : 1;
   return b.daysPending - a.daysPending;
-};
-
-/* ─── summary card ────────────────────────────────────────── */
-const SummaryCard = ({ icon: Icon, label, value, color }) => {
-  const colors = {
-    slate:   { bg: 'bg-slate-50', text: 'text-slate-700', icon: 'text-slate-400', border: 'border-slate-200' },
-    blue:    { bg: 'bg-blue-50', text: 'text-blue-700', icon: 'text-blue-400', border: 'border-blue-100' },
-    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: 'text-emerald-400', border: 'border-emerald-100' },
-    red:     { bg: 'bg-red-50', text: 'text-red-600', icon: 'text-red-400', border: 'border-red-100' },
-  };
-  const c = colors[color] || colors.slate;
-  return (
-    <div className={`flex items-center gap-3 rounded-xl border p-4 ${c.bg} ${c.border}`}>
-      <div className={`w-10 h-10 rounded-lg bg-white flex items-center justify-center border ${c.border}`}>
-        <Icon size={18} className={c.icon} />
-      </div>
-      <div className="min-w-0">
-        <div className={`text-xl font-bold tabular-nums leading-tight ${c.text}`}>{value}</div>
-        <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide leading-tight mt-0.5">{label}</div>
-      </div>
-    </div>
-  );
 };
 
 // One product line's position within its own order ("1, 2, 3...n" when an
@@ -147,7 +125,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   const [stockStatusFilter, setStockStatusFilter] = useState('');
   const [pendingCustomerFilter, setPendingCustomerFilter] = useState('');
   const [lowQtyThreshold] = useState(DEFAULT_LOW_QTY_THRESHOLD);
-  const [expandedProducts, setExpandedProducts] = useState(new Set());
 
   const [historyOrderFilter, setHistoryOrderFilter] = useState('');
   const [historyGodownFilter, setHistoryGodownFilter] = useState('');
@@ -226,20 +203,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     return map;
   }, [stockRows]);
 
-  /* ── stock breakdown per product per godown (for display) ── */
-  const stockByProductByGodown = useMemo(() => {
-    const map = {};
-    stockRows.forEach(s => {
-      const qty = Number(s.current_stock) || 0;
-      if (qty <= 0) return;
-      const godown = godowns?.find(g => g.godown_id === s.godown_id);
-      const godownName = godown?.name || `Godown ${s.godown_id}`;
-      if (!map[s.product_id]) map[s.product_id] = [];
-      map[s.product_id].push({ godownName, qty });
-    });
-    return map;
-  }, [stockRows, godowns]);
-
   const productNoMap = useMemo(() => buildProductNoMap(items), [items]);
 
   // Own godowns first (a dispatch normally leaves from one of these), then
@@ -253,12 +216,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     return [...own, ...transporter].map(g => ({ value: g.godown_id, label: g.name }));
   }, [godowns]);
 
-  const toggleProductExpand = (productId) =>
-    setExpandedProducts(prev => {
-      const next = new Set(prev);
-      next.has(productId) ? next.delete(productId) : next.add(productId);
-      return next;
-    });
 
   /* ── computed per-item quantities ─────────────────────── */
   const withQty = useMemo(() =>
@@ -288,6 +245,20 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
         const orderGodownStock = stockByProductAndGodown[item.product_id]?.[item.godown_id] ?? 0;
         const orderGodownName  = item.godowns?.name || godowns?.find(g => g.godown_id === item.godown_id)?.name || '';
 
+        // Every godown currently holding this product (non-zero only),
+        // highest first — shown on the card so the dispatch godown can be
+        // picked without leaving the page.
+        const productGodownStock = stockByProductAndGodown[item.product_id] || {};
+        const godownStocks = (godowns || [])
+          .filter(g => (productGodownStock[g.godown_id] || 0) !== 0)
+          .map(g => ({
+            godownId: g.godown_id,
+            name: g.name,
+            isTransporter: (g.godown_type || 'Own') !== 'Own',
+            qty: productGodownStock[g.godown_id],
+          }))
+          .sort((a, b) => b.qty - a.qty);
+
         let stockStatus = null;
         if (remaining > 0) {
           if (orderGodownStock <= 0) stockStatus = 'waiting';
@@ -297,7 +268,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
 
         return {
           ...item, activePlans, cancelledQty, effectiveQty, totalPlanned, totalDispatched, remaining,
-          daysPending, isOverdue, partyName, productName, productStock, orderGodownStock, orderGodownName, stockStatus,
+          daysPending, isOverdue, partyName, productName, productStock, orderGodownStock, orderGodownName, godownStocks, stockStatus,
           productNo: productNoMap.get(item.item_id) || '—',
         };
       }),
@@ -410,82 +381,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     });
       return list;
     }, [filteredItems, isPendingView, productFilter, stockStatusFilter, pendingCustomerFilter, sortBy, lowQtyThreshold]);
-
-  /* ── summary counts (pending view only) ───────────────── */
-  const summary = useMemo(() => {
-    if (!isPendingView) return null;
-    const totalOrders = dashboardItems.length;
-    const totalBags = dashboardItems.reduce((s, i) => s + i.remaining, 0);
-    const ready = dashboardItems.filter(i => i.stockStatus === 'ready').length;
-    const waiting = dashboardItems.filter(i => i.stockStatus === 'partial' || i.stockStatus === 'waiting').length;
-    return { totalOrders, totalBags, ready, waiting };
-  }, [dashboardItems, isPendingView]);
-
-  /* ── product-wise smart dispatch plan (pending view only) ── */
-  const productPlans = useMemo(() => {
-    if (!isPendingView) return [];
-    const groups = new Map();
-    dashboardItems.forEach(item => {
-      if (!groups.has(item.product_id)) {
-        groups.set(item.product_id, {
-          productId: item.product_id,
-          productName: item.productName,
-          unit: item.products?.unit || '',
-          stock: item.productStock,
-          orders: [],
-        });
-      }
-      groups.get(item.product_id).orders.push(item);
-    });
-
-    return [...groups.values()].map(group => {
-      // Stock isn't fungible across godowns — allocate within each order's own godown, not the product's total stock.
-      const ordersByGodown = new Map();
-      group.orders.forEach(order => {
-        const gid = order.godown_id;
-        if (!ordersByGodown.has(gid)) ordersByGodown.set(gid, []);
-        ordersByGodown.get(gid).push(order);
-      });
-
-      let stockLeft = 0;
-      const dispatchPlan = [];
-      const waitingOrders = [];
-
-      ordersByGodown.forEach((godownOrders, godownId) => {
-        let godownStockLeft = stockByProductAndGodown[group.productId]?.[godownId] ?? 0;
-        [...godownOrders]
-          .sort((a, b) => comparePriority(a, b, lowQtyThreshold))
-          .forEach(order => {
-            if (godownStockLeft >= order.remaining && order.remaining > 0) {
-              const reason = order.remaining <= lowQtyThreshold ? 'Low quantity' : 'Oldest pending order';
-              dispatchPlan.push({ ...order, reason });
-              godownStockLeft -= order.remaining;
-            } else {
-              waitingOrders.push(order);
-            }
-          });
-        stockLeft += godownStockLeft;
-      });
-
-      const planQtyByItem = new Map(dispatchPlan.map(o => [o.item_id, o.remaining]));
-      const tableRows = [...group.orders]
-        .sort((a, b) => new Date(a.sales_orders?.order_date || 0) - new Date(b.sales_orders?.order_date || 0))
-        .map(o => ({
-          item_id: o.item_id,
-          orderDateLabel: o.sales_orders?.order_date ? format(new Date(o.sales_orders.order_date), 'dd-MMM-yy') : '—',
-          orderNumber: o.sales_orders?.order_number || '—',
-          partyName: o.partyName,
-          productName: o.productName,
-          godownName: o.orderGodownName || '—',
-          totalQty: o.effectiveQty,
-          dispatched: o.totalDispatched,
-          remaining: o.remaining,
-          planQty: planQtyByItem.get(o.item_id) || 0,
-        }));
-
-      return { ...group, dispatchPlan, waitingOrders, stockLeft, tableRows };
-    }).sort((a, b) => a.productName.localeCompare(b.productName));
-  }, [dashboardItems, isPendingView, lowQtyThreshold, stockByProductAndGodown]);
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, dispatchFilter, productFilter, stockStatusFilter, pendingCustomerFilter, sortBy, pageSize, historyPageSize, historyOrderFilter, historyGodownFilter, historyCustomerFilter, historyProductFilter]);
 
@@ -945,6 +840,36 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                           </span>
                         </div>
                       ) : null}
+                    </div>
+
+                    {/* Godown Stock Row: current stock of this product in each godown */}
+                    <div className="flex items-start gap-1.5 text-[11px]">
+                      <span className="flex items-center gap-1 text-slate-400 shrink-0 leading-5">
+                        <Warehouse size={12} className="shrink-0" />Godown Stock:
+                      </span>
+                      {item.godownStocks.length === 0 ? (
+                        <span className="text-red-500 font-medium leading-5">No stock in any godown</span>
+                      ) : (
+                        <div className="flex items-center gap-1 flex-wrap min-w-0">
+                          {item.godownStocks.map(gs => {
+                            const isOrderGodown = gs.godownId === item.godown_id;
+                            return (
+                              <span key={gs.godownId}
+                                title={isOrderGodown ? 'Order godown' : gs.isTransporter ? 'Transporter godown' : undefined}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border leading-none ${
+                                  isOrderGodown
+                                    ? 'bg-primary/5 border-primary/40 text-primary'
+                                    : gs.isTransporter
+                                    ? 'bg-amber-50 border-amber-200 text-amber-700'
+                                    : 'bg-slate-50 border-slate-200 text-slate-600'
+                                }`}>
+                                <span className="truncate max-w-[110px]">{gs.name}</span>
+                                <span className="font-bold tabular-nums">{Number(gs.qty).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1724,132 +1649,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
           </div>
         )}
       </div>
-      )}
-
-      {/* ── Smart Dispatch Planning (pending view only) ── */}
-      {isPendingView && productPlans.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden mt-4 flex flex-col h-[420px] sm:h-[480px] md:h-[560px]">
-          <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2 bg-slate-50 shrink-0">
-            <div className="bg-primary/10 p-1.5 rounded-lg">
-              <Sparkles size={16} className="text-primary" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-slate-800 text-sm">Smart Dispatch Planning</h3>
-              <p className="text-[11px] text-slate-400">
-                Auto-recommended allocation based on low quantity, order age & available stock.
-              </p>
-            </div>
-          </div>
-
-          {/* ── Dashboard summary cards ── */}
-          {summary && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4 border-b border-slate-100 shrink-0">
-              <SummaryCard icon={ClipboardList} label="Total Pending Orders" value={summary.totalOrders} color="slate" />
-              <SummaryCard icon={Package} label="Total Pending Bags" value={summary.totalBags} color="blue" />
-              <SummaryCard icon={PackageCheck} label="Ready to Dispatch" value={summary.ready} color="emerald" />
-              <SummaryCard icon={PackageX} label="Waiting for Stock" value={summary.waiting} color="red" />
-            </div>
-          )}
-
-          <div className="divide-y divide-slate-100 overflow-y-auto scrollbar-hide flex-1 min-h-0">
-            {productPlans.map(group => {
-              const isOpen = expandedProducts.has(group.productId);
-              return (
-                <div key={group.productId}>
-                  <button
-                    type="button"
-                    onClick={() => toggleProductExpand(group.productId)}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left"
-                  >
-                    <Package size={16} className="text-slate-400 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <span className="font-semibold text-slate-800 text-sm">{group.productName}</span>
-                      <span className="text-xs text-slate-400 ml-2">
-                        {group.orders.length} pending order{group.orders.length !== 1 ? 's' : ''}
-                      </span>
-                    </div>
-                    {/* Godown-wise stock pills */}
-                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                      {(stockByProductByGodown[group.productId] || []).length > 0 ? (
-                        (stockByProductByGodown[group.productId] || []).map(({ godownName, qty }) => (
-                          <span
-                            key={godownName}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-slate-200 bg-white text-[11px] font-medium text-slate-600 whitespace-nowrap"
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-400 inline-block" />
-                            {godownName}:
-                            <span className="font-bold text-slate-800">{qty}</span>
-                            <span className="text-slate-400">{group.unit}</span>
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-xs text-slate-400">No stock</span>
-                      )}
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-primary/20 bg-primary/5 text-[11px] font-bold text-primary whitespace-nowrap">
-                        Total: {group.stock} {group.unit}
-                      </span>
-                    </div>
-                    <span className="text-xs font-medium text-emerald-600 shrink-0">
-                      {group.dispatchPlan.length} can dispatch
-                    </span>
-                    {isOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
-                  </button>
-
-                  {isOpen && (
-                    <div className="px-4 pb-4 bg-slate-50/60">
-                      <div className="overflow-x-auto rounded-lg border border-slate-200">
-                        <table className="w-full text-xs bg-white">
-                          <thead>
-                            <tr className="bg-slate-50 border-b border-slate-200">
-                              <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
-                              <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Order</th>
-                              <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Party's Name</th>
-                              <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name of Item</th>
-                              <th className="text-left px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Godown</th>
-                              <th className="text-right px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Qty</th>
-                              <th className="text-right px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dispatched</th>
-                              <th className="text-right px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remaining</th>
-                              <th className="text-right px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Plan Qty</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {group.tableRows.map(row => (
-                              <tr key={row.item_id} className="hover:bg-slate-50">
-                                <td className="px-3 py-1.5 text-slate-500 whitespace-nowrap">{row.orderDateLabel}</td>
-                                <td className="px-3 py-1.5 text-slate-500 whitespace-nowrap">{row.orderNumber}</td>
-                                <td className="px-3 py-1.5 font-medium text-slate-800">{row.partyName}</td>
-                                <td className="px-3 py-1.5 text-slate-600">{row.productName}</td>
-                                <td className="px-3 py-1.5 text-slate-500 whitespace-nowrap">{row.godownName}</td>
-                                <td className="px-3 py-1.5 text-right text-slate-600 tabular-nums">{row.totalQty}</td>
-                                <td className="px-3 py-1.5 text-right text-violet-600 tabular-nums">{row.dispatched}</td>
-                                <td className="px-3 py-1.5 text-right text-amber-600 font-medium tabular-nums">{row.remaining}</td>
-                                <td className={`px-3 py-1.5 text-right font-semibold tabular-nums ${row.planQty > 0 ? 'text-emerald-700' : 'text-slate-300'}`}>
-                                  {row.planQty > 0 ? row.planQty : '—'}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      {group.stockLeft > 0 && group.waitingOrders.length > 0 && (
-                        <p className="text-[11px] text-slate-400 mt-2 flex items-center gap-1">
-                          <PackageSearch size={12} className="text-slate-400 shrink-0" />
-                          Remaining stock after this plan: <strong className="text-slate-600">{group.stockLeft} {group.unit}</strong> — not enough for the remaining order(s), they wait for production/stock.
-                        </p>
-                      )}
-                      {group.dispatchPlan.length === 0 && (
-                        <p className="text-[11px] text-slate-400 mt-2 flex items-center gap-1">
-                          <AlertCircle size={12} className="text-slate-400 shrink-0" />
-                          No stock available — all orders wait for production.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
       )}
 
       <DirectOrderModal

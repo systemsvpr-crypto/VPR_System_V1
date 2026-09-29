@@ -32,6 +32,24 @@ export const fetchAllRows = async (buildQuery) => {
   return rows;
 };
 
+// Supabase's API gateway rejects a request with a bare 400 "Bad Request" once
+// its URL gets too long — an `.in()` filter built from every id in a growing
+// table (e.g. every approved indent item) crosses that line as data grows.
+// Split the id list into bounded chunks, page each chunk's result with
+// fetchAllRows (so no chunk is silently capped at 1000 rows), and merge.
+//
+// `buildQuery(chunk)` must return a FRESH, un-awaited query builder.
+const IN_CHUNK_SIZE = 150;
+
+export const fetchAllRowsInChunks = async (ids, buildQuery) => {
+  let rows = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + IN_CHUNK_SIZE);
+    rows = rows.concat(await fetchAllRows(() => buildQuery(chunk)));
+  }
+  return rows;
+};
+
 // Same as fetchAllRows, but for a query built with `{ count: 'exact' }` where
 // the caller also needs the total matching-row count (e.g. for a "total
 // products" figure) — Postgrest reports that exact count on every page's
