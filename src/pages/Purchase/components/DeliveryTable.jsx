@@ -310,7 +310,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
     let fallbackTransporterName = '-';
     let fallbackLrNumber = null;
     let fallbackExpDate = null;
-    
+
     for (const itemId of toSubmitIds) {
       const edit = rowEdits[itemId];
       if (!fallbackTransporterId && edit?.transporter_id) {
@@ -428,7 +428,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
         const lrNumber = lrKey === 'NO_LR' ? '-' : lrKey;
         const transporterName = group[0].transporterName;
         const date = group[0].date;
-        
+
         let productDetails = '';
         let totalBag = 0;
         let totalKg = 0;
@@ -438,16 +438,16 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
           const pBag = Number(p.dispatchQtyBag) || 0;
           const pKg = Number(p.dispatchQtyKg) || 0;
           const pLot = Number(p.delQty) || 0;
-          
+
           productDetails += `${idx > 0 ? ' , ' : ''}Product ${idx + 1} :- ${p.productName} (${p.delQty}${p.unit ? ' ' + p.unit : ''}) Total Bag : ${pBag}, Total KG: ${pKg}, Total Lot: ${pLot}`;
-          
+
           totalBag += pBag;
           totalKg += pKg;
           totalLot += pLot;
         });
-        
+
         const totalValuesStr = `Total: ${totalBag} bag, ${totalKg} KG, ${totalLot} Lot`;
-        
+
         try {
           console.log('DeliveryTable - about to call sendPurchaseDeliveredWhatsapp for LR:', lrNumber);
           console.log('Group details:', { transporterName, date, productDetails: productDetails.trim(), totalValuesStr });
@@ -634,9 +634,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
             return (
               <div
                 key={item.item_id}
-                className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col border-l-[3.5px] border-l-amber-500 ${
-                  isSelected ? 'ring-2 ring-primary/20 border-primary' : ''
-                }`}
+                className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col border-l-[3.5px] border-l-amber-500 ${isSelected ? 'ring-2 ring-primary/20 border-primary' : ''
+                  }`}
               >
                 {/* Main Compact 1-Card Row */}
                 <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
@@ -659,7 +658,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                       </div>
                       <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium whitespace-nowrap leading-none">
                         <Calendar size={11} className="text-slate-400 shrink-0" />
-                        <span>Exp Delivery: {expDeliveryDate ? format(new Date(expDeliveryDate), 'dd MMM yyyy') : (item.planning_date ? format(new Date(item.planning_date), 'dd MMM yyyy') : (indent.indent_date ? format(new Date(indent.indent_date), 'dd MMM yyyy') : '—'))}</span>
+                        <span>Purchase Date: {expDeliveryDate ? format(new Date(expDeliveryDate), 'dd MMM yyyy') : (item.planning_date ? format(new Date(item.planning_date), 'dd MMM yyyy') : (indent.indent_date ? format(new Date(indent.indent_date), 'dd MMM yyyy') : '—'))}</span>
                       </div>
                     </div>
                   </div>
@@ -790,9 +789,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                 </div>
 
                 {/* Form Controls / Inputs Section - Always visible in one view, enabled when checked */}
-                <div className={`p-3 border-t transition-colors ${
-                  isSelected ? 'bg-primary/[0.02] border-primary/20' : 'bg-slate-50/60 border-slate-100'
-                }`}>
+                <div className={`p-3 border-t transition-colors ${isSelected ? 'bg-primary/[0.02] border-primary/20' : 'bg-slate-50/60 border-slate-100'
+                  }`}>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
                     {isSelected && (
                       <div>
@@ -980,15 +978,14 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
             const accentBorder = isReceived
               ? 'border-l-4 border-l-emerald-500'
               : isInTransit
-              ? 'border-l-4 border-l-blue-500'
-              : 'border-l-4 border-l-amber-500';
+                ? 'border-l-4 border-l-blue-500'
+                : 'border-l-4 border-l-amber-500';
 
             return (
               <div
                 key={del.delivery_id}
-                className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col ${accentBorder} border-l-[3.5px] ${
-                  isSelected ? 'ring-2 ring-primary/20 border-primary' : ''
-                }`}
+                className={`bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all overflow-hidden flex flex-col ${accentBorder} border-l-[3.5px] ${isSelected ? 'ring-2 ring-primary/20 border-primary' : ''
+                  }`}
               >
                 <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
                   {/* Left Column: Status Badge, LIFT Number, Date */}
@@ -1092,13 +1089,12 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                   </div>
 
                   {/* Middle-Right: Quantities Box with Progress Bar */}
-                  <div className={`py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1.5 min-w-[190px] sm:min-w-[210px] shrink-0 ${
-                    isReceived
-                      ? 'bg-emerald-50/50 border-emerald-200/70'
-                      : isInTransit
+                  <div className={`py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1.5 min-w-[190px] sm:min-w-[210px] shrink-0 ${isReceived
+                    ? 'bg-emerald-50/50 border-emerald-200/70'
+                    : isInTransit
                       ? 'bg-blue-50/50 border-blue-200/70'
                       : 'bg-amber-50/50 border-amber-200/70'
-                  }`}>
+                    }`}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5">
                         <div className="w-5 h-5 rounded bg-white/90 border border-slate-200/60 flex items-center justify-center shrink-0">
@@ -1108,18 +1104,16 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                           {recvQty} / {dispatchQty} {unitLabel}
                         </span>
                       </div>
-                      <span className={`text-[10px] font-semibold leading-none ${
-                        isReceived ? 'text-emerald-700' : (recvQty === 0 ? 'text-amber-700' : 'text-blue-700')
-                      }`}>
+                      <span className={`text-[10px] font-semibold leading-none ${isReceived ? 'text-emerald-700' : (recvQty === 0 ? 'text-amber-700' : 'text-blue-700')
+                        }`}>
                         {recvQty === 0 ? 'Not received' : (percentReceived >= 100 ? '100% received' : `${percentReceived}% received`)}
                       </span>
                     </div>
 
                     <div className="w-full h-1.5 rounded-full bg-slate-200/80 overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          isReceived ? 'bg-emerald-500' : isInTransit ? 'bg-blue-500' : 'bg-amber-500'
-                        }`}
+                        className={`h-full rounded-full transition-all duration-300 ${isReceived ? 'bg-emerald-500' : isInTransit ? 'bg-blue-500' : 'bg-amber-500'
+                          }`}
                         style={{ width: `${Math.min(100, Math.max(0, percentReceived))}%` }}
                       />
                     </div>
@@ -1169,34 +1163,30 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
           <button
             type="button"
             onClick={() => { setActiveSubTab('pending'); setCurrentPage(1); setSelectedItems(new Set()); }}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${
-              activeSubTab === 'pending'
-                ? 'bg-primary/10 text-primary'
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-            }`}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${activeSubTab === 'pending'
+              ? 'bg-primary/10 text-primary'
+              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+              }`}
           >
             <Clock size={14} />
             Pending
-            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-              activeSubTab === 'pending' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
-            }`}>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeSubTab === 'pending' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
+              }`}>
               {items.length}
             </span>
           </button>
           <button
             type="button"
             onClick={() => { setActiveSubTab('history'); setCurrentPage(1); setSelectedItems(new Set()); }}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${
-              activeSubTab === 'history'
-                ? 'bg-primary/10 text-primary'
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-            }`}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${activeSubTab === 'history'
+              ? 'bg-primary/10 text-primary'
+              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+              }`}
           >
             <History size={14} />
             History
-            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-              activeSubTab === 'history' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
-            }`}>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeSubTab === 'history' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
+              }`}>
               {historyItems.length}
             </span>
           </button>
@@ -1276,11 +1266,10 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
             <button
               type="button"
               onClick={() => handleViewModeChange('card')}
-              className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all ${
-                viewMode === 'card'
-                  ? 'bg-white text-primary shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
+              className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all ${viewMode === 'card'
+                ? 'bg-white text-primary shadow-sm'
+                : 'text-slate-500 hover:text-slate-800'
+                }`}
               title="Card View"
             >
               <LayoutGrid size={14} />
@@ -1289,11 +1278,10 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
             <button
               type="button"
               onClick={() => handleViewModeChange('table')}
-              className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all ${
-                viewMode === 'table'
-                  ? 'bg-white text-primary shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
+              className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1 transition-all ${viewMode === 'table'
+                ? 'bg-white text-primary shadow-sm'
+                : 'text-slate-500 hover:text-slate-800'
+                }`}
               title="Table View"
             >
               <LayoutList size={14} />
@@ -1359,338 +1347,338 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
 
         {activeSubTab === 'pending' ? (
           viewMode === 'card' ? renderPendingCards() : (
-          /* PENDING TABLE */
-          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
-            <table className="w-full text-xs">
-              <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
-                <tr>
-                  <th className="w-16 px-2 py-3 text-center">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-                      <span className="text-[10px] font-semibold text-slate-500 uppercase">Action</span>
-                    </div>
-                  </th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pkg/Bag</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Remarks</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Exp. Date</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Actual Date</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch Unit</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch Qty</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch in BAG</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch in KG</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px] whitespace-nowrap">Transporter</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] whitespace-nowrap">LR No.</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Vehicle No.</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Driver No.</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {currentList.length === 0 && (
+            /* PENDING TABLE */
+            <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+              <table className="w-full text-xs">
+                <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                   <tr>
-                    <td colSpan="21" className="p-12 text-center text-slate-400">
-                      <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
-                      <p className="text-sm font-medium">No approved deliveries available.</p>
-                    </td>
+                    <th className="w-16 px-2 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase">Action</span>
+                      </div>
+                    </th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pkg/Bag</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Remarks</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Exp. Date</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Actual Date</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch Unit</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch Qty</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch in BAG</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch in KG</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px] whitespace-nowrap">Transporter</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] whitespace-nowrap">LR No.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Vehicle No.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Driver No.</th>
                   </tr>
-                )}
-                {currentPageItems.map(item => {
-                  const indent = item.purchase_indents || {};
-                  const isSelected = selectedItems.has(item.item_id);
-                  const pkgSize = getPackagingSize(item.products);
-                  const transpId = getRowVal(item.item_id, 'transporter_id');
-                  const selectedTransporter = transporters.find(t => String(t.transporter_id) === String(transpId));
-
-                  const masterUnit = (item.products?.unit || '').toLowerCase();
-                  const currentPkgSize = getRowVal(item.item_id, 'packaging_size', pkgSize);
-                  const dispatchUnit = getRowVal(item.item_id, 'dispatch_unit', masterUnit);
-                  const dispatchQtyVal = getRowVal(item.item_id, 'del_qty_kg', String(item.remaining_alloc_qty ?? item.remaining_qty ?? ''));
-                  const dispatchQtyBag = convertDispatchQty(dispatchQtyVal, dispatchUnit, 'bag', currentPkgSize);
-                  const dispatchQtyKg = convertDispatchQty(dispatchQtyVal, dispatchUnit, 'kg', currentPkgSize);
-
-                  return (
-                    <tr key={item.item_id} className={`hover:bg-slate-50/60 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
-                      <td className="px-2 py-3 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleSelect(item.item_id)}
-                            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
-                          />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            type="button"
-                            title="Delete Row"
-                            onClick={() => handleDeletePendingItem(item)}
-                            className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
-                          >
-                            <Trash2 size={13} />
-                          </Button>
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
-                        {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center font-semibold text-slate-800 whitespace-nowrap">
-                        {indent.indent_number || '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <IndentTypeBadge processType={indent.process_type} />
-                      </td>
-                      <td className="px-3 py-3 text-center font-medium text-slate-700 whitespace-nowrap">
-                        {item.approved_vendor?.name || item.item_vendor?.name || '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap">
-                        <span className="text-slate-800 font-medium">{item.products?.name || '—'}</span>
-                        <span className="text-slate-500 ml-1">({item.products?.unit || '—'})</span>
-                      </td>
-                      <td className="px-3 py-3 text-center font-semibold text-slate-700">
-                        {item.quantity}
-                      </td>
-                      <td className="px-3 py-3 text-center font-semibold text-amber-600">
-                        {item.remaining_alloc_qty ?? item.remaining_qty}
-                      </td>
-                      <td className="px-3 py-3 text-center text-slate-600">
-                        {(item.rate != null && item.rate !== '') || (item.approved_rate != null && item.approved_rate !== '') ? Number(item.rate ?? item.approved_rate).toFixed(2) : '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          placeholder="Pkg/Bag"
-                          value={getRowVal(item.item_id, 'packaging_size', pkgSize)}
-                          onChange={e => setRowVal(item.item_id, 'packaging_size', e.target.value)}
-                          disabled={!isSelected}
-                          className="h-8 text-xs text-center bg-slate-50/50 border-slate-200 focus:bg-white w-20"
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <Input
-                          type="text"
-                          placeholder="Remarks..."
-                          value={getRowVal(item.item_id, 'remarks')}
-                          onChange={e => setRowVal(item.item_id, 'remarks', e.target.value)}
-                          disabled={!isSelected}
-                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <Input
-                          type="date"
-                          value={getRowVal(item.item_id, 'exp_date', item.planning_date || '')}
-                          onChange={e => setFieldForSelected(item.item_id, 'exp_date', e.target.value)}
-                          disabled={!isSelected}
-                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap">
-                        {format(new Date(), 'dd/MM/yyyy')}
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <select
-                          value={dispatchUnit}
-                          onChange={e => handleDispatchUnitChange(item, e.target.value)}
-                          disabled={!isSelected}
-                          className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
-                        >
-                          <option value="bag">BAG</option>
-                          <option value="kg">KG</option>
-                        </select>
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max={convertDispatchQty(item.remaining_alloc_qty ?? item.remaining_qty, masterUnit, dispatchUnit, currentPkgSize)}
-                          placeholder="Dispatch Qty"
-                          value={getRowVal(item.item_id, 'del_qty_kg', String(item.remaining_alloc_qty ?? item.remaining_qty ?? ''))}
-                          onChange={e => handleReceivedQtyChange(item, e.target.value)}
-                          disabled={!isSelected}
-                          className="h-8 text-xs font-semibold text-center bg-slate-50/50 border-slate-200 focus:bg-white"
-                        />
-                      </td>
-                      <td className={`px-3 py-3 text-center font-medium whitespace-nowrap ${masterUnit === 'bag' ? 'text-slate-800' : 'text-slate-500'}`}>
-                        {dispatchQtyBag ? Number(dispatchQtyBag.toFixed(2)) : '—'}
-                      </td>
-                      <td className={`px-3 py-3 text-center font-medium whitespace-nowrap ${masterUnit === 'kg' ? 'text-slate-800' : 'text-slate-500'}`}>
-                        {dispatchQtyKg ? Number(dispatchQtyKg.toFixed(2)) : '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <select
-                          value={transpId}
-                          onChange={e => handleTransporterChange(item.item_id, e.target.value)}
-                          disabled={!isSelected}
-                          className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px] disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
-                        >
-                          <option value="">Select transp...</option>
-                          {transporters.map(t => (
-                            <option key={t.transporter_id} value={t.transporter_id}>{t.name}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <Input
-                          type="text"
-                          placeholder="LR No."
-                          value={getRowVal(item.item_id, 'lr_number')}
-                          onChange={e => setFieldForSelected(item.item_id, 'lr_number', e.target.value)}
-                          disabled={!isSelected || !transpId}
-                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[110px]"
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <Input
-                          type="text"
-                          placeholder="Vehicle No."
-                          value={getRowVal(item.item_id, 'vehicle_number', selectedTransporter?.vehicle_number || '')}
-                          onChange={e => setFieldForSelected(item.item_id, 'vehicle_number', e.target.value)}
-                          disabled={!isSelected || !transpId}
-                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <Input
-                          type="text"
-                          placeholder="Driver No."
-                          value={getRowVal(item.item_id, 'driver_phone_number', selectedTransporter?.driver_phone_number || '')}
-                          onChange={e => setFieldForSelected(item.item_id, 'driver_phone_number', e.target.value)}
-                          disabled={!isSelected || !transpId}
-                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
-                        />
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {currentList.length === 0 && (
+                    <tr>
+                      <td colSpan="21" className="p-12 text-center text-slate-400">
+                        <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
+                        <p className="text-sm font-medium">No approved deliveries available.</p>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  )}
+                  {currentPageItems.map(item => {
+                    const indent = item.purchase_indents || {};
+                    const isSelected = selectedItems.has(item.item_id);
+                    const pkgSize = getPackagingSize(item.products);
+                    const transpId = getRowVal(item.item_id, 'transporter_id');
+                    const selectedTransporter = transporters.find(t => String(t.transporter_id) === String(transpId));
+
+                    const masterUnit = (item.products?.unit || '').toLowerCase();
+                    const currentPkgSize = getRowVal(item.item_id, 'packaging_size', pkgSize);
+                    const dispatchUnit = getRowVal(item.item_id, 'dispatch_unit', masterUnit);
+                    const dispatchQtyVal = getRowVal(item.item_id, 'del_qty_kg', String(item.remaining_alloc_qty ?? item.remaining_qty ?? ''));
+                    const dispatchQtyBag = convertDispatchQty(dispatchQtyVal, dispatchUnit, 'bag', currentPkgSize);
+                    const dispatchQtyKg = convertDispatchQty(dispatchQtyVal, dispatchUnit, 'kg', currentPkgSize);
+
+                    return (
+                      <tr key={item.item_id} className={`hover:bg-slate-50/60 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
+                        <td className="px-2 py-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelect(item.item_id)}
+                              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Delete Row"
+                              onClick={() => handleDeletePendingItem(item)}
+                              className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
+                          {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center font-semibold text-slate-800 whitespace-nowrap">
+                          {indent.indent_number || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <IndentTypeBadge processType={indent.process_type} />
+                        </td>
+                        <td className="px-3 py-3 text-center font-medium text-slate-700 whitespace-nowrap">
+                          {item.approved_vendor?.name || item.item_vendor?.name || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                          <span className="text-slate-800 font-medium">{item.products?.name || '—'}</span>
+                          <span className="text-slate-500 ml-1">({item.products?.unit || '—'})</span>
+                        </td>
+                        <td className="px-3 py-3 text-center font-semibold text-slate-700">
+                          {item.quantity}
+                        </td>
+                        <td className="px-3 py-3 text-center font-semibold text-amber-600">
+                          {item.remaining_alloc_qty ?? item.remaining_qty}
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-600">
+                          {(item.rate != null && item.rate !== '') || (item.approved_rate != null && item.approved_rate !== '') ? Number(item.rate ?? item.approved_rate).toFixed(2) : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="Pkg/Bag"
+                            value={getRowVal(item.item_id, 'packaging_size', pkgSize)}
+                            onChange={e => setRowVal(item.item_id, 'packaging_size', e.target.value)}
+                            disabled={!isSelected}
+                            className="h-8 text-xs text-center bg-slate-50/50 border-slate-200 focus:bg-white w-20"
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <Input
+                            type="text"
+                            placeholder="Remarks..."
+                            value={getRowVal(item.item_id, 'remarks')}
+                            onChange={e => setRowVal(item.item_id, 'remarks', e.target.value)}
+                            disabled={!isSelected}
+                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <Input
+                            type="date"
+                            value={getRowVal(item.item_id, 'exp_date', item.planning_date || '')}
+                            onChange={e => setFieldForSelected(item.item_id, 'exp_date', e.target.value)}
+                            disabled={!isSelected}
+                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap">
+                          {format(new Date(), 'dd/MM/yyyy')}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <select
+                            value={dispatchUnit}
+                            onChange={e => handleDispatchUnitChange(item, e.target.value)}
+                            disabled={!isSelected}
+                            className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          >
+                            <option value="bag">BAG</option>
+                            <option value="kg">KG</option>
+                          </select>
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max={convertDispatchQty(item.remaining_alloc_qty ?? item.remaining_qty, masterUnit, dispatchUnit, currentPkgSize)}
+                            placeholder="Dispatch Qty"
+                            value={getRowVal(item.item_id, 'del_qty_kg', String(item.remaining_alloc_qty ?? item.remaining_qty ?? ''))}
+                            onChange={e => handleReceivedQtyChange(item, e.target.value)}
+                            disabled={!isSelected}
+                            className="h-8 text-xs font-semibold text-center bg-slate-50/50 border-slate-200 focus:bg-white"
+                          />
+                        </td>
+                        <td className={`px-3 py-3 text-center font-medium whitespace-nowrap ${masterUnit === 'bag' ? 'text-slate-800' : 'text-slate-500'}`}>
+                          {dispatchQtyBag ? Number(dispatchQtyBag.toFixed(2)) : '—'}
+                        </td>
+                        <td className={`px-3 py-3 text-center font-medium whitespace-nowrap ${masterUnit === 'kg' ? 'text-slate-800' : 'text-slate-500'}`}>
+                          {dispatchQtyKg ? Number(dispatchQtyKg.toFixed(2)) : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <select
+                            value={transpId}
+                            onChange={e => handleTransporterChange(item.item_id, e.target.value)}
+                            disabled={!isSelected}
+                            className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px] disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          >
+                            <option value="">Select transp...</option>
+                            {transporters.map(t => (
+                              <option key={t.transporter_id} value={t.transporter_id}>{t.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <Input
+                            type="text"
+                            placeholder="LR No."
+                            value={getRowVal(item.item_id, 'lr_number')}
+                            onChange={e => setFieldForSelected(item.item_id, 'lr_number', e.target.value)}
+                            disabled={!isSelected || !transpId}
+                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[110px]"
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <Input
+                            type="text"
+                            placeholder="Vehicle No."
+                            value={getRowVal(item.item_id, 'vehicle_number', selectedTransporter?.vehicle_number || '')}
+                            onChange={e => setFieldForSelected(item.item_id, 'vehicle_number', e.target.value)}
+                            disabled={!isSelected || !transpId}
+                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <Input
+                            type="text"
+                            placeholder="Driver No."
+                            value={getRowVal(item.item_id, 'driver_phone_number', selectedTransporter?.driver_phone_number || '')}
+                            onChange={e => setFieldForSelected(item.item_id, 'driver_phone_number', e.target.value)}
+                            disabled={!isSelected || !transpId}
+                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )
         ) : (
           viewMode === 'card' ? renderHistoryCards() : (
-          /* HISTORY TABLE */
-          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
-            <table className="w-full text-xs">
-              <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
-                <tr>
-                  <th className="w-16 px-2 py-3 text-center">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-                      <span className="text-[10px] font-semibold text-slate-500 uppercase">Action</span>
-                    </div>
-                  </th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in BAG</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in KG</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">LR No.</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Driver No.</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vehicle No.</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {currentList.length === 0 && (
+            /* HISTORY TABLE */
+            <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+              <table className="w-full text-xs">
+                <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                   <tr>
-                    <td colSpan="15" className="p-12 text-center text-slate-400">
-                      <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
-                      <p className="text-sm font-medium">No delivery history found.</p>
-                    </td>
+                    <th className="w-16 px-2 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase">Action</span>
+                      </div>
+                    </th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in BAG</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in KG</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">LR No.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Driver No.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vehicle No.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
                   </tr>
-                )}
-                {currentPageItems.map(del => {
-                  const prod = del.purchase_indent_items?.products || {};
-                  const qtyKg = Number(del.received_quantity || 0);
-                  const indentNum = del.purchase_indent_items?.purchase_indents?.indent_number || '—';
-                  const vendorName = del.purchase_indent_items?.approved_vendor?.name || del.purchase_indent_items?.item_vendor?.name || '—';
-
-                  return (
-                    <tr key={del.delivery_id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="px-2 py-3 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <input
-                            type="checkbox"
-                            checked={selectedItems.has(del.delivery_id)}
-                            onChange={() => toggleSelect(del.delivery_id)}
-                            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
-                          />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            type="button"
-                            title="Delete Delivery"
-                            onClick={() => handleDeleteDelivery(del)}
-                            className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
-                          >
-                            <Trash2 size={13} />
-                          </Button>
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
-                        {del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center font-semibold text-slate-800 whitespace-nowrap">
-                        {del.lifting_number || '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center font-semibold text-slate-700 whitespace-nowrap">
-                        {indentNum}
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <IndentTypeBadge processType={del.purchase_indent_items?.purchase_indents?.process_type} />
-                      </td>
-                      <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
-                        {vendorName}
-                      </td>
-                      <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
-                        {prod.name || '—'}
-                        <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
-                      </td>
-                      <td className="px-3 py-3 text-center font-bold text-emerald-700">
-                        {qtyKg}
-                      </td>
-                      <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
-                        {del.dispatch_qty_bag != null ? Number(Number(del.dispatch_qty_bag).toFixed(2)) : '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
-                        {del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
-                        {del.transporters?.name || '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
-                        {del.lr_number || '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
-                        {del.driver_phone_number || '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
-                        {del.vehicle_number || '—'}
-                      </td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap">
-                        {renderStatusBadge(del.status)}
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {currentList.length === 0 && (
+                    <tr>
+                      <td colSpan="15" className="p-12 text-center text-slate-400">
+                        <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
+                        <p className="text-sm font-medium">No delivery history found.</p>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  )}
+                  {currentPageItems.map(del => {
+                    const prod = del.purchase_indent_items?.products || {};
+                    const qtyKg = Number(del.received_quantity || 0);
+                    const indentNum = del.purchase_indent_items?.purchase_indents?.indent_number || '—';
+                    const vendorName = del.purchase_indent_items?.approved_vendor?.name || del.purchase_indent_items?.item_vendor?.name || '—';
+
+                    return (
+                      <tr key={del.delivery_id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="px-2 py-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={selectedItems.has(del.delivery_id)}
+                              onChange={() => toggleSelect(del.delivery_id)}
+                              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Delete Delivery"
+                              onClick={() => handleDeleteDelivery(del)}
+                              className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
+                          {del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center font-semibold text-slate-800 whitespace-nowrap">
+                          {del.lifting_number || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center font-semibold text-slate-700 whitespace-nowrap">
+                          {indentNum}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <IndentTypeBadge processType={del.purchase_indent_items?.purchase_indents?.process_type} />
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
+                          {vendorName}
+                        </td>
+                        <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
+                          {prod.name || '—'}
+                          <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
+                        </td>
+                        <td className="px-3 py-3 text-center font-bold text-emerald-700">
+                          {qtyKg}
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
+                          {del.dispatch_qty_bag != null ? Number(Number(del.dispatch_qty_bag).toFixed(2)) : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
+                          {del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
+                          {del.transporters?.name || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
+                          {del.lr_number || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
+                          {del.driver_phone_number || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
+                          {del.vehicle_number || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                          {renderStatusBadge(del.status)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )
         )}
 

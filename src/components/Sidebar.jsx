@@ -10,6 +10,8 @@ import {
   Menu,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Settings,
   Package,
   Warehouse,
@@ -27,6 +29,17 @@ const Sidebar = ({ onClose }) => {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    return localStorage.getItem('vpr_sidebar_collapsed') === 'true';
+  });
+
+  const toggleCollapse = () => {
+    setIsCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem('vpr_sidebar_collapsed', String(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!user?.user_id) return;
@@ -154,12 +167,22 @@ const Sidebar = ({ onClose }) => {
       </button>
 
       {/* Desktop Sidebar - Static Flow (Flex Item) */}
-      <div className="hidden lg:flex h-screen sticky top-0 bg-sidebar border-r border-sidebar-border z-30">
+      <div className="hidden lg:flex h-screen sticky top-0 bg-sidebar border-r border-sidebar-border z-30 relative transition-all duration-300">
         <SidebarContent
           menuItems={menuItems}
           user={user}
           handleLogout={handleLogout}
+          isCollapsed={isCollapsed}
         />
+        {/* Toggle Collapse Button on Desktop */}
+        <button
+          type="button"
+          onClick={toggleCollapse}
+          className="hidden lg:flex absolute -right-3.5 top-1/2 -translate-y-1/2 z-40 bg-white border border-slate-300 text-slate-700 hover:text-primary hover:border-primary shadow-md hover:shadow-lg rounded-full w-7 h-7 items-center justify-center transition-all duration-200 cursor-pointer"
+          title={isCollapsed ? 'Expand sidebar' : 'Hide sidebar'}
+        >
+          {isCollapsed ? <ChevronRight size={14} className="stroke-[2.5]" /> : <ChevronLeft size={14} className="stroke-[2.5]" />}
+        </button>
       </div>
 
       {/* Tablet Sidebar - collapsible */}
@@ -204,8 +227,8 @@ const SidebarContent = ({ menuItems, onClose, isCollapsed = false, user, handleL
   <div className={`flex flex-col h-full ${isCollapsed ? 'w-20' : 'w-[85vw] max-w-[280px] lg:w-72'} bg-sidebar text-sidebar-foreground transition-all duration-300 ${!isMobile ? 'border-r border-sidebar-border' : ''} ${isMobile ? 'shadow-2xl' : ''}`}>
 
     {/* Header */}
-    <div className="flex items-center justify-center px-6 py-8">
-      {!isCollapsed && (
+    <div className={`flex items-center justify-center ${isCollapsed ? 'px-2 py-6' : 'px-6 py-8'}`}>
+      {!isCollapsed ? (
         <div className="flex items-center gap-4 bg-primary/10 px-4 py-3 rounded-xl border border-primary/20">
           <div className="rounded-lg border border-primary/20 p-1 bg-white shadow-sm">
             <img src={vprLogo} alt="VPR Logo" className="h-12 w-12 rounded-md object-contain" />
@@ -217,6 +240,10 @@ const SidebarContent = ({ menuItems, onClose, isCollapsed = false, user, handleL
             </span>
             <span className="text-[10px] font-semibold text-slate-400 tracking-[0.2em] uppercase">Enterprise Suite</span>
           </div>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-primary/20 p-1 bg-white shadow-sm">
+          <img src={vprLogo} alt="VPR Logo" className="h-10 w-10 rounded-md object-contain" />
         </div>
       )}
       {onClose && (
@@ -289,8 +316,9 @@ const SidebarContent = ({ menuItems, onClose, isCollapsed = false, user, handleL
             onClick={() => {
               onClose?.();
             }}
+            title={isCollapsed ? item.label : undefined}
           >
-            <item.icon className={`transition-colors ${isCollapsed ? 'mx-auto' : 'mr-3'} ${({ isActive }) => isActive ? 'text-primary' : 'text-sidebar-foreground/60 group-hover:text-primary'}`} size={20} />
+            <item.icon className={`transition-colors ${isCollapsed ? 'mx-auto' : 'mr-3'}`} size={20} />
             {!isCollapsed && <span className="font-medium text-sm">{item.label}</span>}
           </NavLink>
         );
@@ -299,8 +327,8 @@ const SidebarContent = ({ menuItems, onClose, isCollapsed = false, user, handleL
 
     {/* Footer - Always visible */}
     <div className="p-4 mt-auto">
-      <div className={`flex items-center gap-3 p-3 rounded-2xl ${isCollapsed ? 'justify-center' : 'bg-sidebar-accent/30 border border-sidebar-border/50'}`}>
-        <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 border border-sidebar-border text-sidebar-primary shadow-sm overflow-hidden">
+      <div className={`flex items-center gap-3 p-3 rounded-2xl ${isCollapsed ? 'flex-col justify-center gap-2 p-2' : 'bg-sidebar-accent/30 border border-sidebar-border/50'}`}>
+        <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 border border-sidebar-border text-sidebar-primary shadow-sm overflow-hidden" title={isCollapsed ? (user?.Name || user?.full_name || 'User') : undefined}>
           {user?.profile_picture ? (
             <img
               src={user.profile_picture}
@@ -317,18 +345,16 @@ const SidebarContent = ({ menuItems, onClose, isCollapsed = false, user, handleL
             <p className="text-xs text-sidebar-foreground/60 truncate capitalize">{user?.role || 'User'}</p>
           </div>
         )}
-        {!isCollapsed && (
-          <button
-            onClick={() => {
-              handleLogout();
-              onClose?.();
-            }}
-            className="p-2 rounded-lg text-sidebar-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
-            title="Logout"
-          >
-            <LogOutIcon size={18} />
-          </button>
-        )}
+        <button
+          onClick={() => {
+            handleLogout();
+            onClose?.();
+          }}
+          className={`p-2 rounded-lg text-sidebar-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors ${isCollapsed ? 'mx-auto' : ''}`}
+          title="Logout"
+        >
+          <LogOutIcon size={18} />
+        </button>
       </div>
     </div >
   </div >
