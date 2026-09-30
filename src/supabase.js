@@ -22,7 +22,7 @@ const PAGE_SIZE = 1000;
 export const fetchAllRows = async (buildQuery) => {
   let rows = [];
   let from = 0;
-  for (;;) {
+  for (; ;) {
     const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
     rows = rows.concat(data || []);
@@ -59,7 +59,7 @@ export const fetchAllRowsWithCount = async (buildQuery) => {
   let rows = [];
   let from = 0;
   let count = 0;
-  for (;;) {
+  for (; ;) {
     const { data, error, count: c } = await buildQuery().range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
     if (typeof c === 'number') count = c;

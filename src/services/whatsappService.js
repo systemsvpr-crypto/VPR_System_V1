@@ -21,16 +21,27 @@ export const sendOrderConfirmationWhatsapp = async ({ phone, customerName, itemD
   });
 };
 
-const sanitizeParam = (str) => {
+const sanitizeParam = (str, allowLineBreaks = false) => {
   if (!str) return '-';
-  return String(str)
-    .replace(/[\n\t\r]/g, ' ') // Remove newlines and tabs
-    .replace(/\s{2,}/g, ' ')   // Reduce multiple spaces to a single space (Meta rejects > 4)
+  let s = String(str);
+  if (allowLineBreaks) {
+    // Replace standard newlines with Unicode line separator (\u2028) so Meta WhatsApp Cloud API
+    // accepts multi-line formatting without rejecting with code 132018
+    s = s.replace(/\r\n/g, '\u2028').replace(/[\r\n]/g, '\u2028');
+  } else {
+    s = s.replace(/[\r\n]/g, ' ');
+  }
+  return s
+    .replace(/\t/g, ' ')
+    .replace(/[ ]{2,}/g, ' ') // Collapse multiple ASCII spaces (Meta rejects 4+ consecutive spaces)
     .trim() || '-';
 };
 
-export const sendPurchaseDeliveredWhatsapp = async ({ transporterName, lrNumber, date, productDetails, totalValuesStr }) => {
-  console.log('Sending WhatsApp via sendPurchaseDeliveredWhatsapp:', { transporterName, lrNumber, date, productDetails, totalValuesStr });
+export const sendPurchaseDeliveredWhatsapp = async ({ transporterName, lrNumber, date, productDetails, totalValuesStr, products }) => {
+  console.log('Sending WhatsApp via sendPurchaseDeliveredWhatsapp:', { transporterName, lrNumber, date, productDetails, totalValuesStr, products });
+  const details = productDetails || (Array.isArray(products) ? products.join('\n\n') : '-');
+  const totals = totalValuesStr || '-';
+
   await sendWhatsappTemplate({
     phone: 'USE_ADMIN_SECRET', // Edge function will intercept this and use the Supabase secret
     template: 'purchase_delivered_2',
@@ -39,8 +50,8 @@ export const sendPurchaseDeliveredWhatsapp = async ({ transporterName, lrNumber,
       sanitizeParam(transporterName),
       sanitizeParam(lrNumber),
       sanitizeParam(date),
-      sanitizeParam(productDetails),
-      sanitizeParam(totalValuesStr)
+      sanitizeParam(details, true),
+      sanitizeParam(totals),
     ],
   });
 };

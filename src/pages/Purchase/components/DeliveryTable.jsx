@@ -400,12 +400,17 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
         });
         successCount++;
         savedIds.add(itemId);
+        const groupName = getGroupNameFromItem(item, groups);
+        const itemRate = Number((Number(item.approved_rate) > 0 ? item.approved_rate : item.rate) || 0);
+
         successfulDeliveries.push({
           lrNumber: lrNum,
           transporterId: tId,
           transporterName: tName,
-          date: new Date().toISOString().slice(0, 10),
+          date: format(new Date(), 'dd-MM-yyyy'),
           productName: item.products?.name || 'Product',
+          groupName: groupName && groupName !== '—' ? groupName : (item.products?.name || 'Product'),
+          rate: itemRate,
           unit: dispatchUnit,
           delQty,
           dispatchQtyBag,
@@ -429,33 +434,45 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
         const transporterName = group[0].transporterName;
         const date = group[0].date;
 
-        let productDetails = '';
-        let totalBag = 0;
-        let totalKg = 0;
-        let totalLot = 0;
+        // Group items within this LR by their groupName
+        const groupedByGroup = group.reduce((acc, curr) => {
+          const gKey = curr.groupName || 'Other';
+          if (!acc[gKey]) acc[gKey] = [];
+          acc[gKey].push(curr);
+          return acc;
+        }, {});
 
-        group.forEach((p, idx) => {
-          const pBag = Number(p.dispatchQtyBag) || 0;
-          const pKg = Number(p.dispatchQtyKg) || 0;
-          const pLot = Number(p.delQty) || 0;
+        // Build full product string for each product group:
+        // Product 1 :-  AM BLK | 4*8 -14 -₹0.86 | 5*10 -65 -₹0.85 | ... | Total Bag -  180 | Total KG - 5400 |  | Total Lot - 180
+        const productStrings = Object.entries(groupedByGroup).map(([gName, items], idx) => {
+          const itemParts = items.map(i => {
+            const r = Number(i.rate || 0);
+            const rateStr = r ? (Number.isInteger(r) ? String(r) : r.toFixed(2)) : '0';
+            return `${i.productName} -${i.delQty} -₹${rateStr}`;
+          });
 
-          productDetails += `${idx > 0 ? ' , ' : ''}Product ${idx + 1} :- ${p.productName} (${p.delQty}${p.unit ? ' ' + p.unit : ''}) Total Bag : ${pBag}, Total KG: ${pKg}, Total Lot: ${pLot}`;
+          const totalBag = Math.round(items.reduce((sum, i) => sum + (Number(i.dispatchQtyBag) || 0), 0) * 100) / 100;
+          const totalKg = Math.round(items.reduce((sum, i) => sum + (Number(i.dispatchQtyKg) || 0), 0) * 100) / 100;
+          const totalLot = Math.round(items.reduce((sum, i) => sum + (Number(i.delQty) || 0), 0) * 100) / 100;
 
-          totalBag += pBag;
-          totalKg += pKg;
-          totalLot += pLot;
+          return `Product ${idx + 1} :-  ${gName} | ${itemParts.join(' | ')} | Total Bag -  ${totalBag} | Total KG - ${totalKg} |  | Total Lot - ${totalLot}`;
         });
 
-        const totalValuesStr = `Total: ${totalBag} bag, ${totalKg} KG, ${totalLot} Lot`;
+        const productDetails = productStrings.join('\n\n');
+
+        const overallBag = Math.round(group.reduce((sum, i) => sum + (Number(i.dispatchQtyBag) || 0), 0) * 100) / 100;
+        const overallKg = Math.round(group.reduce((sum, i) => sum + (Number(i.dispatchQtyKg) || 0), 0) * 100) / 100;
+        const overallLot = Math.round(group.reduce((sum, i) => sum + (Number(i.delQty) || 0), 0) * 100) / 100;
+        const totalValuesStr = `${overallBag} bag, ${overallKg} KG, ${overallLot} Lot`;
 
         try {
           console.log('DeliveryTable - about to call sendPurchaseDeliveredWhatsapp for LR:', lrNumber);
-          console.log('Group details:', { transporterName, date, productDetails: productDetails.trim(), totalValuesStr });
+          console.log('Group details:', { transporterName, date, productDetails, totalValuesStr });
           await sendPurchaseDeliveredWhatsapp({
             transporterName,
             lrNumber,
             date,
-            productDetails: productDetails.trim(),
+            productDetails,
             totalValuesStr,
           });
         } catch (err) {
