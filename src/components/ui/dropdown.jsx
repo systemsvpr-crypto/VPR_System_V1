@@ -67,16 +67,32 @@ function Dropdown({
       </PopoverTrigger>
       <PopoverContent
         align={align}
-        className={cn("p-0 w-auto", contentClassName)}
-        style={{ minWidth: "max(208px, var(--radix-popover-trigger-width))" }}
+        collisionPadding={8}
+        className={cn("p-0 w-auto overflow-hidden", contentClassName)}
+        style={{
+          minWidth: "max(208px, var(--radix-popover-trigger-width))",
+          // Cap to the space Radix measured on the chosen side so the panel
+          // never runs off-screen — the option list shrinks and scrolls instead.
+          maxHeight: "var(--radix-popover-content-available-height)",
+        }}
       >
-        <div className="relative border-b border-input">
+        <div className="relative shrink-0 border-b border-input">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <input
             data-slot="dropdown-search"
             type="text"
             value={searchValue}
             onChange={(e) => setSearchValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return
+              // Never let Enter bubble up and submit the surrounding form.
+              e.preventDefault()
+              // Enter while searching picks the top suggestion.
+              if (searchValue.trim() && filteredOptions.length > 0) {
+                onValueChange?.(filteredOptions[0].value)
+                setOpen(false)
+              }
+            }}
             placeholder={searchPlaceholder}
             className="h-9 w-full border-0 bg-transparent pl-8 pr-8 text-sm outline-none placeholder:text-muted-foreground focus:ring-0"
             autoFocus
@@ -91,7 +107,7 @@ function Dropdown({
             </button>
           )}
         </div>
-        <div className="max-h-60 overflow-y-auto p-1">
+        <div className="max-h-60 min-h-0 flex-1 overflow-y-auto p-1">
           {filteredOptions.length > 0 ? (
             filteredOptions.map((option) => (
               <button
@@ -131,7 +147,7 @@ function Dropdown({
           )}
         </div>
         {onAddNew && (
-          <div className="border-t border-input p-1">
+          <div className="shrink-0 border-t border-input p-1">
             <button
               type="button"
               data-slot="dropdown-add-new"

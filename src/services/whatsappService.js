@@ -25,9 +25,9 @@ const sanitizeParam = (str, allowLineBreaks = false) => {
   if (!str) return '-';
   let s = String(str);
   if (allowLineBreaks) {
-    // Replace standard newlines with Unicode line separator (\u2028) so Meta WhatsApp Cloud API
-    // accepts multi-line formatting without rejecting with code 132018
-    s = s.replace(/\r\n/g, '\u2028').replace(/[\r\n]/g, '\u2028');
+    // Meta rejects real newlines in template params (code 132018), and WhatsApp
+    // renders \u2028 as "\ufffd\ufffd" \u2014 so mark each line break with a visible separator.
+    s = s.replace(/(\r\n|[\r\n])+/g, ' \ud83d\udd39 ');
   } else {
     s = s.replace(/[\r\n]/g, ' ');
   }
