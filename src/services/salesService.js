@@ -552,6 +552,20 @@ export const getAllDispatchPlans = async () => {
   return plansData.map(plan => ({ ...plan, already_dispatched: 0 }));
 };
 
+// Every live (non-void) dispatch stock-out, in the product's master unit —
+// both Sales dispatch plans (dispatch_plan_id set) and Stock Management's
+// manual Dispatch Out entries (no plan), which all post as OUT_GODOWN.
+// txn_date is never in the future for either (saveDispatchPlan caps it at
+// today; manual dispatch rejects future dates).
+export const getDispatchTransactions = async () => {
+  return fetchAllRows(() => supabase
+    .from('transactions')
+    .select('txn_id, product_id, godown_id, qty, txn_date')
+    .eq('txn_type', 'OUT_GODOWN')
+    .eq('is_void', false)
+    .order('txn_id', { ascending: true }));
+};
+
 export const generateNextDispatchNumber = async () => {
   const { data, error } = await supabase
     .from('dispatch_plans')

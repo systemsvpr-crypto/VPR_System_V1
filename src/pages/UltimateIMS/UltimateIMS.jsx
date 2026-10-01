@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllProductStock, getAllProducts, getAllGodowns } from '../../services/masterService';
 import { getReorderStatusItems, createIndent, generateNextIndentNumber, getPackagingSize } from '../../services/purchaseService';
+import { getDispatchTransactions } from '../../services/salesService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -25,6 +26,14 @@ const formatNum = (n) => {
 // stock at a godown — anything else (In Transit, At TPT Gdn, ...) is still
 // moving, so it counts toward "In Transit Qty" instead of "received".
 const isReceivedStatus = (status) => status === 'Arrived' || status === 'Received';
+
+// Avg Dispatch = total dispatched qty / days from the first dispatch through
+// today, counting both ends (a first dispatch today = 1 day, not 0).
+const getAvgDispatch = (totalQty, firstDate) => {
+  if (!firstDate || !totalQty) return null;
+  const days = Math.round((Date.parse(getTodayLocal()) - Date.parse(firstDate)) / 86400000) + 1;
+  return totalQty / Math.max(1, days);
+};
 
 // Bag <-> Kg conversion. Reorder Qty is entered in whichever unit the row's
 // Reorder Unit dropdown is set to (`fromUnit`, defaulting to the product's
@@ -78,11 +87,12 @@ const UltimateIMS = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [stockRows, products, godownList, indentItems] = await Promise.all([
+      const [stockRows, products, godownList, indentItems, dispatchTxns] = await Promise.all([
         getAllProductStock(),
         getAllProducts(),
         getAllGodowns(),
         getReorderStatusItems(),
+        getDispatchTransactions(),
       ]);
       setGodowns(godownList);
 
@@ -113,7 +123,7 @@ const UltimateIMS = () => {
             godownId,
             currentStock: 0, pendingApprovalQty: 0, approvedQty: 0,
             inTransitQty: 0, totalOrderedQty: 0, totalReceivedQty: 0,
-            orderPendingQty: 0
+            orderPendingQty: 0, dispatchedQty: 0, firstDispatchDate: null
           });
         }
         return group.godownStats.get(godownId);
@@ -122,6 +132,14 @@ const UltimateIMS = () => {
       for (const s of stockRows) {
         if (!s.product_id || !s.godown_id) continue;
         getGodownStats(s.product_id, s.godown_id).currentStock += Number(s.current_stock) || 0;
+      }
+
+      for (const t of dispatchTxns) {
+        if (!t.product_id || !t.godown_id) continue;
+        const s = getGodownStats(t.product_id, t.godown_id);
+        s.dispatchedQty += Number(t.qty) || 0;
+        const date = String(t.txn_date || '').slice(0, 10);
+        if (date && (!s.firstDispatchDate || date < s.firstDispatchDate)) s.firstDispatchDate = date;
       }
 
       for (const item of indentItems) {
@@ -226,9 +244,13 @@ const UltimateIMS = () => {
       const totals = {
         currentStock: 0, pendingApprovalQty: 0, approvedQty: 0,
         inTransitQty: 0, totalOrderedQty: 0, totalReceivedQty: 0,
-        orderPendingQty: 0
+        orderPendingQty: 0, dispatchedQty: 0, firstDispatchDate: null
       };
       for (const st of r.filteredStats) {
+        totals.dispatchedQty += st.dispatchedQty || 0;
+        if (st.firstDispatchDate && (!totals.firstDispatchDate || st.firstDispatchDate < totals.firstDispatchDate)) {
+          totals.firstDispatchDate = st.firstDispatchDate;
+        }
         totals.currentStock += st.currentStock;
         totals.pendingApprovalQty += st.pendingApprovalQty;
         totals.approvedQty += st.approvedQty;
@@ -239,7 +261,8 @@ const UltimateIMS = () => {
       }
       return {
         ...r,
-        ...totals
+        ...totals,
+        avgDispatch: getAvgDispatch(totals.dispatchedQty, totals.firstDispatchDate),
       };
     });
   }, [rows, searchTerm, godownFilter]);
@@ -415,6 +438,7 @@ const UltimateIMS = () => {
                 <th className="w-10 px-2 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[180px]">Product Name</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Current Stock</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-sky-600 uppercase tracking-wider whitespace-nowrap" title="Total dispatched qty ÷ days since first dispatch (incl. today)">Avg Sales</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Unit</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[110px]">Quantity</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]">Reorder Qty</th>
@@ -428,14 +452,14 @@ const UltimateIMS = () => {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="p-12 text-center">
+                  <td colSpan={12} className="p-12 text-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3" />
                     <p className="text-sm text-slate-400">Loading live purchase data...</p>
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="p-12 text-center">
+                  <td colSpan={12} className="p-12 text-center">
                     <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                       <Boxes size={32} className="text-slate-300" />
                     </div>
@@ -461,6 +485,10 @@ const UltimateIMS = () => {
                       </td>
                       <td className="px-4 py-3 text-center font-semibold text-slate-900 tabular-nums whitespace-nowrap">
                         {formatNum(row.currentStock)}
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-sky-600 tabular-nums whitespace-nowrap"
+                        title={row.firstDispatchDate ? `${formatNum(row.dispatchedQty)} dispatched since ${row.firstDispatchDate.split('-').reverse().join('-')}` : 'No dispatches yet'}>
+                        {row.avgDispatch != null ? formatNum(row.avgDispatch) : <span className="text-slate-300">0</span>}
                       </td>
                       <td className="px-4 py-3">
                         <select
