@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, Check, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Save, Phone, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getAawakDeliveries, updateAawakLift, deleteDelivery, updateDeliveriesReceivingDate } from '../../../services/purchaseService';
+import { getAawakDeliveries, updateAawakLift, deleteDelivery, updateDeliveriesExpectedDeliveryDate } from '../../../services/purchaseService';
 import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -220,22 +220,28 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     });
   };
 
-  // Receiving Date auto-saves on pick — no Submit needed. Applies to every
-  // checked row too; updated locally first, rolled back on failure.
-  const handleReceivingDateChange = async (delId, value) => {
-    const targets = new Set(selectedLifts);
+  // Exp. Recv. Date auto-saves on pick — no Submit needed. Applies to every
+  // checked (not yet arrived) row; updated locally first, rolled back on failure.
+  const handleExpDateChange = async (delId, value) => {
+    const targets = new Set([...selectedLifts].filter(id => {
+      const d = deliveries.find(x => x.delivery_id === id);
+      return d && !isRowLocked(d);
+    }));
     targets.add(delId);
     const ids = [...targets];
-    const previous = new Map(deliveries.filter(d => targets.has(d.delivery_id)).map(d => [d.delivery_id, d.receiving_date]));
-    setDeliveries(prev => prev.map(d => (targets.has(d.delivery_id) ? { ...d, receiving_date: value || null } : d)));
+    const previous = new Map(deliveries.filter(d => targets.has(d.delivery_id)).map(d => [d.delivery_id, d.expected_delivery_date]));
+    setDeliveries(prev => prev.map(d => (targets.has(d.delivery_id) ? { ...d, expected_delivery_date: value || null } : d)));
     try {
-      await updateDeliveriesReceivingDate(ids, value);
-      toast.success(`Receiving date ${value ? 'saved' : 'cleared'}${ids.length > 1 ? ` for ${ids.length} lifts` : ''}`);
+      await updateDeliveriesExpectedDeliveryDate(ids, value);
+      toast.success(`Exp. recv. date ${value ? 'saved' : 'cleared'}${ids.length > 1 ? ` for ${ids.length} lifts` : ''}`);
     } catch (err) {
-      setDeliveries(prev => prev.map(d => (previous.has(d.delivery_id) ? { ...d, receiving_date: previous.get(d.delivery_id) } : d)));
-      toast.error(err.message || 'Failed to save receiving date');
+      setDeliveries(prev => prev.map(d => (previous.has(d.delivery_id) ? { ...d, expected_delivery_date: previous.get(d.delivery_id) } : d)));
+      toast.error(err.message || 'Failed to save exp. recv. date');
     }
   };
+
+  // Receiving Date is held with the row's other edits and saved on Submit.
+  const handleReceivingDateChange = (delId, val) => setRowValForSelection(delId, 'receiving_date', val);
 
   // Godown: every pick on a checked row is applied to ALL checked rows (not
   // just the first time, unlike setRowValForSelection) — one set for all.
@@ -256,7 +262,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   };
 
   const handleStatusChange = (delId, val) => setRowValForSelection(delId, 'status', val);
-  const handleExpDateChange = (delId, val) => setRowValForSelection(delId, 'expected_delivery_date', val);
 
   const handleSubmit = async () => {
     if (selectedLifts.size === 0) return;
@@ -295,7 +300,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
           godown_id: getRowVal(del, 'godown_id') || null,
           received_quantity: editedQty,
           transporter_id: del.transporter_id || null,
-          expected_delivery_date: edit.expected_delivery_date,
+          receiving_date: edit.receiving_date,
         });
         successCount++;
         savedIds.add(deliveryId);
@@ -412,7 +417,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         godown_id: getRowVal(del, 'godown_id') || null,
         received_quantity: editedQty,
         transporter_id: del.transporter_id || null,
-        expected_delivery_date: edit.expected_delivery_date !== undefined ? edit.expected_delivery_date : (del.expected_delivery_date || null),
+        receiving_date: edit.receiving_date,
       });
       toast.success(`${del.lifting_number || 'Lift'} updated successfully`);
       setEditingRows(prev => {
@@ -734,30 +739,30 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Receiving Date</label>
                       <DatePicker
                         showActions
-                        value={del.receiving_date || ''}
+                        value={getRowVal(del, 'receiving_date')}
                         onChange={e => handleReceivingDateChange(del.delivery_id, e.target.value)}
+                        disabled={!isSelected || locked}
                         placeholder="Select date"
                         className="h-8 text-xs bg-white"
                       />
                     </div>
 
-                    {isSelected && (
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Exp. Delivery Date</label>
-                        {locked ? (
-                          <div className="h-8 px-2.5 flex items-center text-xs text-slate-700 bg-slate-100 border border-slate-200 rounded-lg">
-                            {del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}
-                          </div>
-                        ) : (
-                          <input
-                            type="date"
-                            value={getRowVal(del, 'expected_delivery_date')}
-                            onChange={e => handleExpDateChange(del.delivery_id, e.target.value)}
-                            className="w-full text-slate-700 text-xs border border-slate-200 rounded-lg px-2 h-8 focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white"
-                          />
-                        )}
-                      </div>
-                    )}
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Exp. Delivery Date</label>
+                      {locked ? (
+                        <div className="h-8 px-2.5 flex items-center text-xs text-slate-700 bg-slate-100 border border-slate-200 rounded-lg">
+                          {del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}
+                        </div>
+                      ) : (
+                        <DatePicker
+                          showActions
+                          value={getRowVal(del, 'expected_delivery_date')}
+                          onChange={e => handleExpDateChange(del.delivery_id, e.target.value)}
+                          placeholder="Select date"
+                          className="h-8 text-xs bg-white"
+                        />
+                      )}
+                    </div>
 
                     {(isSelected || hasVehicle) && (
                       <div>
@@ -1152,7 +1157,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <Input
                           type="text"
                           placeholder="LR No."
-                          disabled={locked}
+                          disabled={!isSelected || locked}
                           value={getRowVal(del, 'lr_number')}
                           onChange={e => setRowVal(del.delivery_id, 'lr_number', e.target.value)}
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
@@ -1162,19 +1167,21 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         {locked ? (
                           <span className="text-slate-500 whitespace-nowrap">{del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}</span>
                         ) : (
-                          <Input
-                            type="date"
+                          <DatePicker
+                            showActions
                             value={getRowVal(del, 'expected_delivery_date')}
                             onChange={e => handleExpDateChange(del.delivery_id, e.target.value)}
-                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
+                            placeholder="Select date"
+                            className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
                           />
                         )}
                       </td>
                       <td className="px-3 py-3 text-center">
                         <DatePicker
                           showActions
-                          value={del.receiving_date || ''}
+                          value={getRowVal(del, 'receiving_date')}
                           onChange={e => handleReceivingDateChange(del.delivery_id, e.target.value)}
+                          disabled={!isSelected || locked}
                           placeholder="Select date"
                           className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
                         />
@@ -1184,7 +1191,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       </td>
                       <td className="px-3 py-3 text-center">
                         <select
-                          disabled={locked}
+                          disabled={!isSelected || locked}
                           value={getRowVal(del, 'godown_id')}
                           onChange={e => handleGodownChange(del.delivery_id, e.target.value)}
                           className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
@@ -1199,7 +1206,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <Input
                           type="text"
                           placeholder="Review..."
-                          disabled={locked}
+                          disabled={!isSelected || locked}
                           value={getRowVal(del, 'remarks')}
                           onChange={e => setRowVal(del.delivery_id, 'remarks', e.target.value)}
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
@@ -1207,7 +1214,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       </td>
                       <td className="px-3 py-3 text-center">
                         <select
-                          disabled={locked}
+                          disabled={!isSelected || locked}
                           value={uiStatus}
                           onChange={e => handleStatusChange(del.delivery_id, e.target.value)}
                           className="w-full h-8 text-xs font-semibold px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
@@ -1224,7 +1231,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <Input
                           type="text"
                           placeholder="Driver No."
-                          disabled={locked}
+                          disabled={!isSelected || locked}
                           value={getRowVal(del, 'driver_phone_number')}
                           onChange={e => setRowVal(del.delivery_id, 'driver_phone_number', e.target.value)}
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
@@ -1234,7 +1241,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <Input
                           type="text"
                           placeholder="Vehicle No."
-                          disabled={locked}
+                          disabled={!isSelected || locked}
                           value={getRowVal(del, 'vehicle_number')}
                           onChange={e => setRowVal(del.delivery_id, 'vehicle_number', e.target.value)}
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"

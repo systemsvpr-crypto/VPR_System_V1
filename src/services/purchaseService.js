@@ -1049,12 +1049,12 @@ export const updateItemsExpectedDispatchDate = async (item_ids, expected_dispatc
   if (error) throw error;
 };
 
-// Aawak Details: Receiving Date is saved the moment it's picked (no Submit).
-export const updateDeliveriesReceivingDate = async (delivery_ids, receiving_date) => {
+// Aawak Details: Exp. Recv. Date is saved the moment it's picked (no Submit).
+export const updateDeliveriesExpectedDeliveryDate = async (delivery_ids, expected_delivery_date) => {
   if (!delivery_ids || delivery_ids.length === 0) return;
   const { error } = await supabase
     .from('purchase_deliveries')
-    .update({ receiving_date: receiving_date || null })
+    .update({ expected_delivery_date: expected_delivery_date || null })
     .in('delivery_id', delivery_ids);
   if (error) throw error;
 };
@@ -1580,7 +1580,7 @@ export const getPurchaseDashboardItems = async () => {
   });
 };
 
-export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, driver_phone_number, vehicle_number, remarks, status, received_quantity, recv_unit, recv_unit_qty, user_id, transporter_id, expected_delivery_date }) => {
+export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, driver_phone_number, vehicle_number, remarks, status, received_quantity, recv_unit, recv_unit_qty, user_id, transporter_id, expected_delivery_date, receiving_date }) => {
   const { data: existing, error: fetchErr } = await supabase
     .from('purchase_deliveries')
     .select('status, item_id, delivery_date, lifting_number, lr_number, vehicle_number, received_quantity')
@@ -1640,6 +1640,7 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
   const updatePayload = {};
   if (lr_number !== undefined) updatePayload.lr_number = lr_number;
   if (expected_delivery_date !== undefined && expected_delivery_date !== '') updatePayload.expected_delivery_date = expected_delivery_date;
+  if (receiving_date !== undefined) updatePayload.receiving_date = receiving_date || null;
   if (driver_phone_number !== undefined) updatePayload.driver_phone_number = driver_phone_number;
   if (vehicle_number !== undefined) updatePayload.vehicle_number = vehicle_number;
   if (remarks !== undefined) updatePayload.remarks = remarks;
