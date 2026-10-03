@@ -925,7 +925,7 @@ export const updateProductGroupPurchaseDates = async (groupId, deliveryDate) => 
   }
 };
 
-export const createDelivery = async ({ item_id, indent_id, delivery_date, expected_delivery_date, godown_allocations, transporter_id, lr_number, vehicle_number, driver_phone_number, remarks, created_by, status, packaging_size, dispatch_unit, dispatch_qty_bag, dispatch_qty_kg, group_id }) => {
+export const createDelivery = async ({ item_id, indent_id, delivery_date, expected_delivery_date, expected_dispatch_date, godown_allocations, transporter_id, lr_number, vehicle_number, driver_phone_number, remarks, created_by, status, packaging_size, dispatch_unit, dispatch_qty_bag, dispatch_qty_kg, group_id }) => {
   const { data: item, error: itemErr } = await supabase
     .from('purchase_indent_items')
     .select(`product_id, group_id, products(name, group_id, brand_name, category)`)
@@ -962,6 +962,7 @@ export const createDelivery = async ({ item_id, indent_id, delivery_date, expect
       item_id, indent_id, delivery_date,
       group_id: resolvedGroupId,
       expected_delivery_date: expected_delivery_date || null,
+      expected_dispatch_date: expected_dispatch_date || null,
       received_quantity: totalQty,
       transporter_id: transporter_id || null,
       lr_number: lr_number || null,
@@ -1036,6 +1037,27 @@ export const createDelivery = async ({ item_id, indent_id, delivery_date, expect
   return { ...delivery, lifting_number };
 };
 
+
+// Delivery tab → Pending: Expected Dispatch Date is saved the moment it's
+// picked (no Submit), onto the indent item(s) themselves.
+export const updateItemsExpectedDispatchDate = async (item_ids, expected_dispatch_date) => {
+  if (!item_ids || item_ids.length === 0) return;
+  const { error } = await supabase
+    .from('purchase_indent_items')
+    .update({ expected_dispatch_date: expected_dispatch_date || null })
+    .in('item_id', item_ids);
+  if (error) throw error;
+};
+
+// Aawak Details: Receiving Date is saved the moment it's picked (no Submit).
+export const updateDeliveriesReceivingDate = async (delivery_ids, receiving_date) => {
+  if (!delivery_ids || delivery_ids.length === 0) return;
+  const { error } = await supabase
+    .from('purchase_deliveries')
+    .update({ receiving_date: receiving_date || null })
+    .in('delivery_id', delivery_ids);
+  if (error) throw error;
+};
 
 export const updateDelivery = async ({ delivery_id, delivery_date, expected_delivery_date, godown_allocations, transporter_id, lr_number, vehicle_number, remarks, status, user_id, group_id }) => {
   const { data: delivery, error: fetchErr } = await supabase

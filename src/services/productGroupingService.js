@@ -84,6 +84,64 @@ export const createGroup = async ({ group_name, product_ids, created_by }) => {
   return group;
 };
 
+// Mirrors masterService's product naming: "Brand Category Size (Mux)".
+const buildProductName = (brandName, category, productType, mux) => {
+  const base = [brandName, category, productType].map(v => (v || '').trim()).filter(Boolean).join(' ');
+  return mux?.trim() ? `${base} (${mux.trim()})` : base;
+};
+
+const productMatchKey = (brandName, category, productType, mux) =>
+  [brandName, category, productType, mux].map(v => (v || '').trim().toLowerCase()).join('|');
+
+// Renames a Brand+Category group: the group_name becomes Brand+Category
+// (concatenated, same as masterService.resolveProductGroupId) and every
+// product auto-linked to it via group_id gets its Brand Name / Category
+// updated and its name rebuilt from the new values.
+export const renameGroupBrandCategory = async (group_id, { brand_name, category }) => {
+  const brand = (brand_name || '').trim();
+  const cat = (category || '').trim();
+  const group_name = `${brand}${cat}`;
+  if (!group_name) throw new Error('Brand name or category is required.');
+
+  const { data: groups, error: groupsErr } = await supabase
+    .from('product_groups')
+    .select('group_id, group_name');
+  if (groupsErr) throw groupsErr;
+  const clash = (groups || []).find(g =>
+    g.group_id !== group_id && (g.group_name || '').trim().toLowerCase() === group_name.toLowerCase());
+  if (clash) throw new Error(`A group named "${clash.group_name}" already exists.`);
+
+  const allProducts = await fetchAllRows(() => supabase
+    .from('products')
+    .select('product_id, name, brand_name, category, product_type, mux, group_id'));
+  const linked = allProducts.filter(p => p.group_id === group_id);
+  const others = allProducts.filter(p => p.group_id !== group_id);
+
+  // Block the rename if any renamed product would collide with an existing
+  // product outside this group (same Brand + Category + Size + Mux).
+  const otherKeys = new Map(others.map(p => [productMatchKey(p.brand_name, p.category, p.product_type, p.mux), p]));
+  for (const p of linked) {
+    const dup = otherKeys.get(productMatchKey(brand, cat, p.product_type, p.mux));
+    if (dup) throw new Error(`Already in database: "${dup.name}" has the same Brand Name, Category, Size & Mux.`);
+  }
+
+  const { error: groupErr } = await supabase
+    .from('product_groups')
+    .update({ group_name })
+    .eq('group_id', group_id);
+  if (groupErr) throw groupErr;
+
+  await Promise.all(linked.map(async p => {
+    const { error } = await supabase
+      .from('products')
+      .update({ brand_name: brand, category: cat, name: buildProductName(brand, cat, p.product_type, p.mux) })
+      .eq('product_id', p.product_id);
+    if (error) throw error;
+  }));
+
+  return { group_name, updatedCount: linked.length };
+};
+
 export const updateGroup = async (group_id, { group_name, product_ids }) => {
   const { error: groupErr } = await supabase
     .from('product_groups')

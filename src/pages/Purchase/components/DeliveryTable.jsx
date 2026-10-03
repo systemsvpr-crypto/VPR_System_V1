@@ -10,11 +10,13 @@ import {
   getPackagingSize,
   deleteIndentItem,
   deleteDelivery,
+  updateItemsExpectedDispatchDate,
 } from '../../../services/purchaseService';
 import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { sendPurchaseDeliveredWhatsapp } from '../../../services/whatsappService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { roundQty } from '@/lib/qty';
 import FilterMenu from '@/components/FilterMenu';
 
@@ -216,7 +218,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
     });
   };
 
-  // Same "applies to every selected row" convention for Exp. Date, LR No.,
+  // Same "applies to every selected row" convention for Actual Date, LR No.,
   // Vehicle No. and Driver No.
   const setFieldForSelected = (itemId, field, value) => {
     setRowEdits(prev => {
@@ -309,7 +311,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
     let fallbackTransporterId = null;
     let fallbackTransporterName = '-';
     let fallbackLrNumber = null;
-    let fallbackExpDate = null;
 
     for (const itemId of toSubmitIds) {
       const edit = rowEdits[itemId];
@@ -321,10 +322,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
       if (!fallbackLrNumber && edit?.lr_number) {
         fallbackLrNumber = edit.lr_number;
       }
-      if (!fallbackExpDate && edit?.exp_date) {
-        fallbackExpDate = edit.exp_date;
-      }
-      if (fallbackTransporterId && fallbackLrNumber && fallbackExpDate) break;
+      if (fallbackTransporterId && fallbackLrNumber) break;
     }
 
     for (const itemId of toSubmitIds) {
@@ -382,9 +380,10 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
         await createDelivery({
           item_id: item.item_id,
           indent_id: item.purchase_indents?.indent_id,
-          delivery_date: new Date().toISOString().slice(0, 10),
+          delivery_date: edit.actual_date || format(new Date(), 'yyyy-MM-dd'),
           group_id: item.group_id || item.products?.group_id || item.purchase_indents?.group_id || null,
-          expected_delivery_date: edit.exp_date !== undefined ? edit.exp_date : (fallbackExpDate || item.planning_date || null),
+          expected_delivery_date: item.planning_date || null,
+          expected_dispatch_date: item.expected_dispatch_date || null,
           godown_allocations: defaultGodownId ? [{ godown_id: defaultGodownId, qty: masterQty }] : [],
           transporter_id: tId,
           lr_number: lrNum,
@@ -506,6 +505,24 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
       loadData();
     } catch (err) {
       toast.error(err.message || 'Failed to delete item');
+    }
+  };
+
+  // Expected Dispatch Date auto-saves on pick — no Submit needed. Applies to
+  // every checked row too (same convention as Actual Date); updated locally
+  // first so the picker reflects it immediately, rolled back on failure.
+  const handleExpectedDispatchDateChange = async (itemId, value) => {
+    const targets = new Set(selectedItems);
+    targets.add(itemId);
+    const ids = [...targets];
+    const previous = new Map(items.filter(i => targets.has(i.item_id)).map(i => [i.item_id, i.expected_dispatch_date]));
+    setItems(prev => prev.map(i => (targets.has(i.item_id) ? { ...i, expected_dispatch_date: value || null } : i)));
+    try {
+      await updateItemsExpectedDispatchDate(ids, value);
+      toast.success(`Expected dispatch date ${value ? 'saved' : 'cleared'}${ids.length > 1 ? ` for ${ids.length} items` : ''}`);
+    } catch (err) {
+      setItems(prev => prev.map(i => (previous.has(i.item_id) ? { ...i, expected_dispatch_date: previous.get(i.item_id) } : i)));
+      toast.error(err.message || 'Failed to save expected dispatch date');
     }
   };
 
@@ -809,17 +826,27 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                 <div className={`p-3 border-t transition-colors ${isSelected ? 'bg-primary/[0.02] border-primary/20' : 'bg-slate-50/60 border-slate-100'
                   }`}>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
-                    {isSelected && (
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Exp. Delivery Date</label>
-                        <Input
-                          type="date"
-                          value={getRowVal(item.item_id, 'exp_date', item.planning_date || '')}
-                          onChange={e => setFieldForSelected(item.item_id, 'exp_date', e.target.value)}
-                          className="h-8 text-xs bg-white"
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Expected Dispatch Date</label>
+                      <DatePicker
+                        showActions
+                        value={item.expected_dispatch_date || ''}
+                        onChange={e => handleExpectedDispatchDateChange(item.item_id, e.target.value)}
+                        placeholder="Select date"
+                        className="h-8 text-xs bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Actual Date</label>
+                      <DatePicker
+                        showActions
+                        value={getRowVal(item.item_id, 'actual_date', format(new Date(), 'yyyy-MM-dd'))}
+                        onChange={e => setFieldForSelected(item.item_id, 'actual_date', e.target.value)}
+                        disabled={!isSelected}
+                        className="h-8 text-xs bg-white"
+                      />
+                    </div>
 
                     <div>
                       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Dispatch Unit</label>
@@ -1369,24 +1396,21 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
               <table className="w-full text-xs">
                 <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                   <tr>
-                    <th className="w-16 px-2 py-3 text-center">
+                    <th className="sticky left-0 z-20 bg-blue-50 w-16 min-w-16 px-2 py-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-                        <span className="text-[10px] font-semibold text-slate-500 uppercase">Action</span>
                       </div>
                     </th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                    <th className="sticky left-16 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pkg/Bag</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Remarks</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Exp. Date</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Actual Date</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Expected Dispatch Date</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Actual Date</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch Unit</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[100px] whitespace-nowrap">Dispatch in BAG</th>
@@ -1395,6 +1419,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] whitespace-nowrap">LR No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Vehicle No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Driver No.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Remarks</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1421,8 +1448,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                     const dispatchQtyKg = convertDispatchQty(dispatchQtyVal, dispatchUnit, 'kg', currentPkgSize);
 
                     return (
-                      <tr key={item.item_id} className={`hover:bg-slate-50/60 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
-                        <td className="px-2 py-3 text-center whitespace-nowrap">
+                      <tr key={item.item_id} className={`group hover:bg-slate-50/60 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
+                        <td className={`sticky left-0 z-[5] w-16 min-w-16 px-2 py-3 text-center whitespace-nowrap ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                           <div className="flex items-center justify-center gap-1.5">
                             <input
                               type="checkbox"
@@ -1430,16 +1457,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                               onChange={() => toggleSelect(item.item_id)}
                               className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                             />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              type="button"
-                              title="Delete Row"
-                              onClick={() => handleDeletePendingItem(item)}
-                              className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
-                            >
-                              <Trash2 size={13} />
-                            </Button>
                           </div>
                         </td>
                         <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
@@ -1448,13 +1465,10 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                         <td className="px-3 py-3 text-center font-semibold text-slate-800 whitespace-nowrap">
                           {indent.indent_number || '—'}
                         </td>
-                        <td className="px-3 py-3 text-center">
-                          <IndentTypeBadge processType={indent.process_type} />
-                        </td>
                         <td className="px-3 py-3 text-center font-medium text-slate-700 whitespace-nowrap">
                           {item.approved_vendor?.name || item.item_vendor?.name || '—'}
                         </td>
-                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                        <td className={`sticky left-16 z-[5] px-3 py-3 text-center whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                           <span className="text-slate-800 font-medium">{item.products?.name || '—'}</span>
                           <span className="text-slate-500 ml-1">({item.products?.unit || '—'})</span>
                         </td>
@@ -1480,26 +1494,22 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                           />
                         </td>
                         <td className="px-3 py-3 text-center">
-                          <Input
-                            type="text"
-                            placeholder="Remarks..."
-                            value={getRowVal(item.item_id, 'remarks')}
-                            onChange={e => setRowVal(item.item_id, 'remarks', e.target.value)}
-                            disabled={!isSelected}
-                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
+                          <DatePicker
+                            showActions
+                            value={item.expected_dispatch_date || ''}
+                            onChange={e => handleExpectedDispatchDateChange(item.item_id, e.target.value)}
+                            placeholder="Select date"
+                            className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
                           />
                         </td>
                         <td className="px-3 py-3 text-center">
-                          <Input
-                            type="date"
-                            value={getRowVal(item.item_id, 'exp_date', item.planning_date || '')}
-                            onChange={e => setFieldForSelected(item.item_id, 'exp_date', e.target.value)}
+                          <DatePicker
+                            showActions
+                            value={getRowVal(item.item_id, 'actual_date', format(new Date(), 'yyyy-MM-dd'))}
+                            onChange={e => setFieldForSelected(item.item_id, 'actual_date', e.target.value)}
                             disabled={!isSelected}
-                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
+                            className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
                           />
-                        </td>
-                        <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap">
-                          {format(new Date(), 'dd/MM/yyyy')}
                         </td>
                         <td className="px-3 py-3 text-center">
                           <select
@@ -1574,6 +1584,33 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                             className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[120px]"
                           />
                         </td>
+                        <td className="px-3 py-3 text-center">
+                          <IndentTypeBadge processType={indent.process_type} />
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <Input
+                            type="text"
+                            placeholder="Remarks..."
+                            value={getRowVal(item.item_id, 'remarks')}
+                            onChange={e => setRowVal(item.item_id, 'remarks', e.target.value)}
+                            disabled={!isSelected}
+                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
+                          />
+                        </td>
+                        <td className="px-2 py-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Delete Row"
+                              onClick={() => handleDeletePendingItem(item)}
+                              className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -1588,18 +1625,16 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
               <table className="w-full text-xs">
                 <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                   <tr>
-                    <th className="w-16 px-2 py-3 text-center">
+                    <th className="sticky left-0 z-20 bg-blue-50 w-16 min-w-16 px-2 py-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-                        <span className="text-[10px] font-semibold text-slate-500 uppercase">Action</span>
                       </div>
                     </th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                    <th className="sticky left-16 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in BAG</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in KG</th>
@@ -1607,13 +1642,17 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">LR No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Driver No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vehicle No.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Expected Dispatch Date</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Remarks</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {currentList.length === 0 && (
                     <tr>
-                      <td colSpan="15" className="p-12 text-center text-slate-400">
+                      <td colSpan="18" className="p-12 text-center text-slate-400">
                         <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                         <p className="text-sm font-medium">No delivery history found.</p>
                       </td>
@@ -1626,8 +1665,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                     const vendorName = del.purchase_indent_items?.approved_vendor?.name || del.purchase_indent_items?.item_vendor?.name || '—';
 
                     return (
-                      <tr key={del.delivery_id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="px-2 py-3 text-center whitespace-nowrap">
+                      <tr key={del.delivery_id} className="group hover:bg-slate-50/60 transition-colors">
+                        <td className="sticky left-0 z-[5] w-16 min-w-16 px-2 py-3 text-center whitespace-nowrap bg-white group-hover:bg-slate-50">
                           <div className="flex items-center justify-center gap-1.5">
                             <input
                               type="checkbox"
@@ -1635,16 +1674,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                               onChange={() => toggleSelect(del.delivery_id)}
                               className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                             />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              type="button"
-                              title="Delete Delivery"
-                              onClick={() => handleDeleteDelivery(del)}
-                              className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
-                            >
-                              <Trash2 size={13} />
-                            </Button>
                           </div>
                         </td>
                         <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
@@ -1656,13 +1685,10 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                         <td className="px-3 py-3 text-center font-semibold text-slate-700 whitespace-nowrap">
                           {indentNum}
                         </td>
-                        <td className="px-3 py-3 text-center">
-                          <IndentTypeBadge processType={del.purchase_indent_items?.purchase_indents?.process_type} />
-                        </td>
                         <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
                           {vendorName}
                         </td>
-                        <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
+                        <td className="sticky left-16 z-[5] px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap bg-white group-hover:bg-slate-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
                           {prod.name || '—'}
                           <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
                         </td>
@@ -1687,8 +1713,31 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [] }) =
                         <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
                           {del.vehicle_number || '—'}
                         </td>
+                        <td className="px-3 py-3 text-center text-slate-600 whitespace-nowrap">
+                          {del.expected_dispatch_date ? format(new Date(del.expected_dispatch_date), 'dd/MM/yyyy') : '—'}
+                        </td>
                         <td className="px-3 py-3 text-center whitespace-nowrap">
                           {renderStatusBadge(del.status)}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <IndentTypeBadge processType={del.purchase_indent_items?.purchase_indents?.process_type} />
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-600 max-w-[200px] truncate" title={del.remarks || ''}>
+                          {del.remarks || '—'}
+                        </td>
+                        <td className="px-2 py-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Delete Delivery"
+                              onClick={() => handleDeleteDelivery(del)}
+                              className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     );

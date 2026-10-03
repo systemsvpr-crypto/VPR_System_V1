@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { FolderTree, Search, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getAllGroups, createGroup, updateGroup, deleteGroup } from '../../../../services/productGroupingService';
+import { getAllGroups, createGroup, updateGroup, deleteGroup, renameGroupBrandCategory } from '../../../../services/productGroupingService';
 import { getAllProducts } from '../../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,8 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } 
 
 const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }) => {
   const [groupName, setGroupName] = useState('');
+  const [brandName, setBrandName] = useState('');
+  const [category, setCategory] = useState('');
   const [productIds, setProductIds] = useState([]);
   const [products, setProducts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -18,6 +20,27 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
 
   const isEditing = !!editingGroup;
   const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
+
+  // Products auto-linked to this group via group_id — their shared Brand Name
+  // + Category is what the group name is built from, so editing those two
+  // renames the group and rebuilds each product's name.
+  const linkedProducts = useMemo(() => (
+    isEditing ? products.filter(p => p.group_id === editingGroup.group_id) : []
+  ), [products, isEditing, editingGroup]);
+  const isBrandCategoryGroup = linkedProducts.length > 0;
+
+  useEffect(() => {
+    if (isOpen && isBrandCategoryGroup) {
+      setBrandName(linkedProducts[0].brand_name || '');
+      setCategory(linkedProducts[0].category || '');
+    }
+  }, [isOpen, isBrandCategoryGroup, linkedProducts]);
+
+  const derivedGroupName = `${brandName.trim()}${category.trim()}`;
+  const buildName = (p) => {
+    const base = [brandName, category, p.product_type].map(v => (v || '').trim()).filter(Boolean).join(' ');
+    return p.mux?.trim() ? `${base} (${p.mux.trim()})` : base;
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -30,6 +53,8 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
         setGroupName('');
         setProductIds([]);
       }
+      setBrandName('');
+      setCategory('');
       setSearchTerm('');
     }
   }, [isOpen, editingGroup]);
@@ -74,6 +99,31 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isBrandCategoryGroup) {
+      if (!brandName.trim()) {
+        toast.error('Brand name is required.');
+        return;
+      }
+      setSubmitting(true);
+      try {
+        const { updatedCount } = await renameGroupBrandCategory(editingGroup.group_id, {
+          brand_name: brandName,
+          category,
+        });
+        // Keep any manually-picked members in sync with the checkbox list.
+        await updateGroup(editingGroup.group_id, {
+          group_name: derivedGroupName,
+          product_ids: productIds,
+        });
+        toast.success(`Group updated — ${updatedCount} product name${updatedCount === 1 ? '' : 's'} renamed`);
+        onClose();
+        onSuccess();
+      } catch (err) {
+        toast.error(err.message);
+      }
+      setSubmitting(false);
+      return;
+    }
     if (!groupName.trim()) {
       toast.error('Group name is required.');
       return;
@@ -132,16 +182,60 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
             </h2>
           </ModalTitle>
         </ModalHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
           <ModalBody>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Group Name</label>
-              <Input
-                value={groupName}
-                onChange={(e) => setGroupName(e.target.value)}
-                placeholder="e.g. AM BLK"
-              />
-            </div>
+            {isBrandCategoryGroup ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Brand Name</label>
+                    <Input value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="e.g. AM" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
+                    <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. BLK" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Group Name <span className="text-slate-400 font-normal">(Brand + Category)</span>
+                  </label>
+                  <Input value={derivedGroupName} readOnly disabled />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Product Names <span className="text-slate-400 font-normal">(Preview — {linkedProducts.length} will be updated)</span>
+                  </label>
+                  <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                    {linkedProducts.map(p => {
+                      const newName = buildName(p);
+                      return (
+                        <div key={p.product_id} className="px-3 py-1.5 text-xs flex items-center gap-2 min-w-0">
+                          {newName !== p.name ? (
+                            <>
+                              <span className="text-slate-400 line-through truncate">{p.name}</span>
+                              <span className="text-slate-400 shrink-0">→</span>
+                              <span className="text-primary font-medium truncate">{newName}</span>
+                            </>
+                          ) : (
+                            <span className="text-slate-700 truncate">{p.name}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Group Name</label>
+                <Input
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  placeholder="e.g. AM BLK"
+                />
+              </div>
+            )}
 
             <div>
               <div className="flex items-center justify-between mb-2">

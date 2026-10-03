@@ -215,6 +215,7 @@ const UltimateIMS = () => {
 
       setRows(built);
     } catch (err) {
+      c
       console.error(err);
       toast.error('Failed to load live purchase data');
     }

@@ -13,8 +13,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 
-export function DatePicker({ value, onChange, name, placeholder = "Pick a date", className, disabled, calendarProps }) {
+export function DatePicker({ value, onChange, name, placeholder = "Pick a date", className, disabled, calendarProps, showActions = false }) {
   const [open, setOpen] = React.useState(false)
+  const emit = (v) => onChange({ target: { name, value: v } })
   const date = (value && !isNaN(new Date(value).getTime())) ? new Date(value) : undefined
 
   return (
@@ -35,7 +36,11 @@ export function DatePicker({ value, onChange, name, placeholder = "Pick a date",
         </Button>
       </PopoverTrigger>
       {!disabled && (
-        <PopoverContent className="w-auto p-0" align="start">
+        <PopoverContent
+          className="w-auto p-0 gap-0 max-h-(--radix-popover-content-available-height) overflow-y-auto"
+          align="start"
+          collisionPadding={8}
+        >
           <Calendar
             mode="single"
             selected={date}
@@ -49,6 +54,25 @@ export function DatePicker({ value, onChange, name, placeholder = "Pick a date",
             toYear={2050}
             {...calendarProps}
           />
+          {/* Optional Clear / Today footer, like the browser's native date picker */}
+          {showActions && (
+            <div className="sticky bottom-0 flex items-center justify-between border-t border-slate-100 bg-popover px-3 py-2">
+              <button
+                type="button"
+                onClick={() => { emit(''); setOpen(false) }}
+                className="text-xs font-medium text-slate-500 hover:text-red-600 transition-colors"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => { emit(format(new Date(), 'yyyy-MM-dd')); setOpen(false) }}
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                Today
+              </button>
+            </div>
+          )}
         </PopoverContent>
       )}
     </Popover>

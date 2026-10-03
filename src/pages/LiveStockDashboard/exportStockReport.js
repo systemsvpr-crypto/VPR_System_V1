@@ -21,10 +21,31 @@ const filterEmptyGroups = (products) => {
   return products.filter((p) => groupsWithStock.has(groupKeyOf(p)));
 };
 
+// Godowns holding stock of any product in each group, highest group total
+// first — used to fill in the Godown column for a group's zero-stock products.
+const buildGroupGodowns = (products) => {
+  const totals = new Map();
+  for (const p of products) {
+    const key = groupKeyOf(p);
+    if (!totals.has(key)) totals.set(key, new Map());
+    const godownTotals = totals.get(key);
+    for (const g of p.godowns || []) {
+      if (g.current === 0) continue;
+      godownTotals.set(g.godownName, (godownTotals.get(g.godownName) || 0) + g.current);
+    }
+  }
+  const result = new Map();
+  for (const [key, godownTotals] of totals) {
+    result.set(key, [...godownTotals.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name));
+  }
+  return result;
+};
+
 // Report rows: Date / Product Name / Godown / Current Stock — one row per
 // godown that holds non-zero stock of the product (highest first). A product
-// with no stock anywhere still gets a single row with "-" as the godown so
-// its group stays complete. Sorted by product name.
+// with no stock anywhere gets a 0 row for each godown its group's other
+// products are stocked in (or "-" if none), so its group stays complete.
+// Sorted by product name.
 const addStockSheet = (workbook, products, date) => {
   const sheet = workbook.addWorksheet('Live Stock Report', { views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }] });
 
@@ -39,6 +60,7 @@ const addStockSheet = (workbook, products, date) => {
   headerRow.height = 20;
 
   const sorted = filterEmptyGroups(products).sort((a, b) => a.productName.localeCompare(b.productName));
+  const groupGodowns = buildGroupGodowns(sorted);
 
   let rowNum = 2;
   let totalStock = 0;
@@ -47,7 +69,11 @@ const addStockSheet = (workbook, products, date) => {
       .filter((g) => g.current !== 0)
       .sort((a, b) => b.current - a.current)
       .map((g) => [g.godownName, g.current]);
-    if (godownRows.length === 0) godownRows.push(['-', 0]);
+    if (godownRows.length === 0) {
+      const siblingGodowns = groupGodowns.get(groupKeyOf(p)) || [];
+      if (siblingGodowns.length === 0) godownRows.push(['-', 0]);
+      else siblingGodowns.forEach((name) => godownRows.push([name, 0]));
+    }
 
     for (const [godownName, qty] of godownRows) {
       totalStock += qty;
