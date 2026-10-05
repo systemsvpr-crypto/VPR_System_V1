@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet, Award, PackagePlus, X } from 'lucide-react';
+import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet, Award, PackagePlus, X, Download } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
@@ -421,6 +421,44 @@ const Master = () => {
     setLoading(false);
   };
 
+  // Exports exactly what the Products tab currently shows (search + filters
+  // applied, all pages) as a CSV.
+  const exportProductsCSV = () => {
+    const rows = [[
+      'Product Name', 'Unit', 'Product Type', 'Brand Name', 'Category', 'Mux', 'Grouping',
+      'Lead Time (Days)', 'Safety Factor', 'Godown Stock', 'Total Stock', 'Created',
+    ]];
+    filteredProducts.forEach(p => {
+      const stocks = stockMap[p.product_id] || [];
+      const totalStock = stocks.reduce((sum, s) => sum + (Number(s.current_stock) || 0), 0);
+      let created = '';
+      try { created = p.created_at ? format(new Date(p.created_at), 'dd/MM/yyyy') : ''; } catch { created = ''; }
+      rows.push([
+        p.name || '',
+        p.unit || '',
+        p.product_type || '',
+        p.brand_name || '',
+        p.category || '',
+        p.mux || '',
+        (p.group_id && groupNameMap[p.group_id]) || '',
+        p.lead_time ?? '',
+        p.safety_factor ?? '',
+        stocks.map(s => `${s.godown_name}: ${s.current_stock}`).join('; '),
+        totalStock,
+        created,
+      ]);
+    });
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    // Leading BOM so Excel opens it as UTF-8.
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `products_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleEditProduct = (product) => {
     setEditingProduct(product);
     setProductModalOpen(true);
@@ -664,6 +702,11 @@ const Master = () => {
                     {activeTab === 'products' && (
                       <Button onClick={() => setOpeningStockImportOpen(true)} variant="outline" className="gap-2 px-3 h-8 text-sm font-medium shrink-0">
                         <PackagePlus size={15} /><span>Opening Stock</span>
+                      </Button>
+                    )}
+                    {activeTab === 'products' && (
+                      <Button onClick={exportProductsCSV} disabled={filteredProducts.length === 0} variant="outline" className="gap-2 px-3 h-8 text-sm font-medium shrink-0">
+                        <Download size={15} /><span>Export CSV</span>
                       </Button>
                     )}
                     {activeTab !== 'product-grouping' && !(activeTab === 'godowns' && godownTypeFilter === 'Transporter') && (

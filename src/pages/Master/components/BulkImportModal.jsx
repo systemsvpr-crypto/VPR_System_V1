@@ -19,6 +19,8 @@ const COLUMN_ALIASES = {
   'mux': ['mux', 'weight', 'packaging weight', 'packaging'],
   'Godown Name': ['godown name', 'godown', 'godownname', 'warehouse', 'warehouse name'],
   'Qty': ['qty', 'quantity', 'qnty', 'stock', 'opening stock', 'opening', 'count'],
+  'Lead Time': ['lead time', 'lead_time', 'leadtime', 'lead time (days)', 'lead time days'],
+  'Safety Factor': ['safety factor', 'safety_factor', 'safetyfactor'],
 };
 
 const normalizeHeader = (header) => {
@@ -141,6 +143,8 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
         const muxKey = keyFor('mux');
         const godownKey = keyFor('Godown Name');
         const qtyKey = keyFor('Qty');
+        const leadTimeKey = keyFor('Lead Time');
+        const safetyFactorKey = keyFor('Safety Factor');
 
         const parsed = json.map((row) => {
           const brandName = String(row[brandKey] || '').trim();
@@ -150,8 +154,11 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
           const mux = muxKey ? normalizeMux(row[muxKey]) : '';
           const godownName = String(row[godownKey] || '').trim();
           const qty = Number(row[qtyKey]) || 0;
+          // Only used when this row creates a new product (blank = not set).
+          const leadTime = leadTimeKey ? String(row[leadTimeKey] ?? '').trim() : '';
+          const safetyFactor = safetyFactorKey ? String(row[safetyFactorKey] ?? '').trim() : '';
           return {
-            brandName, category, productType, unit, mux, godownName, qty,
+            brandName, category, productType, unit, mux, godownName, qty, leadTime, safetyFactor,
             productName: buildProductName(brandName, category, productType, mux),
           };
         }).filter(r => r.brandName || r.category || r.godownName);
@@ -355,6 +362,8 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
         'mux': '32 Kg',
         'Godown Name': 'Main Godown',
         'Qty': 500,
+        'Lead Time': 7,
+        'Safety Factor': 1.5,
       },
       {
         'Brand Name': 'AM',
@@ -364,6 +373,8 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
         'mux': '30 Kg',
         'Godown Name': 'Site B Godown',
         'Qty': 1000,
+        'Lead Time': 10,
+        'Safety Factor': 1.2,
       }
     ]);
     const wb = XLSX.utils.book_new();
@@ -450,7 +461,7 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
                       </div>
                       <p className="text-slate-600 text-[11px] leading-relaxed">
                         Your document can include headers for <strong>Brand Name</strong>, <strong>Category</strong>, <strong>Size</strong>, <strong>Unit</strong>,
-                        <strong> mux</strong>, <strong>Godown Name</strong>, and <strong>Qty</strong> — none are mandatory. Product Name is auto-generated as Brand + Category + Size + (mux) and matched
+                        <strong> mux</strong>, <strong>Godown Name</strong>, <strong>Qty</strong>, <strong>Lead Time</strong> and <strong>Safety Factor</strong> — none are mandatory. Product Name is auto-generated as Brand + Category + Size + (mux) and matched
                         against existing products — a combination not found in the system will be auto-created. Godowns must already exist in Master records.
                       </p>
                     </div>
@@ -474,6 +485,8 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
                             <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">mux</th>
                             <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Godown Name</th>
                             <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Qty</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Lead Time</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">Safety Factor</th>
                           </tr>
                         </thead>
                         <tbody className="bg-slate-50/50">
@@ -485,6 +498,8 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
                             <td className="px-3 py-2 text-slate-500 border-b border-slate-100">32 Kg</td>
                             <td className="px-3 py-2 text-slate-500 border-b border-slate-100">Main Godown</td>
                             <td className="px-3 py-2 text-slate-500 border-b border-slate-100">500</td>
+                            <td className="px-3 py-2 text-slate-500 border-b border-slate-100">7</td>
+                            <td className="px-3 py-2 text-slate-500 border-b border-slate-100">1.5</td>
                           </tr>
                           <tr>
                             <td className="px-3 py-2 text-slate-500">AM</td>
@@ -494,6 +509,8 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
                             <td className="px-3 py-2 text-slate-500">30 Kg</td>
                             <td className="px-3 py-2 text-slate-500">Site B Godown</td>
                             <td className="px-3 py-2 text-slate-500">1000</td>
+                            <td className="px-3 py-2 text-slate-500">10</td>
+                            <td className="px-3 py-2 text-slate-500">1.2</td>
                           </tr>
                         </tbody>
                       </table>

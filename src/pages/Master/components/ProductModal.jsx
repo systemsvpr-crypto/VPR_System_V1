@@ -16,6 +16,8 @@ const createEmptyProduct = (defaultUnit = 'bag') => ({
   product_type: '',
   unit: defaultUnit,
   mux: '',
+  lead_time: '',
+  safety_factor: '',
 });
 
 const createEmptyGroupBlock = () => ({
@@ -136,6 +138,8 @@ const ProductModal = ({
           product_type: editingProduct.product_type || '',
           unit: editingProduct.unit || 'bag',
           mux: editingProduct.mux || '',
+          lead_time: editingProduct.lead_time ?? '',
+          safety_factor: editingProduct.safety_factor ?? '',
         }],
       }]);
       setDuplicateNotice('');
@@ -151,6 +155,8 @@ const ProductModal = ({
           product_type: initialValues.product_type || '',
           unit: initialValues.unit || 'bag',
           mux: initialValues.mux || '',
+          lead_time: initialValues.lead_time ?? '',
+          safety_factor: initialValues.safety_factor ?? '',
         }],
       }]);
       setDuplicateNotice('');
@@ -259,6 +265,19 @@ const ProductModal = ({
       }
     }
 
+    // Lead Time / Safety Factor are optional, but must be non-negative numbers when filled
+    for (const g of groupBlocks) {
+      for (const p of g.products) {
+        for (const [field, label] of [['lead_time', 'Lead Time'], ['safety_factor', 'Safety Factor']]) {
+          const v = String(p[field] ?? '').trim();
+          if (v && (isNaN(Number(v)) || Number(v) < 0)) {
+            toast.error(`${label} must be a valid non-negative number.`);
+            return;
+          }
+        }
+      }
+    }
+
     // Check duplicate keys across the entire form
     const seenKeys = new Set();
     let productCounter = 1;
@@ -302,6 +321,8 @@ const ProductModal = ({
           mux: formattedMux,
           allow_negative_stock: false,
           group_id: targetGroupId,
+          lead_time: p.lead_time,
+          safety_factor: p.safety_factor,
         });
 
         toast.success('Product updated successfully');
@@ -329,6 +350,8 @@ const ProductModal = ({
               allow_negative_stock: false,
               group_id: targetGroupId,
               created_by: user?.user_id,
+              lead_time: p.lead_time,
+              safety_factor: p.safety_factor,
             });
             createdProducts.push(created);
           }
@@ -526,13 +549,15 @@ const ProductModal = ({
                   {/* Single Row: Size, Unit, Mux, Product Name */}
                   <div className="space-y-2 pt-1">
                     {/* Header for Product Row */}
-                    <div className="hidden md:grid grid-cols-12 gap-2.5 px-0.5 text-xs font-semibold text-slate-700">
-                      <div className="col-span-3">
-                        Size <span className="text-slate-400 font-normal">(Product Type)</span>
+                    <div className="hidden md:grid grid-cols-14 gap-2.5 px-0.5 text-xs font-semibold text-slate-700">
+                      <div className="col-span-2">
+                        Size <span className="text-slate-400 font-normal">(Type)</span>
                       </div>
                       <div className="col-span-2">Unit</div>
                       <div className="col-span-2">Mux (Weight)</div>
-                      <div className={group.products.length > 1 && !isEditing ? "col-span-4" : "col-span-5"}>
+                      <div className="col-span-2">Lead Time <span className="text-slate-400 font-normal">(Days)</span></div>
+                      <div className="col-span-2">Safety Factor</div>
+                      <div className={group.products.length > 1 && !isEditing ? "col-span-3" : "col-span-4"}>
                         Product Name <span className="text-slate-400 font-normal">(Preview)</span>
                       </div>
                       {group.products.length > 1 && !isEditing && <div className="col-span-1"></div>}
@@ -548,9 +573,9 @@ const ProductModal = ({
                       const computedName = formattedMux ? `${baseName} (${formattedMux})` : baseName;
 
                       return (
-                        <div key={prod.id} className="grid grid-cols-2 md:grid-cols-12 gap-2.5 items-end md:items-center p-2.5 md:p-0 rounded-lg border border-slate-100 md:border-0 bg-slate-50/60 md:bg-transparent">
+                        <div key={prod.id} className="grid grid-cols-2 md:grid-cols-14 gap-2.5 items-end md:items-center p-2.5 md:p-0 rounded-lg border border-slate-100 md:border-0 bg-slate-50/60 md:bg-transparent">
                           {/* 1. Size */}
-                          <div className="col-span-1 md:col-span-3 min-w-0">
+                          <div className="col-span-1 md:col-span-2 min-w-0">
                             <label className="md:hidden block text-[11px] font-semibold text-slate-600 mb-1">Size</label>
                             <Input
                               value={prod.product_type}
@@ -587,8 +612,36 @@ const ProductModal = ({
                             />
                           </div>
 
-                          {/* 4. Product Name */}
-                          <div className={`col-span-2 min-w-0 ${group.products.length > 1 && !isEditing ? "md:col-span-4" : "md:col-span-5"}`}>
+                          {/* 4. Lead Time (Days) */}
+                          <div className="col-span-1 md:col-span-2 min-w-0">
+                            <label className="md:hidden block text-[11px] font-semibold text-slate-600 mb-1">Lead Time (Days)</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={prod.lead_time}
+                              onChange={(e) => updateProductInGroup(gIdx, pIdx, { lead_time: e.target.value })}
+                              placeholder="Ex: 7"
+                              className="h-9 text-xs"
+                            />
+                          </div>
+
+                          {/* 5. Safety Factor */}
+                          <div className="col-span-1 md:col-span-2 min-w-0">
+                            <label className="md:hidden block text-[11px] font-semibold text-slate-600 mb-1">Safety Factor</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={prod.safety_factor}
+                              onChange={(e) => updateProductInGroup(gIdx, pIdx, { safety_factor: e.target.value })}
+                              placeholder="Ex: 1.5"
+                              className="h-9 text-xs"
+                            />
+                          </div>
+
+                          {/* 6. Product Name */}
+                          <div className={`col-span-2 min-w-0 ${group.products.length > 1 && !isEditing ? "md:col-span-3" : "md:col-span-4"}`}>
                             <label className="md:hidden block text-[11px] font-semibold text-slate-600 mb-1">Product Name (Preview)</label>
                             <Input
                               value={computedName}

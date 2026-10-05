@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Search, Boxes, ChevronLeft, ChevronRight, Save, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
-import { getAllProductStock, getAllProducts, getAllGodowns } from '../../services/masterService';
+import { getAllProductStock, getAllProducts, getAllGodowns, updateProductPlanning } from '../../services/masterService';
 import { getReorderStatusItems, createIndent, generateNextIndentNumber, getPackagingSize } from '../../services/purchaseService';
 import { getDispatchTransactions } from '../../services/salesService';
 import { Input } from '@/components/ui/input';
@@ -50,6 +50,33 @@ const convertReorderQty = (qty, fromUnit, targetUnit, pkgSize) => {
   return amount;
 };
 
+// Max Level = Lead Time × Safety Factor × AVG Daily Consumption (product's
+// master unit). Blank until both Lead Time and Safety Factor are set.
+const getMaxLevel = (leadTime, safetyFactor, avgDaily) => {
+  if (leadTime === '' || leadTime == null || safetyFactor === '' || safetyFactor == null) return null;
+  return (Number(leadTime) || 0) * (Number(safetyFactor) || 0) * (Number(avgDaily) || 0);
+};
+
+// Current Stock colour code, judged against the row's Max Level:
+// red = out of stock / below half of Max Level, amber = below Max Level,
+// green = at or above Max Level. Without a Max Level only "out" is flagged.
+const STOCK_LEVEL_STYLES = {
+  // Soft (dimmed) cell tints — the whole Current Stock cell is shaded.
+  critical: { className: 'bg-red-50/70 text-red-600', label: 'Critical — out of stock or below 50% of Max Level' },
+  low: { className: 'bg-amber-50/70 text-amber-600', label: 'Low — below Max Level' },
+  healthy: { className: 'bg-emerald-50/70 text-emerald-600', label: 'Healthy — at or above Max Level' },
+  neutral: { className: 'text-slate-900', label: 'Set Lead Time and Safety Factor to get a Max Level' },
+};
+
+const getStockLevel = (stock, maxLevel) => {
+  const qty = Number(stock) || 0;
+  if (qty <= 0) return 'critical';
+  if (maxLevel == null || maxLevel <= 0) return 'neutral';
+  if (qty < maxLevel * 0.5) return 'critical';
+  if (qty < maxLevel) return 'low';
+  return 'healthy';
+};
+
 /**
  * Live purchase-pipeline view, one row per Product + Godown: current stock
  * next to exactly how much of that product is still pending approval,
@@ -73,6 +100,11 @@ const UltimateIMS = () => {
   // Reorder Unit defaults to the product's own master unit per row — this
   // state only holds rows where the user actually switched it.
   const [reorderUnit, setReorderUnit] = useState({});
+  // Unit picked in the Unit column header — applies to every row at once.
+  const [bulkUnit, setBulkUnit] = useState('');
+  // Unsaved Lead Time / Safety Factor typed on a checked row, keyed by
+  // product — each field saves to the product master on blur.
+  const [planningEdits, setPlanningEdits] = useState({});
 
   // "Save" raises one Indent (+ one item per selected row, qty = its Reorder
   // Qty) straight from this dashboard — it lands in Purchase > Indent >
@@ -197,6 +229,7 @@ const UltimateIMS = () => {
         }
       }
 
+
       const built = Array.from(groups.values()).map((g) => {
         const statsArray = Array.from(g.godownStats.values()).map(st => ({
           ...st,
@@ -209,13 +242,14 @@ const UltimateIMS = () => {
           productName: productMap.get(g.productId)?.name || 'Unassigned Product',
           unit: productMap.get(g.productId)?.unit || '—',
           packagingSize: getPackagingSize(productMap.get(g.productId)),
+          leadTime: productMap.get(g.productId)?.lead_time ?? '',
+          safetyFactor: productMap.get(g.productId)?.safety_factor ?? '',
           stats: statsArray
         };
       }).sort((a, b) => a.productName.localeCompare(b.productName));
 
       setRows(built);
     } catch (err) {
-      c
       console.error(err);
       toast.error('Failed to load live purchase data');
     }
@@ -315,6 +349,66 @@ const UltimateIMS = () => {
     setReorderQty((prev) => ({ ...prev, [row.key]: requantified ? String(roundQty(requantified)) : '' }));
   };
 
+  // Header Unit dropdown: sets every row to the same unit, re-basing any
+  // Reorder Qty already typed (same as switching each row individually).
+  const handleBulkUnitChange = (newUnit) => {
+    setBulkUnit(newUnit);
+    if (!newUnit) return;
+    const nextUnit = {};
+    const nextQty = { ...reorderQty };
+    rows.forEach((row) => {
+      const currentQty = reorderQty[row.key];
+      if (currentQty !== undefined && currentQty !== '') {
+        const requantified = convertReorderQty(currentQty, getReorderUnitValue(row), newUnit, row.packagingSize);
+        nextQty[row.key] = requantified ? String(roundQty(requantified)) : '';
+      }
+      nextUnit[row.key] = newUnit;
+    });
+    setReorderUnit(nextUnit);
+    setReorderQty(nextQty);
+  };
+
+  const getPlanningValue = (row, field) => {
+    const edit = planningEdits[row.key]?.[field];
+    if (edit !== undefined) return edit;
+    return field === 'lead_time' ? row.leadTime : row.safetyFactor;
+  };
+
+  const setPlanningValue = (key, field, value) => {
+    setPlanningEdits((prev) => ({ ...prev, [key]: { ...prev[key], [field]: value } }));
+  };
+
+  // Saves Lead Time / Safety Factor to the product master when the input
+  // loses focus (only if it actually changed).
+  const handlePlanningBlur = async (row, field) => {
+    const value = planningEdits[row.key]?.[field];
+    if (value === undefined) return;
+    const label = field === 'lead_time' ? 'Lead Time' : 'Safety Factor';
+    const saved = field === 'lead_time' ? row.leadTime : row.safetyFactor;
+    const clearEdit = () => setPlanningEdits((prev) => {
+      const next = { ...prev, [row.key]: { ...prev[row.key] } };
+      delete next[row.key][field];
+      return next;
+    });
+    if (String(value).trim() === String(saved ?? '').trim()) { clearEdit(); return; }
+    if (String(value).trim() !== '' && (isNaN(Number(value)) || Number(value) < 0)) {
+      toast.error(`${label} must be a valid non-negative number.`);
+      return;
+    }
+    try {
+      await updateProductPlanning(row.productId, { [field]: value });
+      const stored = String(value).trim() === '' ? '' : Number(value);
+      setRows((prev) => prev.map((r) => (r.key !== row.key ? r : {
+        ...r,
+        ...(field === 'lead_time' ? { leadTime: stored } : { safetyFactor: stored }),
+      })));
+      clearEdit();
+      toast.success(`${row.productName}: ${label} saved`);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save.');
+    }
+  };
+
   const handleSaveIndent = async () => {
     if (selectedRows.size === 0) {
       toast.error('Select at least one product row.');
@@ -370,6 +464,7 @@ const UltimateIMS = () => {
       setSelectedRows(new Set());
       setReorderQty({});
       setReorderUnit({});
+      setBulkUnit('');
       await loadData();
     } catch (err) {
       toast.error(err.message || 'Failed to create indent.');
@@ -436,13 +531,32 @@ const UltimateIMS = () => {
           <table className="w-full text-xs relative">
             <thead className="sticky top-0 z-10 shadow-sm">
               <tr className="bg-blue-50 border-b border-slate-200">
-                <th className="w-10 px-2 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[180px]">Product Name</th>
+                {/* Action + Product Name stay pinned while scrolling sideways */}
+                <th className="sticky left-0 z-20 bg-blue-50 w-16 min-w-16 px-2 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
+                <th className="sticky left-16 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[180px]">Product Name</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Current Stock</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-sky-600 uppercase tracking-wider whitespace-nowrap" title="Total dispatched qty ÷ days since first dispatch (incl. today)">Avg Sales</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Unit</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span>Unit</span>
+                    <select
+                      value={bulkUnit}
+                      onChange={(e) => handleBulkUnitChange(e.target.value)}
+                      title="Set unit for all rows"
+                      className="h-6 text-[10px] font-semibold px-1 rounded border border-slate-300 bg-white text-slate-700 normal-case focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    >
+                      {/* Hidden blank — keeps BAG pickable on first use without listing a "—" choice */}
+                      <option value="" disabled hidden></option>
+                      <option value="bag">BAG</option>
+                      <option value="kg">KG</option>
+                    </select>
+                  </div>
+                </th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[110px]">Quantity</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]">Reorder Qty</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-sky-600 uppercase tracking-wider whitespace-nowrap" title="Total dispatched qty ÷ days since first dispatch (incl. today)">AVG Daily Consumption</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]">Lead Time <span className="normal-case font-normal text-slate-400">(Days)</span></th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]">Safety Factor</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]" title="Lead Time × Safety Factor × AVG Daily Consumption">Max Level</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-amber-600 uppercase tracking-wider whitespace-nowrap min-w-[120px]">Approval Pending</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap">Approved Qty</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-violet-600 uppercase tracking-wider whitespace-nowrap">In Transit Qty</th>
@@ -453,14 +567,14 @@ const UltimateIMS = () => {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="p-12 text-center">
+                  <td colSpan={15} className="p-12 text-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3" />
                     <p className="text-sm text-slate-400">Loading live purchase data...</p>
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="p-12 text-center">
+                  <td colSpan={15} className="p-12 text-center">
                     <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                       <Boxes size={32} className="text-slate-300" />
                     </div>
@@ -473,23 +587,24 @@ const UltimateIMS = () => {
               ) : (
                 currentRows.map((row) => {
                   const selected = selectedRows.has(row.key);
+                  const leadTimeVal = getPlanningValue(row, 'lead_time');
+                  const safetyFactorVal = getPlanningValue(row, 'safety_factor');
+                  const maxLevel = getMaxLevel(leadTimeVal, safetyFactorVal, row.avgDispatch);
                   const actualQty = getReorderActualQty(row);
+                  const stockLevel = getStockLevel(row.currentStock, maxLevel);
                   return (
-                    <tr key={row.key} className={`hover:bg-slate-50/80 transition-colors ${selected ? 'bg-primary/5' : ''}`}>
-                      <td className="px-2 py-3 text-center">
+                    <tr key={row.key} className={`group hover:bg-slate-50/80 transition-colors ${selected ? 'bg-primary/5' : ''}`}>
+                      <td className={`sticky left-0 z-[5] w-16 min-w-16 px-2 py-3 text-center ${selected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                         <input type="checkbox" checked={selected} onChange={() => toggleSelect(row.key)}
                           className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                       </td>
-                      <td className="px-4 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
+                      <td className={`sticky left-16 z-[5] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-4 py-3 text-center font-medium text-slate-800 whitespace-nowrap ${selected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                         {row.productName}{' '}
                         <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{row.unit}</span>
                       </td>
-                      <td className="px-4 py-3 text-center font-semibold text-slate-900 tabular-nums whitespace-nowrap">
+                      <td className={`px-4 py-3 text-center font-semibold tabular-nums whitespace-nowrap ${STOCK_LEVEL_STYLES[stockLevel].className}`}
+                        title={STOCK_LEVEL_STYLES[stockLevel].label}>
                         {formatNum(row.currentStock)}
-                      </td>
-                      <td className="px-4 py-3 text-center font-semibold text-sky-600 tabular-nums whitespace-nowrap"
-                        title={row.firstDispatchDate ? `${formatNum(row.dispatchedQty)} dispatched since ${row.firstDispatchDate.split('-').reverse().join('-')}` : 'No dispatches yet'}>
-                        {row.avgDispatch != null ? formatNum(row.avgDispatch) : <span className="text-slate-300">0</span>}
                       </td>
                       <td className="px-4 py-3">
                         <select
@@ -514,6 +629,30 @@ const UltimateIMS = () => {
                       <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums whitespace-nowrap"
                         title={`Pkg/Bag used: ${row.packagingSize} Kg (from Master > Product's Mux)`}>
                         {actualQty != null ? formatNum(actualQty) : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-sky-600 tabular-nums whitespace-nowrap"
+                        title={row.firstDispatchDate ? `${formatNum(row.dispatchedQty)} dispatched since ${row.firstDispatchDate.split('-').reverse().join('-')}` : 'No dispatches yet'}>
+                        {row.avgDispatch != null ? formatNum(row.avgDispatch) : <span className="text-slate-300">0</span>}
+                      </td>
+                      {[['lead_time', leadTimeVal, 'Days'], ['safety_factor', safetyFactorVal, 'Factor']].map(([field, val, placeholder]) => (
+                        <td key={field} className="px-4 py-3 text-center tabular-nums whitespace-nowrap">
+                          {selected ? (
+                            <div className="w-20 mx-auto">
+                              <Input type="text" placeholder={placeholder}
+                                value={val}
+                                onChange={(e) => setPlanningValue(row.key, field, e.target.value)}
+                                onBlur={() => handlePlanningBlur(row, field)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                                className="h-8 text-xs text-center" />
+                            </div>
+                          ) : (
+                            <span className="font-semibold text-slate-700">{val !== '' && val != null ? formatNum(val) : <span className="text-slate-300">—</span>}</span>
+                          )}
+                        </td>
+                      ))}
+                      <td className="px-4 py-3 text-center font-semibold text-emerald-600 tabular-nums whitespace-nowrap"
+                        title={maxLevel != null ? `${formatNum(leadTimeVal)} × ${formatNum(safetyFactorVal)} × ${formatNum(row.avgDispatch)}` : 'Set Lead Time and Safety Factor'}>
+                        {maxLevel != null ? formatNum(maxLevel) : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-4 py-3 text-center font-semibold text-amber-600 tabular-nums whitespace-nowrap">
                         {row.pendingApprovalQty > 0 ? formatNum(row.pendingApprovalQty) : <span className="text-slate-300">0</span>}

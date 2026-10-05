@@ -158,7 +158,10 @@ const resolveProductGroupId = async (brand_name, category) => {
   return created.group_id;
 };
 
-export const createProduct = async ({ name, unit, allow_negative_stock, product_type, brand_name, category, mux, openingEntries, as_of_date, created_by, group_id }) => {
+// Lead Time / Safety Factor are optional numbers — blank is stored as NULL.
+const toOptionalNumber = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : Number(v));
+
+export const createProduct = async ({ name, unit, allow_negative_stock, product_type, brand_name, category, mux, openingEntries, as_of_date, created_by, group_id, lead_time, safety_factor }) => {
   const allProducts = await getAllProductKeys();
 
   // Lock Brand Name / Category to whichever casing is already on record
@@ -182,7 +185,7 @@ export const createProduct = async ({ name, unit, allow_negative_stock, product_
 
   const { data: product, error: productError } = await supabase
     .from('products')
-    .insert([{ name: resolvedName, unit, allow_negative_stock: !!allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id: finalGroupId }])
+    .insert([{ name: resolvedName, unit, allow_negative_stock: !!allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id: finalGroupId, lead_time: toOptionalNumber(lead_time), safety_factor: toOptionalNumber(safety_factor) }])
     .select()
     .single();
   if (productError) throw productError;
@@ -212,7 +215,17 @@ export const createProduct = async ({ name, unit, allow_negative_stock, product_
   return product;
 };
 
-export const updateProduct = async ({ product_id, name, unit, allow_negative_stock, product_type, brand_name, category, mux, group_id }) => {
+// Saves just a product's Lead Time / Safety Factor (edited inline on Ultimate IMS).
+export const updateProductPlanning = async (product_id, { lead_time, safety_factor }) => {
+  const payload = {};
+  if (lead_time !== undefined) payload.lead_time = toOptionalNumber(lead_time);
+  if (safety_factor !== undefined) payload.safety_factor = toOptionalNumber(safety_factor);
+  if (Object.keys(payload).length === 0) return;
+  const { error } = await supabase.from('products').update(payload).eq('product_id', product_id);
+  if (error) throw error;
+};
+
+export const updateProduct = async ({ product_id, name, unit, allow_negative_stock, product_type, brand_name, category, mux, group_id, lead_time, safety_factor }) => {
   const allProducts = await getAllProductKeys();
   const self = allProducts.find(p => p.product_id === product_id);
 
@@ -251,7 +264,9 @@ export const updateProduct = async ({ product_id, name, unit, allow_negative_sto
 
   const { data, error } = await supabase
     .from('products')
-    .update({ name: resolvedName, unit, allow_negative_stock: !!allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id: finalGroupId })
+    .update({ name: resolvedName, unit, allow_negative_stock: !!allow_negative_stock, product_type: product_type || '', brand_name: normalizedBrand, category: normalizedCategory, mux: mux || '', group_id: finalGroupId,
+      ...(lead_time !== undefined && { lead_time: toOptionalNumber(lead_time) }),
+      ...(safety_factor !== undefined && { safety_factor: toOptionalNumber(safety_factor) }) })
     .eq('product_id', product_id)
     .select()
     .single();
@@ -433,6 +448,8 @@ export const bulkImportProducts = async ({ rows, as_of_date, created_by }) => {
           category: row.category?.trim() || '',
           mux: row.mux?.trim() || '',
           group_id: groupId,
+          lead_time: toOptionalNumber(row.leadTime),
+          safety_factor: toOptionalNumber(row.safetyFactor),
         }])
         .select()
         .single();
