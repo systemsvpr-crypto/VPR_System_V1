@@ -1184,7 +1184,9 @@ export const updateDelivery = async ({ delivery_id, delivery_date, expected_deli
 
 };
 
-export const updateDeliveryStatus = async ({ delivery_id, status, user_id, received_quantity, delivery_date, godown_id, recv_unit, recv_unit_qty, expected_delivery_date }) => {
+// `stock_date` (optional) is the date the PURCHASE_IN stock entry is posted
+// on — Aawak passes the Receiving Date; other callers keep the lift's date.
+export const updateDeliveryStatus = async ({ delivery_id, status, user_id, received_quantity, delivery_date, godown_id, recv_unit, recv_unit_qty, expected_delivery_date, stock_date }) => {
   const { data: delivery, error: fetchErr } = await supabase
     .from('purchase_deliveries')
     .select(`status, item_id, indent_id, delivery_date, received_quantity, lr_number, vehicle_number, lifting_number, transporter_id`)
@@ -1283,14 +1285,15 @@ export const updateDeliveryStatus = async ({ delivery_id, status, user_id, recei
       .eq('delivery_id', delivery_id);
     if (gdErr) throw gdErr;
 
-    const back_dated = targetDate < getTodayLocal();
+    const txnDate = stock_date || targetDate;
+    const back_dated = txnDate < getTodayLocal();
     // transactions.qty has a chk_qty_integer constraint — round right at
     // this boundary; purchase_delivery_godowns.qty stays at full decimal
     // precision.
     const txnRows = (godownAllocs || []).map(a => ({
       product_id: item.product_id,
       godown_id: a.godown_id,
-      txn_date: targetDate,
+      txn_date: txnDate,
       txn_type: 'PURCHASE_IN',
       qty: Number(a.qty) || 0,
       is_void: false,
@@ -1626,6 +1629,28 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
       throw new Error('Select a destination godown before marking this lift Arrived.');
     }
 
+    // Stock lands on the day it was actually received — the picked Receiving
+    // Date, or today when none was picked — not the original dispatch date,
+    // so it shows up on the inventory for the day it came in.
+    const stockDate = (receiving_date || getTodayLocal()).slice(0, 10);
+    if (stockDate > getTodayLocal()) {
+      throw new Error('Receiving date cannot be a future date when marking as Arrived.');
+    }
+
+    // The Arrived path below only handles status/qty/godown/stock, so the
+    // descriptive fields edited alongside it are saved here — otherwise
+    // Receiving Date, LR, Vehicle, Driver and Remarks were silently dropped.
+    const detailFields = { receiving_date: stockDate };
+    if (lr_number !== undefined) detailFields.lr_number = lr_number;
+    if (driver_phone_number !== undefined) detailFields.driver_phone_number = driver_phone_number;
+    if (vehicle_number !== undefined) detailFields.vehicle_number = vehicle_number;
+    if (remarks !== undefined) detailFields.remarks = remarks;
+    const { error: detailErr } = await supabase
+      .from('purchase_deliveries')
+      .update(detailFields)
+      .eq('delivery_id', delivery_id);
+    if (detailErr) throw detailErr;
+
     return updateDeliveryStatus({
       delivery_id,
       status: 'Arrived',
@@ -1635,6 +1660,7 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
       recv_unit_qty,
       godown_id: destinationGodownId,
       expected_delivery_date,
+      stock_date: stockDate,
     });
   }
 
