@@ -478,6 +478,63 @@ export const getVoidTransactionImpact = async (txn) => {
   ];
 };
 
+// The purchase lift a PURCHASE_IN stock entry belongs to (matched on Lifting No.).
+const findLiftForPurchaseTxn = async (txn) => {
+  if (txn.txn_type !== 'PURCHASE_IN' || !txn.lifting_number) return null;
+  const { data, error } = await supabase
+    .from('purchase_deliveries')
+    .select('delivery_id, item_id, transporter_id, status')
+    .eq('lifting_number', txn.lifting_number)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+};
+
+// An entry sitting at the transporter's own godown is the "AT TPT GDN" stage;
+// anything else is the real destination (Arrived).
+const isTransporterStageTxn = (lift, txn) => !!lift?.transporter_id && txn.godown_id === lift.transporter_id;
+
+// Mirrors an edited PURCHASE_IN entry back onto its lift so Purchase > Aawak
+// Details / Dashboard and Ultimate IMS show the same date, qty and godown as
+// the stock ledger: date → receiving_date, qty → received_quantity + godown
+// allocation, godown → allocation (+ remembered destination when Arrived).
+const syncLiftFromPurchaseTxn = async (lift, original, { txnDate, qty, godownId, lr_number, vehicle_number }) => {
+  const { data: allocs, error: allocErr } = await supabase
+    .from('purchase_delivery_godowns')
+    .select('godown_id, qty')
+    .eq('delivery_id', lift.delivery_id);
+  if (allocErr) throw allocErr;
+
+  const match = (allocs || []).find(a => a.godown_id === original.godown_id) || ((allocs || []).length === 1 ? allocs[0] : null);
+  if (match) {
+    const { error } = await supabase
+      .from('purchase_delivery_godowns')
+      .update({ godown_id: godownId, qty })
+      .eq('delivery_id', lift.delivery_id)
+      .eq('godown_id', match.godown_id);
+    if (error) throw error;
+  }
+  const totalQty = (allocs || []).reduce((sum, a) => sum + (a === match ? qty : Number(a.qty) || 0), 0) || qty;
+
+  const liftUpdate = { received_quantity: totalQty, receiving_date: txnDate };
+  if (lr_number !== undefined) liftUpdate.lr_number = lr_number;
+  if (vehicle_number !== undefined) liftUpdate.vehicle_number = vehicle_number;
+  const { error: liftErr } = await supabase
+    .from('purchase_deliveries')
+    .update(liftUpdate)
+    .eq('delivery_id', lift.delivery_id);
+  if (liftErr) throw liftErr;
+
+  if (!isTransporterStageTxn(lift, original) && godownId !== original.godown_id && lift.item_id) {
+    const { error } = await supabase
+      .from('purchase_indent_items')
+      .update({ approved_godown_id: godownId })
+      .eq('item_id', lift.item_id);
+    if (error) throw error;
+  }
+};
+
 export const editTransaction = async (txnId, updates, created_by) => {
   const { data: original, error: fetchErr } = await supabase
     .from('transactions')
@@ -507,6 +564,13 @@ export const editTransaction = async (txnId, updates, created_by) => {
   if (godownId !== original.godown_id) {
     const { data: g } = await supabase.from('godowns').select('is_active').eq('godown_id', godownId).single();
     if (!g?.is_active) throw new Error('Selected godown is inactive.');
+  }
+
+  // A Purchase In entry is linked to its lift — checked up front so a
+  // disallowed change fails before anything in the ledger moves.
+  const linkedLift = await findLiftForPurchaseTxn(original);
+  if (linkedLift && isTransporterStageTxn(linkedLift, original) && godownId !== original.godown_id) {
+    throw new Error("This stock is still at the transporter's godown (AT TPT GDN). Change its godown from Purchase > Aawak Details instead.");
   }
 
   const fromDate = txnDate < original.txn_date ? txnDate : original.txn_date;
@@ -565,6 +629,16 @@ export const editTransaction = async (txnId, updates, created_by) => {
     .select()
     .single();
   if (insertErr) throw insertErr;
+
+  if (linkedLift) {
+    try {
+      await syncLiftFromPurchaseTxn(linkedLift, original, {
+        txnDate, qty, godownId, lr_number: updates.lr_number, vehicle_number: updates.vehicle_number,
+      });
+    } catch (err) {
+      throw new Error(`Stock entry updated, but lift ${original.lifting_number} could not be updated: ${err.message}`);
+    }
+  }
 
   if (isLinkedDispatch) {
     const planUpdate = {};

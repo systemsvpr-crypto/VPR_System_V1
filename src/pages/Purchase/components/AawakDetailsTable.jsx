@@ -1159,7 +1159,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                     </div>
                   </th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">{isHistory ? 'Receiving Date' : 'Date'}</th>
                   <th className="sticky left-16 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (KG)</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (Bags)</th>
@@ -1202,6 +1202,11 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                   const prod = editedProduct || del.purchase_indent_items?.products || {};
                   const liftingNumberVal = getInfoVal(del, 'info_lifting_number', del.lifting_number || '');
                   const deliveryDateVal = getInfoVal(del, 'info_delivery_date', del.delivery_date ? del.delivery_date.slice(0, 10) : '');
+                  // Lifts marked Arrived before Receiving Date was saved on that
+                  // path have none stored — fall back to the day they were
+                  // marked Arrived (status_updated_at), which is when stock came in.
+                  const receivingDateVal = getRowVal(del, 'receiving_date')
+                    || (locked && del.status_updated_at ? format(new Date(del.status_updated_at), 'yyyy-MM-dd') : '');
                   const qtyKgVal = getInfoVal(del, 'info_dispatch_qty_kg', del.dispatch_qty_kg != null ? String(Number(Number(del.dispatch_qty_kg).toFixed(2))) : '');
                   const qtyBagVal = getInfoVal(del, 'info_dispatch_qty_bag', del.dispatch_qty_bag != null ? String(Number(Number(del.dispatch_qty_bag).toFixed(2))) : '');
                   const transporterIdVal = getInfoVal(del, 'info_transporter_id', String(del.transporter_id || ''));
@@ -1235,7 +1240,17 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         ) : (liftingNumberVal || '—')}
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
-                        {canEditInfo ? (
+                        {/* History shows the Receiving Date here; Pending keeps the dispatch (Actual) date */}
+                        {isHistory ? (
+                          canEditInfo ? (
+                            <DatePicker
+                              showActions
+                              value={receivingDateVal}
+                              onChange={e => handleReceivingDateChange(del.delivery_id, e.target.value)}
+                              className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
+                            />
+                          ) : (receivingDateVal ? format(new Date(receivingDateVal), 'dd/MM/yyyy') : '—')
+                        ) : canEditInfo ? (
                           <DatePicker
                             showActions
                             value={deliveryDateVal}

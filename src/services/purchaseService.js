@@ -26,7 +26,7 @@ const findLiftTransaction = async (lifting_number, godown_id, txn_type) => {
   if (!lifting_number || !godown_id) return null;
   const { data, error } = await supabase
     .from('transactions')
-    .select('txn_id, qty')
+    .select('txn_id, qty, txn_date')
     .eq('lifting_number', lifting_number)
     .eq('godown_id', godown_id)
     .eq('txn_type', txn_type)
@@ -40,15 +40,23 @@ const findLiftTransaction = async (lifting_number, godown_id, txn_type) => {
 // Records (or, if already recorded, updates the quantity of) a real PURCHASE_IN
 // stock-in for a lift at the given godown. Used both for a real destination
 // godown (Arrived) and for a transporter's own godown (AT TPT GDN).
-const ensureLiftPurchaseIn = async ({ product_id, godown_id, qty, txn_date, lifting_number, lr_number, vehicle_number, created_by, back_dated }) => {
+// `syncDate` also moves an already-recorded entry to `txn_date` (Aawak passes
+// it so a changed Receiving Date carries through to the stock entry).
+const ensureLiftPurchaseIn = async ({ product_id, godown_id, qty, txn_date, lifting_number, lr_number, vehicle_number, created_by, back_dated, syncDate = false }) => {
   // transactions.qty has a chk_qty_integer constraint — round right at this
   // boundary so purchase_deliveries.received_quantity / purchase_delivery_godowns.qty
   // upstream can stay at full decimal precision.
   const roundedQty = Number(qty) || 0;
   const existing = await findLiftTransaction(lifting_number, godown_id, 'PURCHASE_IN');
   if (existing) {
-    if (Number(existing.qty) !== roundedQty) {
-      const { error } = await supabase.from('transactions').update({ qty: roundedQty }).eq('txn_id', existing.txn_id);
+    const patch = {};
+    if (Number(existing.qty) !== roundedQty) patch.qty = roundedQty;
+    if (syncDate && txn_date && String(existing.txn_date || '').slice(0, 10) !== String(txn_date).slice(0, 10)) {
+      patch.txn_date = txn_date;
+      patch.back_dated = back_dated;
+    }
+    if (Object.keys(patch).length > 0) {
+      const { error } = await supabase.from('transactions').update(patch).eq('txn_id', existing.txn_id);
       if (error) throw error;
     }
     return;
@@ -1593,6 +1601,11 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
   if (fetchErr) throw new Error('Delivery not found.');
   const oldStatus = existing.status;
 
+  // Receiving Date becomes the stock entry's txn_date, which can't be in the future.
+  if (receiving_date && String(receiving_date).slice(0, 10) > getTodayLocal()) {
+    throw new Error('Receiving date cannot be a future date.');
+  }
+
   // Whatever real (Own) godown gets picked here is the intended final resting
   // place for this item's stock — remember it on the item itself so it
   // survives the "AT TPT GDN" step, which temporarily reallocates the
@@ -1743,17 +1756,24 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
     if (itemErr) throw new Error('Item not found.');
 
     const qty = data.received_quantity ?? existing.received_quantity ?? 0;
-    const back_dated = (data.delivery_date || existing.delivery_date) < getTodayLocal();
+    // Stock-in at the transporter's godown is dated on the Receiving Date
+    // when one is set, otherwise the lift's own date (as before).
+    const stockDate = String(data.receiving_date || data.delivery_date || existing.delivery_date).slice(0, 10);
+    if (stockDate > getTodayLocal()) {
+      throw new Error('Receiving date cannot be a future date.');
+    }
+    const back_dated = stockDate < getTodayLocal();
     await ensureLiftPurchaseIn({
       product_id: item.product_id,
       godown_id: transporter_id,
       qty,
-      txn_date: data.delivery_date || existing.delivery_date,
+      txn_date: stockDate,
       lifting_number: existing.lifting_number,
       lr_number: data.lr_number ?? existing.lr_number,
       vehicle_number: data.vehicle_number ?? existing.vehicle_number,
       created_by: user_id,
       back_dated,
+      syncDate: true,
     });
   } else if (oldStatus === 'In Transport Godown' && newStatus !== 'In Transport Godown' && transporter_id) {
     // Moved back off "AT TPT GDN" (e.g. reverted to In Transit) — undo that stock-in.
