@@ -301,7 +301,7 @@ const Purchase = () => {
           )}
 
           {(activeTab === 'in-transit' || activeTab === 'delivery') && (
-            <DeliveryTable tabMode="in-transit" transporters={transporters} user={user} godowns={godowns} groups={groups} products={products} />
+            <DeliveryTable tabMode="in-transit" transporters={transporters} user={user} godowns={godowns} groups={groups} products={products} vendors={vendors} />
           )}
 
           {activeTab === 'aawak-details' && (

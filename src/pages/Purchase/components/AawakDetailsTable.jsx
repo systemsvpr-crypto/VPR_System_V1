@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, Check, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Save, Phone, MessageSquare } from 'lucide-react';
+import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, Check, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Save, Phone, MessageSquare, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getAawakDeliveries, updateAawakLift, deleteDelivery, updateDeliveriesExpectedDeliveryDate } from '../../../services/purchaseService';
+import { getAawakDeliveries, updateAawakLift, deleteDelivery, updateDeliveriesExpectedDeliveryDate, updateAawakLiftInfo } from '../../../services/purchaseService';
 import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -109,6 +109,26 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     [godowns],
   );
 
+  // 'Godown' is the default destination for every lift not yet arrived —
+  // same convention as FactoryInModal / DispatchModal.
+  const defaultGodownId = useMemo(() =>
+    ownGodowns.find(g => g.name?.trim().toLowerCase() === 'godown')?.godown_id || '',
+    [ownGodowns],
+  );
+
+  const resolveGodownId = (del) => {
+    const editGodown = editingRows[del.delivery_id]?.godown_id;
+    if (editGodown !== undefined) return editGodown;
+    // An arrived lift keeps showing where its stock actually went.
+    if (!isRowLocked(del) && defaultGodownId) return defaultGodownId;
+    const currentAlloc = del.purchase_delivery_godowns?.[0]?.godown_id;
+    // While "AT TPT GDN," the allocation points at the transporter's own
+    // godown — not a valid destination pick — so fall back to the godown
+    // approved for this indent line (the only godown an indent carries).
+    if (currentAlloc && currentAlloc !== del.transporter_id) return currentAlloc;
+    return del.purchase_indent_items?.approved_godown_id || '';
+  };
+
   const filteredDeliveries = useMemo(() => {
     const term = searchTerm.toLowerCase();
     return activeDeliveriesList.filter(d => {
@@ -125,10 +145,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
       const vName = d.purchase_indent_items?.approved_vendor?.name || d.purchase_indent_items?.item_vendor?.name || '';
 
-      const editGodown = editingRows[d.delivery_id]?.godown_id;
-      const currentAlloc = d.purchase_delivery_godowns?.[0]?.godown_id;
-      const resolvedGodownId = editGodown !== undefined ? editGodown : (currentAlloc && currentAlloc !== d.transporter_id ? currentAlloc : (d.purchase_indent_items?.approved_godown_id || ''));
-      const matchGodown = !godownFilter || String(resolvedGodownId) === String(godownFilter);
+      const matchGodown = !godownFilter || String(resolveGodownId(d)) === String(godownFilter);
 
       const iNum = d.purchase_indent_items?.purchase_indents?.indent_number || '';
       const liftNum = d.lifting_number || '';
@@ -149,7 +166,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
       return matchDate && matchProduct && matchTransporter && matchExpDate && matchGodown && matchSearch;
     });
-  }, [activeDeliveriesList, dateFilter, productFilter, transporterFilter, expDateFilter, godownFilter, searchTerm, groups, editingRows]);
+  }, [activeDeliveriesList, dateFilter, productFilter, transporterFilter, expDateFilter, godownFilter, searchTerm, groups, editingRows, defaultGodownId]);
 
   const totalPages = Math.max(1, Math.ceil(filteredDeliveries.length / pageSize));
   const currentDeliveries = useMemo(() => {
@@ -161,14 +178,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     const edit = editingRows[del.delivery_id];
     if (edit && edit[field] !== undefined) return edit[field];
     if (field === 'status') return del.status === 'In Transport Godown' ? 'AT TPT GDN' : del.status || '';
-    if (field === 'godown_id') {
-      const currentAlloc = del.purchase_delivery_godowns?.[0]?.godown_id;
-      // While "AT TPT GDN," the allocation points at the transporter's own
-      // godown — not a valid destination pick — so fall back to the godown
-      // approved for this indent line (the only godown an indent carries).
-      if (currentAlloc && currentAlloc !== del.transporter_id) return currentAlloc;
-      return del.purchase_indent_items?.approved_godown_id || '';
-    }
+    if (field === 'godown_id') return resolveGodownId(del);
     if (field === 'driver_phone_number') return del.driver_phone_number || del.transporters?.driver_phone_number || '';
     if (field === 'vehicle_number') return del.vehicle_number || del.transporters?.vehicle_number || '';
     if (field === 'expected_delivery_date') return del.expected_delivery_date ? del.expected_delivery_date.slice(0, 10) : '';
@@ -190,6 +200,53 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
       ...prev,
       [deliveryId]: { ...prev[deliveryId], [field]: val },
     }));
+  };
+
+  // Lift columns edited directly on a checked (Edit) row, held under info_*
+  // keys and saved via updateAawakLiftInfo ahead of the normal lift update.
+  const INFO_FIELDS = {
+    info_lifting_number: 'lifting_number',
+    info_delivery_date: 'delivery_date',
+    info_dispatch_qty_kg: 'dispatch_qty_kg',
+    info_dispatch_qty_bag: 'dispatch_qty_bag',
+    info_transporter_id: 'transporter_id',
+    info_product_id: 'product_id',
+    info_process_type: 'process_type',
+  };
+
+  // Lifting No. / transporter / product key this lift's stock transactions,
+  // so they can only change while it's still "In Transit" (no stock posted).
+  const canEditLiftIdentity = (del) => del.status === 'In Transit';
+
+  const getInfoVal = (del, key, fallback) => {
+    const edit = editingRows[del.delivery_id];
+    return edit && edit[key] !== undefined ? edit[key] : fallback;
+  };
+
+  const saveLiftInfo = async (del) => {
+    const edit = editingRows[del.delivery_id] || {};
+    const info = {};
+    Object.entries(INFO_FIELDS).forEach(([key, field]) => {
+      if (edit[key] !== undefined) info[field] = edit[key];
+    });
+    if (!canEditLiftIdentity(del)) {
+      delete info.lifting_number;
+      delete info.transporter_id;
+      delete info.product_id;
+    }
+    if (Object.keys(info).length === 0) return;
+    await updateAawakLiftInfo({
+      delivery_id: del.delivery_id,
+      item_id: del.purchase_indent_items?.item_id,
+      indent_id: del.purchase_indent_items?.purchase_indents?.indent_id,
+      ...info,
+    });
+  };
+
+  // The transporter this lift will be saved with (an unsaved pick included).
+  const effectiveTransporterId = (del) => {
+    const edited = editingRows[del.delivery_id]?.info_transporter_id;
+    return edited !== undefined && canEditLiftIdentity(del) ? (edited || null) : (del.transporter_id || null);
   };
 
   // The *first* time a field is changed on a row while multiple rows are
@@ -289,6 +346,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
       }
 
       try {
+        await saveLiftInfo(del);
         await updateAawakLift({
           delivery_id: del.delivery_id,
           user_id: user?.user_id,
@@ -299,7 +357,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
           remarks: edit.remarks !== undefined ? edit.remarks : (del.remarks || ''),
           godown_id: getRowVal(del, 'godown_id') || null,
           received_quantity: editedQty,
-          transporter_id: del.transporter_id || null,
+          transporter_id: effectiveTransporterId(del),
           receiving_date: edit.receiving_date,
         });
         successCount++;
@@ -329,6 +387,8 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   };
 
   const allSelected = currentDeliveries.length > 0 && currentDeliveries.every(d => selectedLifts.has(d.delivery_id));
+  // Godown / Review / Status / Driver / Vehicle columns stay hidden until a row is checked.
+  const showEditCols = selectedLifts.size > 0;
 
   const toggleSelectAll = () => {
     if (allSelected) {
@@ -406,6 +466,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
     setSavingLiftId(deliveryId);
     try {
+      await saveLiftInfo(del);
       await updateAawakLift({
         delivery_id: del.delivery_id,
         user_id: user?.user_id,
@@ -416,7 +477,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         remarks: edit.remarks !== undefined ? edit.remarks : (del.remarks || ''),
         godown_id: getRowVal(del, 'godown_id') || null,
         received_quantity: editedQty,
-        transporter_id: del.transporter_id || null,
+        transporter_id: effectiveTransporterId(del),
         receiving_date: edit.receiving_date,
       });
       toast.success(`${del.lifting_number || 'Lift'} updated successfully`);
@@ -666,8 +727,18 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                     </div>
                   </div>
 
-                  {/* Right Column: Delete Action */}
+                  {/* Right Column: Edit / Delete Actions */}
                   <div className="flex items-center justify-end xl:justify-center gap-1.5 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      type="button"
+                      title={isSelected ? 'Stop Editing' : 'Edit Lift'}
+                      onClick={() => toggleSelect(del.delivery_id)}
+                      className={`p-1 h-7 w-7 rounded-lg shrink-0 ${isSelected ? 'text-primary bg-primary/10' : 'text-slate-400 hover:text-primary hover:bg-primary/10'}`}
+                    >
+                      <Pencil size={13} />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -1095,14 +1166,14 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">LR No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Exp. Recv. Date</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px] whitespace-nowrap">Receiving Date</th>
+                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px] whitespace-nowrap">Receiving Date</th>}
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Recv. Qty</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Godown Name</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Review</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Status</th>
+                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Godown Name</th>}
+                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Review</th>}
+                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Status</th>}
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Driver No.</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">Vehicle No.</th>
+                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Driver No.</th>}
+                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">Vehicle No.</th>}
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                 </tr>
               </thead>
@@ -1119,8 +1190,25 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                 )}
                 {currentDeliveries.map(del => {
                   const isSelected = selectedLifts.has(del.delivery_id);
-                  const prod = del.purchase_indent_items?.products || {};
                   const locked = isRowLocked(del);
+                  // Edit (checked) opens the lift's own columns too; Lifting No. /
+                  // Product / Transporter only while still In Transit.
+                  const canEditInfo = isSelected && !locked;
+                  const canEditIdentity = canEditInfo && canEditLiftIdentity(del);
+                  const productIdVal = getInfoVal(del, 'info_product_id', String(del.purchase_indent_items?.product_id ?? ''));
+                  const editedProduct = editingRows[del.delivery_id]?.info_product_id !== undefined
+                    ? products.find(p => String(p.product_id) === String(productIdVal))
+                    : null;
+                  const prod = editedProduct || del.purchase_indent_items?.products || {};
+                  const liftingNumberVal = getInfoVal(del, 'info_lifting_number', del.lifting_number || '');
+                  const deliveryDateVal = getInfoVal(del, 'info_delivery_date', del.delivery_date ? del.delivery_date.slice(0, 10) : '');
+                  const qtyKgVal = getInfoVal(del, 'info_dispatch_qty_kg', del.dispatch_qty_kg != null ? String(Number(Number(del.dispatch_qty_kg).toFixed(2))) : '');
+                  const qtyBagVal = getInfoVal(del, 'info_dispatch_qty_bag', del.dispatch_qty_bag != null ? String(Number(Number(del.dispatch_qty_bag).toFixed(2))) : '');
+                  const transporterIdVal = getInfoVal(del, 'info_transporter_id', String(del.transporter_id || ''));
+                  const transporterName = transporters.find(t => String(t.transporter_id) === String(transporterIdVal))?.name || del.transporters?.name;
+                  const processTypeVal = getInfoVal(del, 'info_process_type', del.purchase_indent_items?.purchase_indents?.process_type || '');
+                  const infoInputCls = 'h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white';
+                  const infoSelectCls = 'w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30';
 
                   const uiStatus = getRowVal(del, 'status');
 
@@ -1136,22 +1224,81 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           />
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-center text-slate-800 font-semibold whitespace-nowrap">{del.lifting_number || '—'}</td>
+                      <td className="px-3 py-3 text-center text-slate-800 font-semibold whitespace-nowrap">
+                        {canEditIdentity ? (
+                          <Input
+                            type="text"
+                            value={liftingNumberVal}
+                            onChange={e => setRowVal(del.delivery_id, 'info_lifting_number', e.target.value)}
+                            className={`${infoInputCls} min-w-[110px]`}
+                          />
+                        ) : (liftingNumberVal || '—')}
+                      </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
-                        {del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}
+                        {canEditInfo ? (
+                          <DatePicker
+                            showActions
+                            value={deliveryDateVal}
+                            onChange={e => setRowVal(del.delivery_id, 'info_delivery_date', e.target.value)}
+                            className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
+                          />
+                        ) : (deliveryDateVal ? format(new Date(deliveryDateVal), 'dd/MM/yyyy') : '—')}
                       </td>
                       <td className={`sticky left-16 z-[5] px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
-                        {prod.name || '—'}
-                        <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
+                        {canEditIdentity ? (
+                          <select
+                            value={productIdVal}
+                            onChange={e => setRowVal(del.delivery_id, 'info_product_id', e.target.value)}
+                            className={`${infoSelectCls} min-w-[170px]`}
+                          >
+                            {products.map(p => (
+                              <option key={p.product_id} value={String(p.product_id)}>{p.name} ({p.unit || '—'})</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <>
+                            {prod.name || '—'}
+                            <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
+                          </>
+                        )}
                       </td>
                       <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
-                        {del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : '—'}
+                        {canEditInfo ? (
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={qtyKgVal}
+                            onChange={e => setRowVal(del.delivery_id, 'info_dispatch_qty_kg', e.target.value)}
+                            className={`${infoInputCls} text-center w-24`}
+                          />
+                        ) : (qtyKgVal || '—')}
                       </td>
                       <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
-                        {del.dispatch_qty_bag != null ? Number(Number(del.dispatch_qty_bag).toFixed(2)) : '—'}
+                        {canEditInfo ? (
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={qtyBagVal}
+                            onChange={e => setRowVal(del.delivery_id, 'info_dispatch_qty_bag', e.target.value)}
+                            className={`${infoInputCls} text-center w-24`}
+                          />
+                        ) : (qtyBagVal || '—')}
                       </td>
                       <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
-                        {del.transporters?.name || '—'}
+                        {canEditIdentity ? (
+                          <select
+                            value={transporterIdVal}
+                            onChange={e => setRowVal(del.delivery_id, 'info_transporter_id', e.target.value)}
+                            className={`${infoSelectCls} min-w-[140px]`}
+                          >
+                            <option value="">Select transp...</option>
+                            {transporters.map(t => (
+                              <option key={t.transporter_id} value={String(t.transporter_id)}>{t.name}</option>
+                            ))}
+                          </select>
+                        ) : (transporterName || '—')}
                       </td>
                       <td className="px-3 py-3 text-center">
                         <Input
@@ -1176,78 +1323,144 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           />
                         )}
                       </td>
-                      <td className="px-3 py-3 text-center">
-                        <DatePicker
-                          showActions
-                          value={getRowVal(del, 'receiving_date')}
-                          onChange={e => handleReceivingDateChange(del.delivery_id, e.target.value)}
-                          disabled={!isSelected || locked}
-                          placeholder="Select date"
-                          className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
-                        />
-                      </td>
+                      {showEditCols && (
+                        <td className="px-3 py-3 text-center">
+                          <DatePicker
+                            showActions
+                            value={getRowVal(del, 'receiving_date')}
+                            onChange={e => handleReceivingDateChange(del.delivery_id, e.target.value)}
+                            disabled={!isSelected || locked}
+                            placeholder="Select date"
+                            className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
+                          />
+                        </td>
+                      )}
                       <td className="px-3 py-3 text-center font-bold text-emerald-700 whitespace-nowrap">
-                        {getRowVal(del, 'received_quantity') || '—'}
+                        {isSelected && !locked ? (
+                          <Input
+                            type="number"
+                            step="any"
+                            placeholder="Recv Qty"
+                            value={getRowVal(del, 'received_quantity')}
+                            onChange={e => setRowVal(del.delivery_id, 'received_quantity', e.target.value)}
+                            className="h-8 text-xs font-bold text-emerald-700 bg-slate-50/50 border-slate-200 focus:bg-white min-w-[90px]"
+                          />
+                        ) : (
+                          getRowVal(del, 'received_quantity') || '—'
+                        )}
                       </td>
+                      {showEditCols && (
+                        <td className="px-3 py-3 text-center">
+                          {isSelected ? (
+                            <select
+                              disabled={locked}
+                              value={getRowVal(del, 'godown_id')}
+                              onChange={e => handleGodownChange(del.delivery_id, e.target.value)}
+                              className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
+                            >
+                              <option value="">Select godown...</option>
+                              {ownGodowns.map(g => (
+                                <option key={g.godown_id} value={g.godown_id}>{g.name}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-slate-600 whitespace-nowrap">
+                              {godowns.find(g => String(g.godown_id) === String(getRowVal(del, 'godown_id')))?.name || '—'}
+                            </span>
+                          )}
+                        </td>
+                      )}
+                      {showEditCols && (
+                        <td className="px-3 py-3 text-center">
+                          {isSelected ? (
+                            <Input
+                              type="text"
+                              placeholder="Review..."
+                              disabled={locked}
+                              value={getRowVal(del, 'remarks')}
+                              onChange={e => setRowVal(del.delivery_id, 'remarks', e.target.value)}
+                              className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
+                            />
+                          ) : (
+                            <span className="text-slate-600">{getRowVal(del, 'remarks') || '—'}</span>
+                          )}
+                        </td>
+                      )}
+                      {showEditCols && (
+                        <td className="px-3 py-3 text-center">
+                          {isSelected ? (
+                            <select
+                              disabled={locked}
+                              value={uiStatus}
+                              onChange={e => handleStatusChange(del.delivery_id, e.target.value)}
+                              className="w-full h-8 text-xs font-semibold px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
+                            >
+                              <option value="In Transit">In Transit</option>
+                              <option value="AT TPT GDN">AT TPT GDN</option>
+                              <option value="Arrived">Arrived</option>
+                            </select>
+                          ) : (
+                            <span className="text-slate-600 font-semibold whitespace-nowrap">{uiStatus || '—'}</span>
+                          )}
+                        </td>
+                      )}
                       <td className="px-3 py-3 text-center">
-                        <select
-                          disabled={!isSelected || locked}
-                          value={getRowVal(del, 'godown_id')}
-                          onChange={e => handleGodownChange(del.delivery_id, e.target.value)}
-                          className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                        >
-                          <option value="">Select godown...</option>
-                          {ownGodowns.map(g => (
-                            <option key={g.godown_id} value={g.godown_id}>{g.name}</option>
-                          ))}
-                        </select>
+                        {canEditInfo ? (
+                          <select
+                            value={processTypeVal}
+                            onChange={e => setRowVal(del.delivery_id, 'info_process_type', e.target.value)}
+                            className={`${infoSelectCls} min-w-[100px]`}
+                          >
+                            <option value="direct">Direct</option>
+                            <option value="process">Process</option>
+                          </select>
+                        ) : (
+                          <IndentTypeBadge processType={processTypeVal} />
+                        )}
                       </td>
-                      <td className="px-3 py-3 text-center">
-                        <Input
-                          type="text"
-                          placeholder="Review..."
-                          disabled={!isSelected || locked}
-                          value={getRowVal(del, 'remarks')}
-                          onChange={e => setRowVal(del.delivery_id, 'remarks', e.target.value)}
-                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <select
-                          disabled={!isSelected || locked}
-                          value={uiStatus}
-                          onChange={e => handleStatusChange(del.delivery_id, e.target.value)}
-                          className="w-full h-8 text-xs font-semibold px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                        >
-                          <option value="In Transit">In Transit</option>
-                          <option value="AT TPT GDN">AT TPT GDN</option>
-                          <option value="Arrived">Arrived</option>
-                        </select>
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <IndentTypeBadge processType={del.purchase_indent_items?.purchase_indents?.process_type} />
-                      </td>
-                      <td className="px-3 py-3 text-center min-w-[140px]">
-                        <Input
-                          type="text"
-                          placeholder="Driver No."
-                          disabled={!isSelected || locked}
-                          value={getRowVal(del, 'driver_phone_number')}
-                          onChange={e => setRowVal(del.delivery_id, 'driver_phone_number', e.target.value)}
-                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <Input
-                          type="text"
-                          placeholder="Vehicle No."
-                          disabled={!isSelected || locked}
-                          value={getRowVal(del, 'vehicle_number')}
-                          onChange={e => setRowVal(del.delivery_id, 'vehicle_number', e.target.value)}
-                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                        />
-                      </td>
+                      {showEditCols && (
+                        <td className="px-3 py-3 text-center min-w-[140px]">
+                          {isSelected ? (
+                            <Input
+                              type="text"
+                              placeholder="Driver No."
+                              disabled={locked}
+                              value={getRowVal(del, 'driver_phone_number')}
+                              onChange={e => setRowVal(del.delivery_id, 'driver_phone_number', e.target.value)}
+                              className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
+                            />
+                          ) : (
+                            <span className="text-slate-600 whitespace-nowrap">{getRowVal(del, 'driver_phone_number') || '—'}</span>
+                          )}
+                        </td>
+                      )}
+                      {showEditCols && (
+                        <td className="px-3 py-3 text-center">
+                          {isSelected ? (
+                            <Input
+                              type="text"
+                              placeholder="Vehicle No."
+                              disabled={locked}
+                              value={getRowVal(del, 'vehicle_number')}
+                              onChange={e => setRowVal(del.delivery_id, 'vehicle_number', e.target.value)}
+                              className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
+                            />
+                          ) : (
+                            <span className="text-slate-600 whitespace-nowrap">{getRowVal(del, 'vehicle_number') || '—'}</span>
+                          )}
+                        </td>
+                      )}
                       <td className="px-2 py-3 text-center whitespace-nowrap">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          type="button"
+                          title={isSelected ? 'Stop Editing' : 'Edit Lift'}
+                          onClick={() => toggleSelect(del.delivery_id)}
+                          className={`p-1 h-6 w-6 rounded transition-all ${isSelected ? 'text-primary bg-primary/10' : 'text-slate-400 hover:text-primary hover:bg-primary/10'}`}
+                        >
+                          <Pencil size={13} />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"

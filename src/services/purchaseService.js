@@ -1413,6 +1413,7 @@ export const getAawakDeliveries = async (statusFilter = null) => {
         transporters:transporter_id(transporter_id, name, vehicle_number, driver_phone_number),
         purchase_indent_items(
           item_id,
+          product_id,
           quantity,
           rate,
           group_id,
@@ -1734,6 +1735,57 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
   }
 
   return data;
+};
+
+// Saves the indent-level / item-level columns edited directly on a Delivery
+// Pending row. indent_date / indent_number / process_type live on the indent
+// header, so they change for every line of that indent.
+export const updatePendingDeliveryRowInfo = async ({ item_id, indent_id, indent_date, indent_number, process_type, vendor_id, product_id, quantity, rate }) => {
+  const headerFields = {};
+  if (indent_date !== undefined) headerFields.indent_date = indent_date;
+  if (indent_number !== undefined) headerFields.indent_number = indent_number;
+  if (process_type !== undefined) headerFields.process_type = process_type;
+  if (indent_id && Object.keys(headerFields).length > 0) {
+    const { error } = await supabase.from('purchase_indents').update(headerFields).eq('indent_id', indent_id);
+    if (error) throw error;
+  }
+
+  const itemFields = {};
+  if (vendor_id !== undefined) itemFields.approved_vendor_id = vendor_id || null;
+  if (product_id !== undefined) itemFields.product_id = product_id;
+  if (quantity !== undefined) itemFields.quantity = Number(quantity);
+  // Rate is shown as rate ?? approved_rate and messaged as approved_rate, so
+  // keep both in step.
+  if (rate !== undefined) { itemFields.rate = Number(rate); itemFields.approved_rate = Number(rate); }
+  if (Object.keys(itemFields).length > 0) {
+    const { error } = await supabase.from('purchase_indent_items').update(itemFields).eq('item_id', item_id);
+    if (error) throw error;
+  }
+};
+
+// Saves the lift-level columns edited directly on an Aawak row. Lifting No.,
+// transporter and product are only changed while the lift is still
+// "In Transit" — once stock has been posted (AT TPT GDN / Arrived) its
+// transactions are keyed on them, so the caller must not send them then.
+export const updateAawakLiftInfo = async ({ delivery_id, item_id, indent_id, lifting_number, delivery_date, dispatch_qty_kg, dispatch_qty_bag, transporter_id, product_id, process_type }) => {
+  const liftFields = {};
+  if (lifting_number !== undefined) liftFields.lifting_number = lifting_number;
+  if (delivery_date !== undefined) liftFields.delivery_date = delivery_date;
+  if (dispatch_qty_kg !== undefined) liftFields.dispatch_qty_kg = dispatch_qty_kg === '' ? null : Number(dispatch_qty_kg);
+  if (dispatch_qty_bag !== undefined) liftFields.dispatch_qty_bag = dispatch_qty_bag === '' ? null : Number(dispatch_qty_bag);
+  if (transporter_id !== undefined) liftFields.transporter_id = transporter_id || null;
+  if (Object.keys(liftFields).length > 0) {
+    const { error } = await supabase.from('purchase_deliveries').update(liftFields).eq('delivery_id', delivery_id);
+    if (error) throw error;
+  }
+  if (product_id !== undefined && item_id) {
+    const { error } = await supabase.from('purchase_indent_items').update({ product_id }).eq('item_id', item_id);
+    if (error) throw error;
+  }
+  if (process_type !== undefined && indent_id) {
+    const { error } = await supabase.from('purchase_indents').update({ process_type }).eq('indent_id', indent_id);
+    if (error) throw error;
+  }
 };
 
 export const cancelIndentItem = async (item_id) => {
