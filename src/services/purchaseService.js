@@ -1592,26 +1592,137 @@ export const getPurchaseDashboardItems = async () => {
   });
 };
 
+export const revertLiftToPending = async ({ delivery_id, user_id }) => {
+  const { data: delivery, error: fetchErr } = await supabase
+    .from('purchase_deliveries')
+    .select(`
+      delivery_id, status, item_id, lifting_number, transporter_id,
+      dispatch_qty_kg, dispatch_qty_bag, received_quantity, group_id,
+      purchase_indent_items(product_id, approved_godown_id, group_id, products(unit, group_id))
+    `)
+    .eq('delivery_id', delivery_id)
+    .single();
+  if (fetchErr) throw new Error('Delivery not found.');
+
+  const lifting_number = delivery.lifting_number;
+  const item = delivery.purchase_indent_items;
+  const product_id = item?.product_id;
+  const masterUnit = (item?.products?.unit || '').toLowerCase();
+
+  // 1. Guard against negative stock before voiding transactions
+  let query = supabase
+    .from('transactions')
+    .select('txn_id, godown_id, qty, txn_type')
+    .eq('lifting_number', lifting_number)
+    .eq('is_void', false);
+  if (product_id) {
+    query = query.eq('product_id', product_id);
+  }
+  const { data: txns, error: txnErr } = await query;
+  if (txnErr) throw txnErr;
+
+  if (txns && txns.length > 0) {
+    for (const t of txns) {
+      if (['PURCHASE_IN', 'PURCHASE_IN(TPT)'].includes(t.txn_type)) {
+        const { data: stkRow } = await supabase
+          .from('godown_stock')
+          .select('current_stock')
+          .eq('product_id', product_id)
+          .eq('godown_id', t.godown_id)
+          .maybeSingle();
+        const currentStock = Number(stkRow?.current_stock) || 0;
+        const removingQty = Number(t.qty) || 0;
+        if (currentStock < removingQty) {
+          throw new Error(`Cannot revert — ${removingQty} units from this lift were already dispatched/transferred. Current stock at godown is only ${currentStock}.`);
+        }
+      }
+    }
+
+    // Void all active transactions for this lift
+    const txnIds = txns.map(t => t.txn_id);
+    const { error: voidErr } = await supabase
+      .from('transactions')
+      .update({ is_void: true, void_reason: 'Moved back to Aawak Pending' })
+      .in('txn_id', txnIds);
+    if (voidErr) throw voidErr;
+  }
+
+  // 2. Restore original pending quantity
+  let restoredQty = Number(delivery.received_quantity) || 0;
+  if (masterUnit === 'kg' && delivery.dispatch_qty_kg != null && Number(delivery.dispatch_qty_kg) > 0) {
+    restoredQty = Number(delivery.dispatch_qty_kg);
+  } else if (masterUnit.includes('bag') && delivery.dispatch_qty_bag != null && Number(delivery.dispatch_qty_bag) > 0) {
+    restoredQty = Number(delivery.dispatch_qty_bag);
+  } else if (delivery.dispatch_qty_bag != null && Number(delivery.dispatch_qty_bag) > 0) {
+    restoredQty = Number(delivery.dispatch_qty_bag);
+  } else if (delivery.dispatch_qty_kg != null && Number(delivery.dispatch_qty_kg) > 0) {
+    restoredQty = Number(delivery.dispatch_qty_kg);
+  }
+
+  // 3. Restore allocation to the item's approved_godown_id (never transporter placeholder)
+  const targetGodownId = item?.approved_godown_id || null;
+  const resolvedGroupId = delivery.group_id || item?.group_id || item?.products?.group_id || null;
+
+  await supabase
+    .from('purchase_delivery_godowns')
+    .delete()
+    .eq('delivery_id', delivery_id);
+
+  if (targetGodownId) {
+    await supabase
+      .from('purchase_delivery_godowns')
+      .insert([{
+        delivery_id,
+        godown_id: targetGodownId,
+        qty: restoredQty,
+        group_id: resolvedGroupId,
+      }]);
+  }
+
+  // 4. Update delivery row
+  const { data: updatedDelivery, error: updateErr } = await supabase
+    .from('purchase_deliveries')
+    .update({
+      status: 'In Transit',
+      received_quantity: restoredQty,
+      receiving_date: null,
+      recv_unit: null,
+      recv_unit_qty: null,
+      status_updated_at: new Date().toISOString(),
+    })
+    .eq('delivery_id', delivery_id)
+    .select()
+    .single();
+
+  if (updateErr) throw updateErr;
+  return updatedDelivery;
+};
+
 export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, driver_phone_number, vehicle_number, remarks, status, received_quantity, recv_unit, recv_unit_qty, user_id, transporter_id, expected_delivery_date, receiving_date }) => {
   const { data: existing, error: fetchErr } = await supabase
     .from('purchase_deliveries')
-    .select('status, item_id, delivery_date, lifting_number, lr_number, vehicle_number, received_quantity')
+    .select(`
+      delivery_id, status, item_id, indent_id, delivery_date, expected_delivery_date, expected_dispatch_date, receiving_date, lifting_number, lr_number, vehicle_number, driver_phone_number, received_quantity, transporter_id, group_id, packaging_size, dispatch_unit, dispatch_qty_bag, dispatch_qty_kg, remarks,
+      purchase_indent_items(item_id, indent_id, product_id, approved_godown_id, group_id, products(group_id, unit))
+    `)
     .eq('delivery_id', delivery_id)
     .single();
   if (fetchErr) throw new Error('Delivery not found.');
   const oldStatus = existing.status;
+  const item = existing.purchase_indent_items;
+  const product_id = item?.product_id;
 
   // Receiving Date becomes the stock entry's txn_date, which can't be in the future.
   if (receiving_date && String(receiving_date).slice(0, 10) > getTodayLocal()) {
     throw new Error('Receiving date cannot be a future date.');
   }
 
-  // Whatever real (Own) godown gets picked here is the intended final resting
-  // place for this item's stock — remember it on the item itself so it
-  // survives the "AT TPT GDN" step, which temporarily reallocates the
-  // delivery's own godown record to the transporter's placeholder godown.
-  // Without this, the pick is lost the moment status leaves "AT TPT GDN" and
-  // Arrived has nothing real to fall back on.
+  // If user changed status to 'In Transit' from Arrived or AT TPT GDN, revert it to pending
+  if (status === 'In Transit' && oldStatus !== 'In Transit') {
+    return revertLiftToPending({ delivery_id, user_id });
+  }
+
+  // Whatever real (Own) godown gets picked here is the intended final resting place for this item's stock
   if (godown_id) {
     const { error: itemUpdErr } = await supabase
       .from('purchase_indent_items')
@@ -1620,61 +1731,246 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
     if (itemUpdErr) throw itemUpdErr;
   }
 
-  if (status === 'Arrived' || status === 'Received') {
-    // Marking Arrived hands off to the real, manually-selected destination
-    // godown — this replaces whatever allocation existed while in transit
-    // (e.g. the transporter's own godown) and is when stock actually moves in.
-    // If this particular submit didn't carry a godown pick (e.g. the user
-    // only touched Status this time), fall back to whatever was remembered
-    // above on an earlier submit — never silently leave the stock parked at
-    // the transporter's godown.
+  const targetStatus = status !== undefined ? (status === 'AT TPT GDN' ? 'In Transport Godown' : status) : oldStatus;
+
+  // If target status is Arrived or Received
+  if (targetStatus === 'Arrived' || targetStatus === 'Received') {
     let destinationGodownId = godown_id;
     if (!destinationGodownId) {
-      const { data: itemRow, error: itemFetchErr } = await supabase
-        .from('purchase_indent_items')
-        .select('approved_godown_id')
-        .eq('item_id', existing.item_id)
-        .single();
-      if (itemFetchErr) throw itemFetchErr;
-      destinationGodownId = itemRow?.approved_godown_id || null;
+      destinationGodownId = item?.approved_godown_id || null;
     }
     if (!destinationGodownId) {
       throw new Error('Select a destination godown before marking this lift Arrived.');
     }
 
-    // Stock lands on the day it was actually received — the picked Receiving
-    // Date, or today when none was picked — not the original dispatch date,
-    // so it shows up on the inventory for the day it came in.
-    const stockDate = (receiving_date || getTodayLocal()).slice(0, 10);
+    const stockDate = (receiving_date || existing.receiving_date || getTodayLocal()).slice(0, 10);
     if (stockDate > getTodayLocal()) {
       throw new Error('Receiving date cannot be a future date when marking as Arrived.');
     }
 
-    // The Arrived path below only handles status/qty/godown/stock, so the
-    // descriptive fields edited alongside it are saved here — otherwise
-    // Receiving Date, LR, Vehicle, Driver and Remarks were silently dropped.
-    const detailFields = { receiving_date: stockDate };
+    const editedQty = received_quantity !== undefined && received_quantity !== null && received_quantity !== ''
+      ? Number(received_quantity)
+      : Number(existing.received_quantity || 0);
+
+    if (editedQty <= 0) {
+      throw new Error('Received quantity must be greater than zero.');
+    }
+
+    let resolvedGroupId = existing.group_id || item?.group_id || item?.products?.group_id || null;
+
+    // Check for partial receipt: if fewer units arrived than were dispatched,
+    // split the lift so the remainder stays In Transit in Aawak Pending.
+    const masterUnit = (item?.products?.unit || '').toLowerCase();
+    const isBagUnit = masterUnit.includes('bag') || (existing.dispatch_qty_bag != null && Number(existing.dispatch_qty_bag) > 0 && !existing.dispatch_qty_kg);
+    const pkgSize = existing.packaging_size != null && existing.packaging_size !== '' ? Number(existing.packaging_size) : null;
+
+    let originalDispatchQty = 0;
+    if (isBagUnit) {
+      originalDispatchQty = Number(existing.dispatch_qty_bag) || Number(existing.received_quantity) || 0;
+    } else {
+      originalDispatchQty = Number(existing.dispatch_qty_kg) || Number(existing.received_quantity) || 0;
+    }
+    if (!originalDispatchQty) {
+      originalDispatchQty = Number(existing.received_quantity) || 0;
+    }
+
+    const isPartialReceipt = (oldStatus !== 'Arrived' && oldStatus !== 'Received') && (originalDispatchQty - editedQty > 0.0001);
+    const remainder = isPartialReceipt ? Number((originalDispatchQty - editedQty).toFixed(4)) : 0;
+
+    let arrivedDispatchBag = existing.dispatch_qty_bag;
+    let arrivedDispatchKg = existing.dispatch_qty_kg;
+    let siblingDispatchBag = null;
+    let siblingDispatchKg = null;
+
+    if (isPartialReceipt) {
+      if (isBagUnit) {
+        siblingDispatchBag = remainder;
+        siblingDispatchKg = pkgSize && pkgSize > 0 ? Number((remainder * pkgSize).toFixed(4)) : (existing.dispatch_qty_kg && originalDispatchQty > 0 ? Number(((remainder / originalDispatchQty) * Number(existing.dispatch_qty_kg)).toFixed(4)) : null);
+        arrivedDispatchBag = editedQty;
+        arrivedDispatchKg = pkgSize && pkgSize > 0 ? Number((editedQty * pkgSize).toFixed(4)) : (existing.dispatch_qty_kg && originalDispatchQty > 0 ? Number(((editedQty / originalDispatchQty) * Number(existing.dispatch_qty_kg)).toFixed(4)) : null);
+      } else {
+        siblingDispatchKg = remainder;
+        siblingDispatchBag = pkgSize && pkgSize > 0 ? Number((remainder / pkgSize).toFixed(4)) : (existing.dispatch_qty_bag && originalDispatchQty > 0 ? Number(((remainder / originalDispatchQty) * Number(existing.dispatch_qty_bag)).toFixed(4)) : null);
+        arrivedDispatchKg = editedQty;
+        arrivedDispatchBag = pkgSize && pkgSize > 0 ? Number((editedQty / pkgSize).toFixed(4)) : (existing.dispatch_qty_bag && originalDispatchQty > 0 ? Number(((editedQty / originalDispatchQty) * Number(existing.dispatch_qty_bag)).toFixed(4)) : null);
+      }
+    }
+
+    // 1. Update purchase_deliveries details
+    const detailFields = {
+      status: 'Arrived',
+      status_updated_at: new Date().toISOString(),
+      receiving_date: stockDate,
+      received_quantity: editedQty,
+    };
+    if (isPartialReceipt) {
+      if (arrivedDispatchBag !== null && arrivedDispatchBag !== undefined) detailFields.dispatch_qty_bag = arrivedDispatchBag;
+      if (arrivedDispatchKg !== null && arrivedDispatchKg !== undefined) detailFields.dispatch_qty_kg = arrivedDispatchKg;
+    }
     if (lr_number !== undefined) detailFields.lr_number = lr_number;
     if (driver_phone_number !== undefined) detailFields.driver_phone_number = driver_phone_number;
     if (vehicle_number !== undefined) detailFields.vehicle_number = vehicle_number;
     if (remarks !== undefined) detailFields.remarks = remarks;
-    const { error: detailErr } = await supabase
+    if (recv_unit !== undefined) detailFields.recv_unit = recv_unit;
+    if (recv_unit_qty !== undefined) detailFields.recv_unit_qty = recv_unit_qty;
+    if (expected_delivery_date !== undefined && expected_delivery_date !== '') detailFields.expected_delivery_date = expected_delivery_date;
+
+    const { data: updatedDelivery, error: detailErr } = await supabase
       .from('purchase_deliveries')
       .update(detailFields)
-      .eq('delivery_id', delivery_id);
+      .eq('delivery_id', delivery_id)
+      .select()
+      .single();
     if (detailErr) throw detailErr;
 
-    return updateDeliveryStatus({
-      delivery_id,
-      status: 'Arrived',
-      user_id,
-      received_quantity,
-      recv_unit,
-      recv_unit_qty,
-      godown_id: destinationGodownId,
-      expected_delivery_date,
-      stock_date: stockDate,
-    });
+    // 2. Replace allocation in purchase_delivery_godowns
+    await supabase
+      .from('purchase_delivery_godowns')
+      .delete()
+      .eq('delivery_id', delivery_id);
+
+    const { error: gdInsErr } = await supabase
+      .from('purchase_delivery_godowns')
+      .insert([{
+        delivery_id,
+        godown_id: destinationGodownId,
+        qty: editedQty,
+        group_id: resolvedGroupId,
+      }]);
+    if (gdInsErr) throw gdInsErr;
+
+    // 3. Stock ledger update
+    // If it was sitting AT TPT GDN, void the transport godown stock-in first
+    if (oldStatus === 'In Transport Godown' && existing.transporter_id) {
+      await voidLiftTransaction(existing.lifting_number, existing.transporter_id, 'PURCHASE_IN', 'Moved to destination godown on Arrived');
+    }
+
+    // Find any active PURCHASE_IN transaction for this lifting_number and product_id
+    let txnQuery = supabase
+      .from('transactions')
+      .select('txn_id, godown_id, qty, txn_date')
+      .eq('lifting_number', existing.lifting_number)
+      .eq('txn_type', 'PURCHASE_IN')
+      .eq('is_void', false);
+    if (product_id) {
+      txnQuery = txnQuery.eq('product_id', product_id);
+    }
+    const { data: existingTxns, error: txnFetchErr } = await txnQuery;
+    if (txnFetchErr) throw txnFetchErr;
+
+    const back_dated = stockDate < getTodayLocal();
+    const effectiveLr = lr_number !== undefined ? lr_number : existing.lr_number;
+    const effectiveVehicle = vehicle_number !== undefined ? vehicle_number : existing.vehicle_number;
+
+    if (existingTxns && existingTxns.length > 0) {
+      const activeTxn = existingTxns[0];
+      const oldGodownId = activeTxn.godown_id;
+      const oldQty = Number(activeTxn.qty) || 0;
+
+      // Negative stock guard if godown changed or qty reduced
+      if (oldGodownId !== destinationGodownId || editedQty < oldQty) {
+        const { data: stkRow } = await supabase
+          .from('godown_stock')
+          .select('current_stock')
+          .eq('product_id', product_id)
+          .eq('godown_id', oldGodownId)
+          .maybeSingle();
+        const currentStock = Number(stkRow?.current_stock) || 0;
+        const diffToRemove = oldGodownId !== destinationGodownId ? oldQty : (oldQty - editedQty);
+        if (currentStock < diffToRemove) {
+          throw new Error(`Cannot update — reducing stock by ${diffToRemove} would make stock negative. Current stock at godown is only ${currentStock}.`);
+        }
+      }
+
+      // Update existing transaction
+      const { error: txnUpdErr } = await supabase
+        .from('transactions')
+        .update({
+          godown_id: destinationGodownId,
+          qty: editedQty,
+          txn_date: stockDate,
+          back_dated,
+          lr_number: effectiveLr || null,
+          vehicle_number: effectiveVehicle || null,
+          created_by: user_id,
+        })
+        .eq('txn_id', activeTxn.txn_id);
+      if (txnUpdErr) throw txnUpdErr;
+    } else {
+      // Insert new transaction if not found
+      const { error: txnInsErr } = await supabase
+        .from('transactions')
+        .insert([{
+          product_id,
+          godown_id: destinationGodownId,
+          txn_date: stockDate,
+          txn_type: 'PURCHASE_IN',
+          qty: editedQty,
+          is_void: false,
+          created_by: user_id,
+          back_dated,
+          lr_number: effectiveLr || null,
+          vehicle_number: effectiveVehicle || null,
+          lifting_number: existing.lifting_number,
+        }]);
+      if (txnInsErr) throw txnInsErr;
+    }
+
+    // 4. If partial receipt (fewer units received than dispatched), create sibling lift for remainder in Pending
+    if (isPartialReceipt && remainder > 0.0001) {
+      const siblingLiftNumber = await generateNextLiftingNumber();
+      const effectiveDriver = driver_phone_number !== undefined ? driver_phone_number : existing.driver_phone_number;
+      const effectiveTransporter = transporter_id !== undefined ? transporter_id : existing.transporter_id;
+
+      const siblingData = {
+        item_id: existing.item_id,
+        indent_id: existing.indent_id || item?.indent_id || null,
+        delivery_date: existing.delivery_date,
+        expected_delivery_date: (expected_delivery_date !== undefined && expected_delivery_date !== '') ? expected_delivery_date : (existing.expected_delivery_date || null),
+        expected_dispatch_date: existing.expected_dispatch_date || null,
+        received_quantity: remainder,
+        dispatch_qty_kg: siblingDispatchKg !== null ? Number(siblingDispatchKg) : null,
+        dispatch_qty_bag: siblingDispatchBag !== null ? Number(siblingDispatchBag) : null,
+        dispatch_unit: existing.dispatch_unit || (isBagUnit ? 'bag' : 'kg'),
+        packaging_size: pkgSize,
+        transporter_id: effectiveTransporter || null,
+        lr_number: effectiveLr || null,
+        vehicle_number: effectiveVehicle || null,
+        driver_phone_number: effectiveDriver || null,
+        group_id: resolvedGroupId,
+        status: 'In Transit',
+        lifting_number: siblingLiftNumber,
+        remarks: existing.remarks ? `${existing.remarks} (Remainder of ${existing.lifting_number})` : `Remainder of ${existing.lifting_number}`,
+        created_by: user_id || null,
+      };
+
+      const { data: siblingDelivery, error: siblingErr } = await supabase
+        .from('purchase_deliveries')
+        .insert([siblingData])
+        .select()
+        .single();
+      if (siblingErr) {
+        console.error('Failed to create sibling lift for remainder:', siblingErr);
+        throw new Error(`Lift marked Arrived, but failed to create remainder lift in Pending: ${siblingErr.message}`);
+      }
+
+      const siblingGodownId = destinationGodownId || item?.approved_godown_id || null;
+      if (siblingGodownId && siblingDelivery) {
+        const { error: sibGdErr } = await supabase
+          .from('purchase_delivery_godowns')
+          .insert([{
+            delivery_id: siblingDelivery.delivery_id,
+            godown_id: siblingGodownId,
+            qty: remainder,
+            group_id: resolvedGroupId,
+          }]);
+        if (sibGdErr) {
+          console.error('Failed to allocate sibling lift godown:', sibGdErr);
+        }
+      }
+    }
+
+    return updatedDelivery;
   }
 
   const updatePayload = {};
@@ -1685,15 +1981,9 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
   if (vehicle_number !== undefined) updatePayload.vehicle_number = vehicle_number;
   if (remarks !== undefined) updatePayload.remarks = remarks;
   if (status !== undefined) updatePayload.status = status;
-  // Lets a wrong qty be corrected on a lift that's still In Transit / AT TPT
-  // GDN (not yet Arrived — that path already takes received_quantity via
-  // updateDeliveryStatus above).
   if (received_quantity !== undefined && received_quantity !== null && received_quantity !== '') {
     updatePayload.received_quantity = Number(received_quantity);
   }
-  // recv_unit/recv_unit_qty are just a record of what was actually typed
-  // (unit + raw qty) — received_quantity above is always the converted,
-  // product-master-unit figure that drives stock.
   if (recv_unit !== undefined) updatePayload.recv_unit = recv_unit;
   if (recv_unit_qty !== undefined) updatePayload.recv_unit_qty = recv_unit_qty;
 
@@ -1706,10 +1996,6 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
 
   if (error) throw error;
 
-  // A qty correction has to carry over to the godown allocation row(s) too —
-  // several rollups (e.g. Ultimate IMS's In Transit Qty) sum
-  // purchase_delivery_godowns.qty, not purchase_deliveries.received_quantity
-  // directly, so leaving it stale would silently undo the correction.
   if (updatePayload.received_quantity !== undefined) {
     await supabase
       .from('purchase_delivery_godowns')
@@ -1717,9 +2003,6 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
       .eq('delivery_id', delivery_id);
   }
 
-  // While sitting "AT TPT GDN" (In Transport Godown), stock is tracked against
-  // the transporter's own linked godown rather than whatever real godown was
-  // picked — that real godown only takes effect once marked Arrived above.
   const newStatus = status !== undefined ? status : oldStatus;
   const effectiveGodownId = newStatus === 'In Transport Godown' && transporter_id ? transporter_id : godown_id;
 
@@ -1744,9 +2027,6 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
       .insert([{ delivery_id, godown_id: effectiveGodownId, qty: data.received_quantity || 0, group_id: resolvedGroupId }]);
   }
 
-  // Keep the real stock ledger in sync: "AT TPT GDN" is a genuine stock-in at
-  // the transporter's own godown, exactly like Arrived is for the final
-  // destination — not just a display allocation.
   if (newStatus === 'In Transport Godown' && transporter_id) {
     const { data: item, error: itemErr } = await supabase
       .from('purchase_indent_items')
@@ -1756,8 +2036,6 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
     if (itemErr) throw new Error('Item not found.');
 
     const qty = data.received_quantity ?? existing.received_quantity ?? 0;
-    // Stock-in at the transporter's godown is dated on the Receiving Date
-    // when one is set, otherwise the lift's own date (as before).
     const stockDate = String(data.receiving_date || data.delivery_date || existing.delivery_date).slice(0, 10);
     if (stockDate > getTodayLocal()) {
       throw new Error('Receiving date cannot be a future date.');
@@ -1776,7 +2054,6 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
       syncDate: true,
     });
   } else if (oldStatus === 'In Transport Godown' && newStatus !== 'In Transport Godown' && transporter_id) {
-    // Moved back off "AT TPT GDN" (e.g. reverted to In Transit) — undo that stock-in.
     await voidLiftTransaction(existing.lifting_number, transporter_id, 'PURCHASE_IN', 'Status reverted from AT TPT GDN');
   }
 

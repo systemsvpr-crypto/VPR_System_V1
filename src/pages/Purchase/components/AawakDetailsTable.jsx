@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, Check, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Save, Phone, MessageSquare, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { getAawakDeliveries, updateAawakLift, deleteDelivery, updateDeliveriesExpectedDeliveryDate, updateAawakLiftInfo } from '../../../services/purchaseService';
+import { getAawakDeliveries, updateAawakLift, deleteDelivery, updateDeliveriesExpectedDeliveryDate, updateAawakLiftInfo, revertLiftToPending } from '../../../services/purchaseService';
 import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,8 +11,8 @@ import FilterMenu from '@/components/FilterMenu';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
-// A lift is only truly finalized (fully locked) once Arrived/Received — that's
-// when its stock has landed in the real destination godown for good.
+// Identity fields (Lifting No, Product, Transporter) are locked once stock has landed,
+// but receiving details (Qty, Godown, Receiving Date, etc.) remain editable.
 const isRowLocked = (del) => del?.status === 'Arrived' || del?.status === 'Received';
 
 const IndentTypeBadge = ({ processType }) => (
@@ -278,12 +278,9 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   };
 
   // Exp. Recv. Date auto-saves on pick — no Submit needed. Applies to every
-  // checked (not yet arrived) row; updated locally first, rolled back on failure.
+  // checked row; updated locally first, rolled back on failure.
   const handleExpDateChange = async (delId, value) => {
-    const targets = new Set([...selectedLifts].filter(id => {
-      const d = deliveries.find(x => x.delivery_id === id);
-      return d && !isRowLocked(d);
-    }));
+    const targets = new Set([...selectedLifts]);
     targets.add(delId);
     const ids = [...targets];
     const previous = new Map(deliveries.filter(d => targets.has(d.delivery_id)).map(d => [d.delivery_id, d.expected_delivery_date]));
@@ -310,8 +307,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     setEditingRows(prev => {
       const next = { ...prev };
       selectedLifts.forEach(id => {
-        const del = deliveries.find(d => d.delivery_id === id);
-        if (del && isRowLocked(del)) return;
         next[id] = { ...(next[id] || {}), godown_id: val };
       });
       return next;
@@ -408,19 +403,45 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
   const handleDeleteDelivery = async (del) => {
     const liftNum = del.lifting_number || del.delivery_id;
-    if (!window.confirm(`Permanently delete delivery lift "${liftNum}"? This cannot be undone.`)) return;
-    try {
-      await deleteDelivery(del.delivery_id);
-      toast.success('Delivery lift deleted');
-      setDeliveries(prev => prev.filter(d => d.delivery_id !== del.delivery_id));
-      setSelectedLifts(prev => {
-        const next = new Set(prev);
-        next.delete(del.delivery_id);
-        return next;
-      });
-      loadData();
-    } catch (err) {
-      toast.error(err.message || 'Failed to delete delivery');
+    if (isHistory) {
+      if (!window.confirm(`Move delivery lift "${liftNum}" back to Aawak Pending? Its stock entry will be reversed.`)) return;
+      try {
+        await revertLiftToPending({ delivery_id: del.delivery_id, user_id: user?.user_id });
+        toast.success(`Delivery lift "${liftNum}" moved back to Pending`);
+        setSelectedLifts(prev => {
+          const next = new Set(prev);
+          next.delete(del.delivery_id);
+          return next;
+        });
+        setEditingRows(prev => {
+          const next = { ...prev };
+          delete next[del.delivery_id];
+          return next;
+        });
+        loadData();
+      } catch (err) {
+        toast.error(err.message || 'Failed to revert delivery');
+      }
+    } else {
+      if (!window.confirm(`Permanently delete delivery lift "${liftNum}"? This cannot be undone.`)) return;
+      try {
+        await deleteDelivery(del.delivery_id);
+        toast.success('Delivery lift deleted');
+        setDeliveries(prev => prev.filter(d => d.delivery_id !== del.delivery_id));
+        setSelectedLifts(prev => {
+          const next = new Set(prev);
+          next.delete(del.delivery_id);
+          return next;
+        });
+        setEditingRows(prev => {
+          const next = { ...prev };
+          delete next[del.delivery_id];
+          return next;
+        });
+        loadData();
+      } catch (err) {
+        toast.error(err.message || 'Failed to delete delivery');
+      }
     }
   };
 
@@ -428,27 +449,50 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     const toDeleteIds = Array.from(selectedLifts);
     if (toDeleteIds.length === 0) return;
 
-    if (!window.confirm(`Permanently delete ${toDeleteIds.length} selected delivery lift(s)? This will revert inventory transactions and cannot be undone.`)) {
-      return;
-    }
-
-    setDeletingSelected(true);
-    let success = 0;
-    for (const id of toDeleteIds) {
-      try {
-        await deleteDelivery(id);
-        success++;
-      } catch (err) {
-        console.error('Failed to delete delivery', id, err);
+    if (isHistory) {
+      if (!window.confirm(`Move ${toDeleteIds.length} selected delivery lift(s) back to Aawak Pending? This will reverse their stock entries.`)) {
+        return;
       }
-    }
-    setDeletingSelected(false);
-    if (success > 0) {
-      toast.success(`Successfully deleted ${success} delivery lift(s)`);
-      setSelectedLifts(new Set());
-      loadData();
+      setDeletingSelected(true);
+      let success = 0;
+      for (const id of toDeleteIds) {
+        try {
+          await revertLiftToPending({ delivery_id: id, user_id: user?.user_id });
+          success++;
+        } catch (err) {
+          console.error('Failed to revert delivery', id, err);
+          toast.error(err.message || `Failed to revert lift ${id}`);
+        }
+      }
+      setDeletingSelected(false);
+      if (success > 0) {
+        toast.success(`Successfully moved ${success} delivery lift(s) back to Pending`);
+        setSelectedLifts(new Set());
+        setEditingRows({});
+        loadData();
+      }
     } else {
-      toast.error('Failed to delete selected deliveries');
+      if (!window.confirm(`Permanently delete ${toDeleteIds.length} selected delivery lift(s)? This will revert inventory transactions and cannot be undone.`)) {
+        return;
+      }
+      setDeletingSelected(true);
+      let success = 0;
+      for (const id of toDeleteIds) {
+        try {
+          await deleteDelivery(id);
+          success++;
+        } catch (err) {
+          console.error('Failed to delete delivery', id, err);
+          toast.error(err.message || `Failed to delete lift ${id}`);
+        }
+      }
+      setDeletingSelected(false);
+      if (success > 0) {
+        toast.success(`Successfully deleted ${success} delivery lift(s)`);
+        setSelectedLifts(new Set());
+        setEditingRows({});
+        loadData();
+      }
     }
   };
 
@@ -486,7 +530,11 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         delete next[deliveryId];
         return next;
       });
-      toggleExpandLift(deliveryId);
+      setSelectedLifts(prev => {
+        const next = new Set(prev);
+        next.delete(deliveryId);
+        return next;
+      });
       await loadData();
     } catch (err) {
       console.error(err);
@@ -759,7 +807,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                     <div>
                       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Status</label>
                       <select
-                        disabled={!isSelected || locked}
+                        disabled={!isSelected}
                         value={uiStatus}
                         onChange={e => handleStatusChange(del.delivery_id, e.target.value)}
                         className="w-full h-8 text-xs font-semibold px-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
@@ -774,27 +822,21 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
                         Recv. Qty ({unitLabel})
                       </label>
-                      {locked ? (
-                        <div className="h-8 px-2.5 flex items-center text-xs font-bold text-emerald-700 bg-slate-100 border border-slate-200 rounded-lg">
-                          {getRowVal(del, 'received_quantity') || '—'}
-                        </div>
-                      ) : (
-                        <Input
-                          type="number"
-                          step="any"
-                          disabled={!isSelected}
-                          value={getRowVal(del, 'received_quantity')}
-                          onChange={e => setRowValForSelection(del.delivery_id, 'received_quantity', e.target.value)}
-                          placeholder="Recv Qty"
-                          className="h-8 text-xs font-bold text-emerald-700 bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
-                        />
-                      )}
+                      <Input
+                        type="number"
+                        step="any"
+                        disabled={!isSelected}
+                        value={getRowVal(del, 'received_quantity')}
+                        onChange={e => setRowValForSelection(del.delivery_id, 'received_quantity', e.target.value)}
+                        placeholder="Recv Qty"
+                        className="h-8 text-xs font-bold text-emerald-700 bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
+                      />
                     </div>
 
                     <div>
                       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Godown (Destination)</label>
                       <select
-                        disabled={!isSelected || locked}
+                        disabled={!isSelected}
                         value={getRowVal(del, 'godown_id')}
                         onChange={e => handleGodownChange(del.delivery_id, e.target.value)}
                         className="w-full h-8 text-xs px-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
@@ -812,7 +854,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         showActions
                         value={getRowVal(del, 'receiving_date')}
                         onChange={e => handleReceivingDateChange(del.delivery_id, e.target.value)}
-                        disabled={!isSelected || locked}
+                        disabled={!isSelected}
                         placeholder="Select date"
                         className="h-8 text-xs bg-white"
                       />
@@ -820,19 +862,14 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
                     <div>
                       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Exp. Delivery Date</label>
-                      {locked ? (
-                        <div className="h-8 px-2.5 flex items-center text-xs text-slate-700 bg-slate-100 border border-slate-200 rounded-lg">
-                          {del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}
-                        </div>
-                      ) : (
-                        <DatePicker
-                          showActions
-                          value={getRowVal(del, 'expected_delivery_date')}
-                          onChange={e => handleExpDateChange(del.delivery_id, e.target.value)}
-                          placeholder="Select date"
-                          className="h-8 text-xs bg-white"
-                        />
-                      )}
+                      <DatePicker
+                        showActions
+                        value={getRowVal(del, 'expected_delivery_date')}
+                        onChange={e => handleExpDateChange(del.delivery_id, e.target.value)}
+                        disabled={!isSelected}
+                        placeholder="Select date"
+                        className="h-8 text-xs bg-white"
+                      />
                     </div>
 
                     {(isSelected || hasVehicle) && (
@@ -841,7 +878,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <Input
                           type="text"
                           placeholder="Vehicle Number"
-                          disabled={!isSelected || locked}
+                          disabled={!isSelected}
                           value={getRowVal(del, 'vehicle_number')}
                           onChange={e => setRowValForSelection(del.delivery_id, 'vehicle_number', e.target.value)}
                           className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
@@ -855,7 +892,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <Input
                           type="text"
                           placeholder="LR Number"
-                          disabled={!isSelected || locked}
+                          disabled={!isSelected}
                           value={getRowVal(del, 'lr_number')}
                           onChange={e => setRowValForSelection(del.delivery_id, 'lr_number', e.target.value)}
                           className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
@@ -869,7 +906,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <Input
                           type="text"
                           placeholder="Driver Phone"
-                          disabled={!isSelected || locked}
+                          disabled={!isSelected}
                           value={getRowVal(del, 'driver_phone_number')}
                           onChange={e => setRowValForSelection(del.delivery_id, 'driver_phone_number', e.target.value)}
                           className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
@@ -883,7 +920,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <Input
                           type="text"
                           placeholder="Remarks..."
-                          disabled={!isSelected || locked}
+                          disabled={!isSelected}
                           value={getRowVal(del, 'remarks')}
                           onChange={e => setRowValForSelection(del.delivery_id, 'remarks', e.target.value)}
                           className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
@@ -905,7 +942,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       )}
                     </div>
 
-                    {isSelected && !locked && (
+                    {isSelected && (
                       <Button
                         size="sm"
                         type="button"
@@ -1242,7 +1279,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {/* History shows the Receiving Date here; Pending keeps the dispatch (Actual) date */}
                         {isHistory ? (
-                          canEditInfo ? (
+                          isSelected ? (
                             <DatePicker
                               showActions
                               value={receivingDateVal}
@@ -1319,16 +1356,14 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <Input
                           type="text"
                           placeholder="LR No."
-                          disabled={!isSelected || locked}
+                          disabled={!isSelected}
                           value={getRowVal(del, 'lr_number')}
                           onChange={e => setRowVal(del.delivery_id, 'lr_number', e.target.value)}
                           className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
                         />
                       </td>
                       <td className="px-3 py-3 text-center">
-                        {locked ? (
-                          <span className="text-slate-500 whitespace-nowrap">{del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}</span>
-                        ) : (
+                        {isSelected ? (
                           <DatePicker
                             showActions
                             value={getRowVal(del, 'expected_delivery_date')}
@@ -1336,6 +1371,8 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                             placeholder="Select date"
                             className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
                           />
+                        ) : (
+                          <span className="text-slate-500 whitespace-nowrap">{del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}</span>
                         )}
                       </td>
                       {showEditCols && (
@@ -1344,14 +1381,14 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                             showActions
                             value={getRowVal(del, 'receiving_date')}
                             onChange={e => handleReceivingDateChange(del.delivery_id, e.target.value)}
-                            disabled={!isSelected || locked}
+                            disabled={!isSelected}
                             placeholder="Select date"
                             className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
                           />
                         </td>
                       )}
                       <td className="px-3 py-3 text-center font-bold text-emerald-700 whitespace-nowrap">
-                        {isSelected && !locked ? (
+                        {isSelected ? (
                           <Input
                             type="number"
                             step="any"
@@ -1368,7 +1405,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <td className="px-3 py-3 text-center">
                           {isSelected ? (
                             <select
-                              disabled={locked}
                               value={getRowVal(del, 'godown_id')}
                               onChange={e => handleGodownChange(del.delivery_id, e.target.value)}
                               className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
@@ -1391,7 +1427,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                             <Input
                               type="text"
                               placeholder="Review..."
-                              disabled={locked}
                               value={getRowVal(del, 'remarks')}
                               onChange={e => setRowVal(del.delivery_id, 'remarks', e.target.value)}
                               className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
@@ -1405,7 +1440,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <td className="px-3 py-3 text-center">
                           {isSelected ? (
                             <select
-                              disabled={locked}
                               value={uiStatus}
                               onChange={e => handleStatusChange(del.delivery_id, e.target.value)}
                               className="w-full h-8 text-xs font-semibold px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
@@ -1439,7 +1473,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                             <Input
                               type="text"
                               placeholder="Driver No."
-                              disabled={locked}
                               value={getRowVal(del, 'driver_phone_number')}
                               onChange={e => setRowVal(del.delivery_id, 'driver_phone_number', e.target.value)}
                               className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
@@ -1455,7 +1488,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                             <Input
                               type="text"
                               placeholder="Vehicle No."
-                              disabled={locked}
                               value={getRowVal(del, 'vehicle_number')}
                               onChange={e => setRowVal(del.delivery_id, 'vehicle_number', e.target.value)}
                               className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
