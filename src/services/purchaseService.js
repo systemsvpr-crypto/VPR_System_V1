@@ -1702,8 +1702,8 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
   const { data: existing, error: fetchErr } = await supabase
     .from('purchase_deliveries')
     .select(`
-      delivery_id, status, item_id, indent_id, delivery_date, expected_delivery_date, expected_dispatch_date, receiving_date, lifting_number, lr_number, vehicle_number, driver_phone_number, received_quantity, transporter_id, group_id, packaging_size, dispatch_unit, dispatch_qty_bag, dispatch_qty_kg, remarks,
-      purchase_indent_items(item_id, indent_id, product_id, approved_godown_id, group_id, products(group_id, unit))
+      delivery_id, status, item_id, delivery_date, receiving_date, lifting_number, lr_number, vehicle_number, received_quantity, transporter_id, group_id,
+      purchase_indent_items(product_id, approved_godown_id, group_id, products(group_id, unit))
     `)
     .eq('delivery_id', delivery_id)
     .single();
@@ -1758,44 +1758,6 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
 
     let resolvedGroupId = existing.group_id || item?.group_id || item?.products?.group_id || null;
 
-    // Check for partial receipt: if fewer units arrived than were dispatched,
-    // split the lift so the remainder stays In Transit in Aawak Pending.
-    const masterUnit = (item?.products?.unit || '').toLowerCase();
-    const isBagUnit = masterUnit.includes('bag') || (existing.dispatch_qty_bag != null && Number(existing.dispatch_qty_bag) > 0 && !existing.dispatch_qty_kg);
-    const pkgSize = existing.packaging_size != null && existing.packaging_size !== '' ? Number(existing.packaging_size) : null;
-
-    let originalDispatchQty = 0;
-    if (isBagUnit) {
-      originalDispatchQty = Number(existing.dispatch_qty_bag) || Number(existing.received_quantity) || 0;
-    } else {
-      originalDispatchQty = Number(existing.dispatch_qty_kg) || Number(existing.received_quantity) || 0;
-    }
-    if (!originalDispatchQty) {
-      originalDispatchQty = Number(existing.received_quantity) || 0;
-    }
-
-    const isPartialReceipt = (oldStatus !== 'Arrived' && oldStatus !== 'Received') && (originalDispatchQty - editedQty > 0.0001);
-    const remainder = isPartialReceipt ? Number((originalDispatchQty - editedQty).toFixed(4)) : 0;
-
-    let arrivedDispatchBag = existing.dispatch_qty_bag;
-    let arrivedDispatchKg = existing.dispatch_qty_kg;
-    let siblingDispatchBag = null;
-    let siblingDispatchKg = null;
-
-    if (isPartialReceipt) {
-      if (isBagUnit) {
-        siblingDispatchBag = remainder;
-        siblingDispatchKg = pkgSize && pkgSize > 0 ? Number((remainder * pkgSize).toFixed(4)) : (existing.dispatch_qty_kg && originalDispatchQty > 0 ? Number(((remainder / originalDispatchQty) * Number(existing.dispatch_qty_kg)).toFixed(4)) : null);
-        arrivedDispatchBag = editedQty;
-        arrivedDispatchKg = pkgSize && pkgSize > 0 ? Number((editedQty * pkgSize).toFixed(4)) : (existing.dispatch_qty_kg && originalDispatchQty > 0 ? Number(((editedQty / originalDispatchQty) * Number(existing.dispatch_qty_kg)).toFixed(4)) : null);
-      } else {
-        siblingDispatchKg = remainder;
-        siblingDispatchBag = pkgSize && pkgSize > 0 ? Number((remainder / pkgSize).toFixed(4)) : (existing.dispatch_qty_bag && originalDispatchQty > 0 ? Number(((remainder / originalDispatchQty) * Number(existing.dispatch_qty_bag)).toFixed(4)) : null);
-        arrivedDispatchKg = editedQty;
-        arrivedDispatchBag = pkgSize && pkgSize > 0 ? Number((editedQty / pkgSize).toFixed(4)) : (existing.dispatch_qty_bag && originalDispatchQty > 0 ? Number(((editedQty / originalDispatchQty) * Number(existing.dispatch_qty_bag)).toFixed(4)) : null);
-      }
-    }
-
     // 1. Update purchase_deliveries details
     const detailFields = {
       status: 'Arrived',
@@ -1803,10 +1765,6 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
       receiving_date: stockDate,
       received_quantity: editedQty,
     };
-    if (isPartialReceipt) {
-      if (arrivedDispatchBag !== null && arrivedDispatchBag !== undefined) detailFields.dispatch_qty_bag = arrivedDispatchBag;
-      if (arrivedDispatchKg !== null && arrivedDispatchKg !== undefined) detailFields.dispatch_qty_kg = arrivedDispatchKg;
-    }
     if (lr_number !== undefined) detailFields.lr_number = lr_number;
     if (driver_phone_number !== undefined) detailFields.driver_phone_number = driver_phone_number;
     if (vehicle_number !== undefined) detailFields.vehicle_number = vehicle_number;
@@ -1914,60 +1872,6 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
           lifting_number: existing.lifting_number,
         }]);
       if (txnInsErr) throw txnInsErr;
-    }
-
-    // 4. If partial receipt (fewer units received than dispatched), create sibling lift for remainder in Pending
-    if (isPartialReceipt && remainder > 0.0001) {
-      const siblingLiftNumber = await generateNextLiftingNumber();
-      const effectiveDriver = driver_phone_number !== undefined ? driver_phone_number : existing.driver_phone_number;
-      const effectiveTransporter = transporter_id !== undefined ? transporter_id : existing.transporter_id;
-
-      const siblingData = {
-        item_id: existing.item_id,
-        indent_id: existing.indent_id || item?.indent_id || null,
-        delivery_date: existing.delivery_date,
-        expected_delivery_date: (expected_delivery_date !== undefined && expected_delivery_date !== '') ? expected_delivery_date : (existing.expected_delivery_date || null),
-        expected_dispatch_date: existing.expected_dispatch_date || null,
-        received_quantity: remainder,
-        dispatch_qty_kg: siblingDispatchKg !== null ? Number(siblingDispatchKg) : null,
-        dispatch_qty_bag: siblingDispatchBag !== null ? Number(siblingDispatchBag) : null,
-        dispatch_unit: existing.dispatch_unit || (isBagUnit ? 'bag' : 'kg'),
-        packaging_size: pkgSize,
-        transporter_id: effectiveTransporter || null,
-        lr_number: effectiveLr || null,
-        vehicle_number: effectiveVehicle || null,
-        driver_phone_number: effectiveDriver || null,
-        group_id: resolvedGroupId,
-        status: 'In Transit',
-        lifting_number: siblingLiftNumber,
-        remarks: existing.remarks ? `${existing.remarks} (Remainder of ${existing.lifting_number})` : `Remainder of ${existing.lifting_number}`,
-        created_by: user_id || null,
-      };
-
-      const { data: siblingDelivery, error: siblingErr } = await supabase
-        .from('purchase_deliveries')
-        .insert([siblingData])
-        .select()
-        .single();
-      if (siblingErr) {
-        console.error('Failed to create sibling lift for remainder:', siblingErr);
-        throw new Error(`Lift marked Arrived, but failed to create remainder lift in Pending: ${siblingErr.message}`);
-      }
-
-      const siblingGodownId = destinationGodownId || item?.approved_godown_id || null;
-      if (siblingGodownId && siblingDelivery) {
-        const { error: sibGdErr } = await supabase
-          .from('purchase_delivery_godowns')
-          .insert([{
-            delivery_id: siblingDelivery.delivery_id,
-            godown_id: siblingGodownId,
-            qty: remainder,
-            group_id: resolvedGroupId,
-          }]);
-        if (sibGdErr) {
-          console.error('Failed to allocate sibling lift godown:', sibGdErr);
-        }
-      }
     }
 
     return updatedDelivery;
