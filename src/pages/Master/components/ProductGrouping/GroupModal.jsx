@@ -110,11 +110,6 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
           brand_name: brandName,
           category,
         });
-        // Keep any manually-picked members in sync with the checkbox list.
-        await updateGroup(editingGroup.group_id, {
-          group_name: derivedGroupName,
-          product_ids: productIds,
-        });
         toast.success(`Group updated — ${updatedCount} product name${updatedCount === 1 ? '' : 's'} renamed`);
         onClose();
         onSuccess();
@@ -128,7 +123,7 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
       toast.error('Group name is required.');
       return;
     }
-    if (productIds.length === 0) {
+    if (!isEditing && productIds.length === 0) {
       toast.error('Select at least one product.');
       return;
     }
@@ -137,7 +132,7 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
       if (isEditing) {
         await updateGroup(editingGroup.group_id, {
           group_name: groupName.trim(),
-          product_ids: productIds,
+          product_ids: (editingGroup.members || []).map(m => m.product_id),
         });
         toast.success('Group updated successfully');
       } else {
@@ -237,51 +232,53 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
               </div>
             )}
 
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-slate-700">
-                  Products ({productIds.length} selected)
-                </label>
+            {!isEditing && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-slate-700">
+                    Products ({productIds.length} selected)
+                  </label>
+                </div>
+                <div className="relative mb-2">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <Input
+                    type="text"
+                    placeholder="Search products..."
+                    className="pl-9 h-9 text-sm"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                  {alreadyGroupedProductIds.size > 0 && (
+                    <p className="px-3 py-1.5 text-xs text-amber-600 bg-amber-50 border-b border-amber-200">
+                      Products already in other groups are hidden.
+                    </p>
+                  )}
+                  {filteredProducts.length === 0 ? (
+                    <p className="p-4 text-sm text-slate-400 text-center">No products found.</p>
+                  ) : (
+                    filteredProducts.map(p => (
+                      <label
+                        key={p.product_id}
+                        className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={productIds.includes(p.product_id)}
+                          onChange={() => toggleProduct(p.product_id)}
+                          className="rounded text-primary focus:ring-primary"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium text-slate-700 block truncate">{p.name}</span>
+                        </div>
+                        <span className="text-xs text-slate-400 uppercase shrink-0">{p.unit}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
               </div>
-              <div className="relative mb-2">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <Input
-                  type="text"
-                  placeholder="Search products..."
-                  className="pl-9 h-9 text-sm"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-              <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
-                {alreadyGroupedProductIds.size > 0 && (
-                  <p className="px-3 py-1.5 text-xs text-amber-600 bg-amber-50 border-b border-amber-200">
-                    Products already in other groups are hidden.
-                  </p>
-                )}
-                {filteredProducts.length === 0 ? (
-                  <p className="p-4 text-sm text-slate-400 text-center">No products found.</p>
-                ) : (
-                  filteredProducts.map(p => (
-                    <label
-                      key={p.product_id}
-                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50 transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={productIds.includes(p.product_id)}
-                        onChange={() => toggleProduct(p.product_id)}
-                        className="rounded text-primary focus:ring-primary"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm font-medium text-slate-700 block truncate">{p.name}</span>
-                      </div>
-                      <span className="text-xs text-slate-400 uppercase shrink-0">{p.unit}</span>
-                    </label>
-                  ))
-                )}
-              </div>
-            </div>
+            )}
           </ModalBody>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
