@@ -31,6 +31,38 @@ export const updateGodown = async (godownId, { name, godownType }) => {
   return data;
 };
 
+export const updateGodownProductAssignments = async (godownId, selectedProductIds = [], previousProductIds = []) => {
+  const selectedSet = new Set(selectedProductIds);
+  const previousSet = new Set(previousProductIds);
+
+  const toAssign = selectedProductIds.filter(id => !previousSet.has(id));
+  const toUnassign = previousProductIds.filter(id => !selectedSet.has(id));
+
+  const chunk = (arr, size = 100) => {
+    const res = [];
+    for (let i = 0; i < arr.length; i += size) res.push(arr.slice(i, i + size));
+    return res;
+  };
+
+  for (const batch of chunk(toUnassign)) {
+    if (batch.length === 0) continue;
+    const { error } = await supabase
+      .from('products')
+      .update({ godown_id: null })
+      .in('product_id', batch);
+    if (error) throw error;
+  }
+
+  for (const batch of chunk(toAssign)) {
+    if (batch.length === 0) continue;
+    const { error } = await supabase
+      .from('products')
+      .update({ godown_id: godownId })
+      .in('product_id', batch);
+    if (error) throw error;
+  }
+};
+
 export const toggleGodownStatus = async (godownId, isActive) => {
   const { error } = await supabase
     .from('godowns')

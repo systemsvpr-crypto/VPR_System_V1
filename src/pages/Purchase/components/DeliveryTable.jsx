@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
 import { roundQty } from '@/lib/qty';
 import FilterMenu from '@/components/FilterMenu';
+import EditDeliveryIndentModal from './EditDeliveryIndentModal';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -66,6 +67,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   const [rowEdits, setRowEdits] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('purchase_view_mode') || 'card');
 
   const handleViewModeChange = (mode) => {
@@ -886,9 +888,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                       variant="ghost"
                       size="icon"
                       type="button"
-                      title={isSelected ? 'Stop Editing' : 'Edit Row'}
-                      onClick={() => toggleSelect(item.item_id)}
-                      className={`p-1 h-7 w-7 rounded-lg shrink-0 ${isSelected ? 'text-primary bg-primary/10' : 'text-slate-400 hover:text-primary hover:bg-primary/10'}`}
+                      title="Edit Indent"
+                      onClick={() => setEditingItem(item)}
+                      className="p-1 h-7 w-7 rounded-lg shrink-0 text-slate-400 hover:text-primary hover:bg-primary/10 transition-all"
                     >
                       <Pencil size={13} />
                     </Button>
@@ -1437,13 +1439,19 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
           )}
 
           {activeSubTab === 'pending' && (
-            <Button onClick={handleSubmitDeliveries} disabled={submitting} size="sm" className="h-9 px-4 text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium gap-1.5 shadow-sm">
+            <Button
+              type="button"
+              onClick={handleSubmitDeliveries}
+              disabled={submitting || selectedItems.size === 0}
+              size="sm"
+              className="h-9 px-4 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm disabled:opacity-50 transition-all flex items-center gap-1.5 shrink-0"
+            >
               {submitting ? (
                 <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-white" />
               ) : (
                 <Check size={14} />
               )}
-              Submit
+              {submitting ? 'Submitting...' : 'Submit'}
             </Button>
           )}
         </div>
@@ -1479,15 +1487,18 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
               <table className="w-full text-xs">
                 <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                   <tr>
-                    <th className="sticky left-0 z-20 bg-blue-50 w-16 min-w-16 px-2 py-3 text-center">
+                    <th className="sticky left-0 z-20 bg-blue-50 w-12 min-w-12 px-2 py-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                       </div>
                     </th>
+                    <th className="sticky left-12 z-20 bg-blue-50 w-20 min-w-20 px-2 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
+                      Action
+                    </th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                    <th className="sticky left-16 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
@@ -1504,13 +1515,12 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                     {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Driver No.</th>}
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                     {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px] whitespace-nowrap">Remarks</th>}
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {currentList.length === 0 && (
                     <tr>
-                      <td colSpan="21" className="p-12 text-center text-slate-400">
+                      <td colSpan="22" className="p-12 text-center text-slate-400">
                         <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                         <p className="text-sm font-medium">No approved deliveries available.</p>
                       </td>
@@ -1521,7 +1531,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                     const isSelected = selectedItems.has(item.item_id);
                     const product = effectiveProduct(item);
                     const pendingQty = effectivePendingQty(item);
-                    const hasInfoEdits = Object.keys(getInfoEdits(item.item_id)).length > 0;
                     const pkgSize = getPackagingSize(product);
                     const transpId = getRowVal(item.item_id, 'transporter_id');
                     const selectedTransporter = transporters.find(t => String(t.transporter_id) === String(transpId));
@@ -1533,21 +1542,12 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                     const dispatchQtyBag = convertDispatchQty(dispatchQtyVal, dispatchUnit, 'bag', currentPkgSize);
                     const dispatchQtyKg = convertDispatchQty(dispatchQtyVal, dispatchUnit, 'kg', currentPkgSize);
 
-                    // Values for the indent / item columns that Edit opens up.
-                    const indentDateVal = getRowVal(item.item_id, 'info_indent_date', indent.indent_date ? indent.indent_date.slice(0, 10) : '');
-                    const indentNumberVal = getRowVal(item.item_id, 'info_indent_number', indent.indent_number || '');
-                    const processTypeVal = getRowVal(item.item_id, 'info_process_type', indent.process_type || '');
-                    const vendorIdVal = getRowVal(item.item_id, 'info_vendor_id', String(item.approved_vendor_id || item.vendor_id || ''));
-                    const productIdVal = getRowVal(item.item_id, 'info_product_id', String(item.product_id || ''));
-                    const quantityVal = getRowVal(item.item_id, 'info_quantity', item.quantity ?? '');
                     const savedRate = (item.rate != null && item.rate !== '') || (item.approved_rate != null && item.approved_rate !== '') ? item.rate ?? item.approved_rate : '';
-                    const rateVal = getRowVal(item.item_id, 'info_rate', savedRate);
-                    const infoInputCls = 'h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white';
-                    const infoSelectCls = 'w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30';
+                    const vendorName = item.approved_vendor?.name || item.item_vendor?.name || '—';
 
                     return (
                       <tr key={item.item_id} className={`group hover:bg-slate-50/60 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
-                        <td className={`sticky left-0 z-[5] w-16 min-w-16 px-2 py-3 text-center whitespace-nowrap ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
+                        <td className={`sticky left-0 z-[5] w-12 min-w-12 px-2 py-3 text-center whitespace-nowrap ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                           <div className="flex items-center justify-center gap-1.5">
                             <input
                               type="checkbox"
@@ -1557,88 +1557,51 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                             />
                           </div>
                         </td>
+                        <td className={`sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Edit Indent"
+                              onClick={() => setEditingItem(item)}
+                              className="p-1 h-6 w-6 text-slate-400 hover:text-primary hover:bg-primary/10 rounded transition-all"
+                            >
+                              <Pencil size={13} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Delete Row"
+                              onClick={() => handleDeletePendingItem(item)}
+                              className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          </div>
+                        </td>
                         <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
-                          {isSelected ? (
-                            <DatePicker
-                              showActions
-                              value={indentDateVal}
-                              onChange={e => setRowVal(item.item_id, 'info_indent_date', e.target.value)}
-                              className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
-                            />
-                          ) : (indentDateVal ? format(new Date(indentDateVal), 'dd/MM/yyyy') : '—')}
+                          {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
                         </td>
                         <td className="px-3 py-3 text-center font-semibold text-slate-800 whitespace-nowrap">
-                          {isSelected ? (
-                            <Input
-                              type="text"
-                              value={indentNumberVal}
-                              onChange={e => setRowVal(item.item_id, 'info_indent_number', e.target.value)}
-                              className={`${infoInputCls} min-w-[110px]`}
-                            />
-                          ) : (indentNumberVal || '—')}
+                          {indent.indent_number || '—'}
                         </td>
                         <td className="px-3 py-3 text-center font-medium text-slate-700 whitespace-nowrap">
-                          {isSelected ? (
-                            <select
-                              value={vendorIdVal}
-                              onChange={e => setRowVal(item.item_id, 'info_vendor_id', e.target.value)}
-                              className={`${infoSelectCls} min-w-[150px]`}
-                            >
-                              <option value="">Select vendor...</option>
-                              {vendors.map(v => (
-                                <option key={v.vendor_id} value={String(v.vendor_id)}>{v.name}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            (rowEdits[item.item_id]?.info_vendor_id !== undefined
-                              ? vendors.find(v => String(v.vendor_id) === String(vendorIdVal))?.name
-                              : (item.approved_vendor?.name || item.item_vendor?.name)) || '—'
-                          )}
+                          {vendorName}
                         </td>
-                        <td className={`sticky left-16 z-[5] px-3 py-3 text-center whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
-                          {isSelected ? (
-                            <select
-                              value={productIdVal}
-                              onChange={e => setRowVal(item.item_id, 'info_product_id', e.target.value)}
-                              className={`${infoSelectCls} min-w-[170px]`}
-                            >
-                              {products.map(p => (
-                                <option key={p.product_id} value={String(p.product_id)}>{p.name} ({p.unit || '—'})</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <>
-                              <span className="text-slate-800 font-medium">{product?.name || '—'}</span>
-                              <span className="text-slate-500 ml-1">({product?.unit || '—'})</span>
-                            </>
-                          )}
+                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                          <span className="text-slate-800 font-medium">{product?.name || '—'}</span>
+                          <span className="text-slate-500 ml-1">({product?.unit || '—'})</span>
                         </td>
                         <td className="px-3 py-3 text-center font-semibold text-slate-700">
-                          {isSelected ? (
-                            <Input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={quantityVal}
-                              onChange={e => setRowVal(item.item_id, 'info_quantity', e.target.value)}
-                              className={`${infoInputCls} text-center w-24`}
-                            />
-                          ) : quantityVal}
+                          {item.quantity ?? '—'}
                         </td>
                         <td className="px-3 py-3 text-center font-semibold text-amber-600">
                           {pendingQty}
                         </td>
                         <td className="px-3 py-3 text-center text-slate-600">
-                          {isSelected ? (
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={rateVal}
-                              onChange={e => setRowVal(item.item_id, 'info_rate', e.target.value)}
-                              className={`${infoInputCls} text-center w-24`}
-                            />
-                          ) : (rateVal !== '' && rateVal != null ? Number(rateVal).toFixed(2) : '—')}
+                          {savedRate !== '' && savedRate != null ? Number(savedRate).toFixed(2) : '—'}
                         </td>
                         <td className="px-3 py-3 text-center">
                           <Input
@@ -1766,18 +1729,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                           </td>
                         )}
                         <td className="px-3 py-3 text-center">
-                          {isSelected ? (
-                            <select
-                              value={processTypeVal}
-                              onChange={e => setRowVal(item.item_id, 'info_process_type', e.target.value)}
-                              className={`${infoSelectCls} min-w-[100px]`}
-                            >
-                              <option value="direct">Direct</option>
-                              <option value="process">Process</option>
-                            </select>
-                          ) : (
-                            <IndentTypeBadge processType={processTypeVal} />
-                          )}
+                          <IndentTypeBadge processType={indent.process_type || item.process_type} />
                         </td>
                         {showEditCols && (
                           <td className="px-3 py-3 text-center">
@@ -1794,42 +1746,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                             )}
                           </td>
                         )}
-                        <td className="px-2 py-3 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              type="button"
-                              title={isSelected ? 'Stop Editing' : 'Edit Row'}
-                              onClick={() => toggleSelect(item.item_id)}
-                              className={`p-1 h-6 w-6 rounded ${isSelected ? 'text-primary bg-primary/10' : 'text-slate-400 hover:text-primary hover:bg-primary/10'}`}
-                            >
-                              <Pencil size={13} />
-                            </Button>
-                            {hasInfoEdits && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                type="button"
-                                title="Save changes (without dispatching)"
-                                onClick={() => handleSaveRowInfo(item)}
-                                className="p-1 h-6 w-6 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded"
-                              >
-                                <Check size={13} />
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              type="button"
-                              title="Delete Row"
-                              onClick={() => handleDeletePendingItem(item)}
-                              className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
-                            >
-                              <Trash2 size={13} />
-                            </Button>
-                          </div>
-                        </td>
                       </tr>
                     );
                   })}
@@ -1844,16 +1760,19 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
               <table className="w-full text-xs">
                 <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                   <tr>
-                    <th className="sticky left-0 z-20 bg-blue-50 w-16 min-w-16 px-2 py-3 text-center">
+                    <th className="sticky left-0 z-20 bg-blue-50 w-12 min-w-12 px-2 py-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                       </div>
+                    </th>
+                    <th className="sticky left-12 z-20 bg-blue-50 w-20 min-w-20 px-2 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
+                      Action
                     </th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                    <th className="sticky left-16 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in BAG</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in KG</th>
@@ -1865,7 +1784,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Remarks</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1885,7 +1803,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
 
                     return (
                       <tr key={del.delivery_id} className="group hover:bg-slate-50/60 transition-colors">
-                        <td className="sticky left-0 z-[5] w-16 min-w-16 px-2 py-3 text-center whitespace-nowrap bg-white group-hover:bg-slate-50">
+                        <td className="sticky left-0 z-[5] w-12 min-w-12 px-2 py-3 text-center whitespace-nowrap bg-white group-hover:bg-slate-50">
                           <div className="flex items-center justify-center gap-1.5">
                             <input
                               type="checkbox"
@@ -1893,6 +1811,20 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                               onChange={() => toggleSelect(del.delivery_id)}
                               className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                             />
+                          </div>
+                        </td>
+                        <td className="sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center whitespace-nowrap bg-white group-hover:bg-slate-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Delete Delivery"
+                              onClick={() => handleDeleteDelivery(del)}
+                              className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                            >
+                              <Trash2 size={13} />
+                            </Button>
                           </div>
                         </td>
                         <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
@@ -1907,7 +1839,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
                           {vendorName}
                         </td>
-                        <td className="sticky left-16 z-[5] px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap bg-white group-hover:bg-slate-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
+                        <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
                           {prod.name || '—'}
                           <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
                         </td>
@@ -1943,20 +1875,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         </td>
                         <td className="px-3 py-3 text-center text-slate-600 max-w-[200px] truncate" title={del.remarks || ''}>
                           {del.remarks || '—'}
-                        </td>
-                        <td className="px-2 py-3 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              type="button"
-                              title="Delete Delivery"
-                              onClick={() => handleDeleteDelivery(del)}
-                              className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
-                            >
-                              <Trash2 size={13} />
-                            </Button>
-                          </div>
                         </td>
                       </tr>
                     );
@@ -2005,6 +1923,15 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
           </div>
         </div>
       </div>
+
+      <EditDeliveryIndentModal
+        isOpen={!!editingItem}
+        onClose={() => setEditingItem(null)}
+        item={editingItem}
+        products={products}
+        vendors={vendors}
+        onSuccess={loadData}
+      />
     </div>
   );
 };

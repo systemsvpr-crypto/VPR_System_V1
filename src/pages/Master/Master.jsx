@@ -175,6 +175,16 @@ const Master = () => {
     return map;
   }, [allStock, godowns]);
 
+  const productCountByGodown = useMemo(() => {
+    const counts = {};
+    for (const p of products) {
+      if (p.godown_id) {
+        counts[p.godown_id] = (counts[p.godown_id] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [products]);
+
   const filteredProducts = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
     let result = products.filter(p => {
@@ -746,7 +756,8 @@ const Master = () => {
                 <div className="flex flex-col flex-1">
                   <GodownTable godowns={currentGodowns} totalItems={filteredGodowns.length} loading={loading} onToggle={handleToggleGodown} onEdit={handleEditGodown} searchTerm={searchTerm} user={user} onDelete={handleDeleteGodown} typeFilter={godownTypeFilter}
                     currentPage={currentPage} totalPages={totalGodownPages} itemsPerPage={itemsPerPage}
-                    onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
+                    onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage}
+                    productCounts={productCountByGodown} />
                 </div>
               )}
               {activeTab === 'customers' && (
@@ -793,7 +804,7 @@ const Master = () => {
       <ProductModal isOpen={productModalOpen} onClose={handleCloseProductModal}
         godowns={godowns} groups={groups} products={products} user={user} onSuccess={loadData} editingProduct={editingProduct} />
       <GodownModal isOpen={godownModalOpen} onClose={handleCloseGodownModal}
-        onSuccess={loadData} editingGodown={editingGodown} />
+        onSuccess={loadData} editingGodown={editingGodown} products={products} allGodowns={godowns} />
       <BulkImportModal isOpen={importModalOpen} onClose={() => setImportModalOpen(false)}
         godowns={godowns} products={products} user={user} onSuccess={loadData} />
       <BulkImportOpeningStockModal isOpen={openingStockImportOpen} onClose={() => setOpeningStockImportOpen(false)}

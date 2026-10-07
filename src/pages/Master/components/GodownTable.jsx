@@ -1,6 +1,6 @@
 import { ToggleLeft, ToggleRight, Warehouse, Trash2, Edit2 } from 'lucide-react';
 import DataTable from '@/components/DataTable';
-const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTerm, user, onDelete, typeFilter, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
+const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTerm, user, onDelete, typeFilter, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange, productCounts = {} }) => {
   const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
   if (loading) {
     return (
@@ -32,7 +32,7 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTer
   return (
     <DataTable
       headers={[
-        'Name', 'Godown Type', 'Status', 'Actions'
+        'Name', 'Godown Type', 'Assigned Products', 'Status', 'Actions'
       ]}
       data={godowns}
       currentPage={currentPage}
@@ -46,6 +46,11 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTer
           <td className="px-4 py-3 text-center font-medium text-slate-800">{g.name}</td>
           <td className="px-4 py-3 text-center">
             <span className="text-[10px] sm:text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{g.godown_type || 'Own'}</span>
+          </td>
+          <td className="px-4 py-3 text-center">
+            <span className="text-[10px] sm:text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+              {productCounts[g.godown_id] || 0} product{(productCounts[g.godown_id] || 0) === 1 ? '' : 's'}
+            </span>
           </td>
           <td className="px-4 py-3 text-center">
             {g.is_active
@@ -91,12 +96,20 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTer
               )}
             </div>
           </div>
-          <div className="bg-slate-50 p-2 rounded-lg text-xs">
-            <span className="text-slate-500 block mb-1">Status</span>
-            {g.is_active
-              ? <span className="text-green-600 font-medium">Active</span>
-              : <span className="text-red-500 font-medium">Inactive</span>
-            }
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-slate-50 p-2 rounded-lg">
+              <span className="text-slate-500 block mb-1">Assigned Products</span>
+              <span className="text-slate-700 font-medium">
+                {productCounts[g.godown_id] || 0} product{(productCounts[g.godown_id] || 0) === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div className="bg-slate-50 p-2 rounded-lg">
+              <span className="text-slate-500 block mb-1">Status</span>
+              {g.is_active
+                ? <span className="text-green-600 font-medium">Active</span>
+                : <span className="text-red-500 font-medium">Inactive</span>
+              }
+            </div>
           </div>
         </div>
       )}

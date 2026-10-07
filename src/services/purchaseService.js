@@ -1994,22 +1994,43 @@ export const updatePendingDeliveryRowInfo = async ({ item_id, indent_id, indent_
 // transporter and product are only changed while the lift is still
 // "In Transit" — once stock has been posted (AT TPT GDN / Arrived) its
 // transactions are keyed on them, so the caller must not send them then.
-export const updateAawakLiftInfo = async ({ delivery_id, item_id, indent_id, lifting_number, delivery_date, dispatch_qty_kg, dispatch_qty_bag, transporter_id, product_id, process_type }) => {
+export const updateAawakLiftInfo = async ({
+  delivery_id,
+  item_id,
+  indent_id,
+  lifting_number,
+  delivery_date,
+  dispatch_qty_kg,
+  dispatch_qty_bag,
+  transporter_id,
+  product_id,
+  process_type,
+  lr_number,
+  expected_delivery_date,
+  driver_phone_number,
+  vehicle_number,
+  remarks,
+}) => {
   const liftFields = {};
   if (lifting_number !== undefined) liftFields.lifting_number = lifting_number;
   if (delivery_date !== undefined) liftFields.delivery_date = delivery_date;
   if (dispatch_qty_kg !== undefined) liftFields.dispatch_qty_kg = dispatch_qty_kg === '' ? null : Number(dispatch_qty_kg);
   if (dispatch_qty_bag !== undefined) liftFields.dispatch_qty_bag = dispatch_qty_bag === '' ? null : Number(dispatch_qty_bag);
   if (transporter_id !== undefined) liftFields.transporter_id = transporter_id || null;
+  if (lr_number !== undefined) liftFields.lr_number = lr_number || null;
+  if (expected_delivery_date !== undefined) liftFields.expected_delivery_date = expected_delivery_date || null;
+  if (driver_phone_number !== undefined) liftFields.driver_phone_number = driver_phone_number || null;
+  if (vehicle_number !== undefined) liftFields.vehicle_number = vehicle_number || null;
+  if (remarks !== undefined) liftFields.remarks = remarks || null;
   if (Object.keys(liftFields).length > 0) {
     const { error } = await supabase.from('purchase_deliveries').update(liftFields).eq('delivery_id', delivery_id);
     if (error) throw error;
   }
-  if (product_id !== undefined && item_id) {
+  if (product_id && item_id) {
     const { error } = await supabase.from('purchase_indent_items').update({ product_id }).eq('item_id', item_id);
     if (error) throw error;
   }
-  if (process_type !== undefined && indent_id) {
+  if (process_type && indent_id) {
     const { error } = await supabase.from('purchase_indents').update({ process_type }).eq('indent_id', indent_id);
     if (error) throw error;
   }

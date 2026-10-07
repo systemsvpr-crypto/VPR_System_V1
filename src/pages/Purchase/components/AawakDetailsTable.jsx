@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
 import FilterMenu from '@/components/FilterMenu';
+import EditAawakLiftModal from './EditAawakLiftModal';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -41,6 +42,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
   const [selectedLifts, setSelectedLifts] = useState(new Set());
   const [editingRows, setEditingRows] = useState({});
+  const [editingLift, setEditingLift] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [savingLiftId, setSavingLiftId] = useState(null);
   const [deletingSelected, setDeletingSelected] = useState(false);
@@ -96,11 +98,11 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   const transporterOptions = useMemo(() => {
     const map = new Map();
     activeDeliveriesList.forEach(d => {
-      const name = d.transporters?.name;
+      const name = d.transporters?.name || transporters.find(t => String(t.transporter_id) === String(d.transporter_id))?.name;
       if (name) map.set(name, name);
     });
     return Array.from(map.values());
-  }, [activeDeliveriesList]);
+  }, [activeDeliveriesList, transporters]);
 
   // Only real (Own) godowns are valid final destinations — Transporter-type
   // godowns are just stock-tracking placeholders used while "AT TPT GDN."
@@ -140,7 +142,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
       const pName = d.purchase_indent_items?.products?.name || '';
       const matchProduct = !productFilter || pName === productFilter;
-      const tName = d.transporters?.name || '';
+      const tName = d.transporters?.name || transporters.find(t => String(t.transporter_id) === String(d.transporter_id))?.name || '';
       const matchTransporter = !transporterFilter || tName === transporterFilter;
 
       const vName = d.purchase_indent_items?.approved_vendor?.name || d.purchase_indent_items?.item_vendor?.name || '';
@@ -571,7 +573,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
             const uiStatus = getRowVal(del, 'status');
             const indent = del.purchase_indent_items?.purchase_indents || {};
             const vendorName = del.purchase_indent_items?.approved_vendor?.name || del.purchase_indent_items?.item_vendor?.name || '';
-            const transporterName = del.transporters?.name || '';
+            const transporterName = del.transporters?.name || transporters.find(t => String(t.transporter_id) === String(del.transporter_id))?.name || '';
 
             // Godown display value resolved from dropdown selection
             const godownId = getRowVal(del, 'godown_id');
@@ -781,9 +783,9 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       variant="ghost"
                       size="icon"
                       type="button"
-                      title={isSelected ? 'Stop Editing' : 'Edit Lift'}
-                      onClick={() => toggleSelect(del.delivery_id)}
-                      className={`p-1 h-7 w-7 rounded-lg shrink-0 ${isSelected ? 'text-primary bg-primary/10' : 'text-slate-400 hover:text-primary hover:bg-primary/10'}`}
+                      title="Edit Lift"
+                      onClick={() => setEditingLift(del)}
+                      className="p-1 h-7 w-7 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg shrink-0"
                     >
                       <Pencil size={13} />
                     </Button>
@@ -1184,7 +1186,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
             <table className="w-full text-xs">
               <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
                 <tr>
-                  <th className="sticky left-0 z-20 bg-blue-50 w-16 min-w-16 px-2 py-3 text-center">
+                  <th className="sticky left-0 z-20 bg-blue-50 w-12 min-w-12 px-2 py-3 text-center">
                     <div className="flex items-center justify-center gap-1.5">
                       <input
                         type="checkbox"
@@ -1195,9 +1197,10 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       />
                     </div>
                   </th>
+                  <th className="sticky left-12 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[70px] w-20">Action</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">{isHistory ? 'Receiving Date' : 'Date'}</th>
-                  <th className="sticky left-16 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (KG)</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (Bags)</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
@@ -1211,7 +1214,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                   {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Driver No.</th>}
                   {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">Vehicle No.</th>}
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1228,35 +1230,18 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                 {currentDeliveries.map(del => {
                   const isSelected = selectedLifts.has(del.delivery_id);
                   const locked = isRowLocked(del);
-                  // Edit (checked) opens the lift's own columns too; Lifting No. /
-                  // Product / Transporter only while still In Transit.
-                  const canEditInfo = isSelected && !locked;
-                  const canEditIdentity = canEditInfo && canEditLiftIdentity(del);
-                  const productIdVal = getInfoVal(del, 'info_product_id', String(del.purchase_indent_items?.product_id ?? ''));
-                  const editedProduct = editingRows[del.delivery_id]?.info_product_id !== undefined
-                    ? products.find(p => String(p.product_id) === String(productIdVal))
-                    : null;
-                  const prod = editedProduct || del.purchase_indent_items?.products || {};
-                  const liftingNumberVal = getInfoVal(del, 'info_lifting_number', del.lifting_number || '');
-                  const deliveryDateVal = getInfoVal(del, 'info_delivery_date', del.delivery_date ? del.delivery_date.slice(0, 10) : '');
-                  // Lifts marked Arrived before Receiving Date was saved on that
-                  // path have none stored — fall back to the day they were
-                  // marked Arrived (status_updated_at), which is when stock came in.
+                  const prod = del.purchase_indent_items?.products || {};
                   const receivingDateVal = getRowVal(del, 'receiving_date')
                     || (locked && del.status_updated_at ? format(new Date(del.status_updated_at), 'yyyy-MM-dd') : '');
-                  const qtyKgVal = getInfoVal(del, 'info_dispatch_qty_kg', del.dispatch_qty_kg != null ? String(Number(Number(del.dispatch_qty_kg).toFixed(2))) : '');
-                  const qtyBagVal = getInfoVal(del, 'info_dispatch_qty_bag', del.dispatch_qty_bag != null ? String(Number(Number(del.dispatch_qty_bag).toFixed(2))) : '');
-                  const transporterIdVal = getInfoVal(del, 'info_transporter_id', String(del.transporter_id || ''));
-                  const transporterName = transporters.find(t => String(t.transporter_id) === String(transporterIdVal))?.name || del.transporters?.name;
-                  const processTypeVal = getInfoVal(del, 'info_process_type', del.purchase_indent_items?.purchase_indents?.process_type || '');
-                  const infoInputCls = 'h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white';
-                  const infoSelectCls = 'w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30';
-
+                  const qtyKgVal = del.dispatch_qty_kg != null ? String(Number(Number(del.dispatch_qty_kg).toFixed(2))) : '';
+                  const qtyBagVal = del.dispatch_qty_bag != null ? String(Number(Number(del.dispatch_qty_bag).toFixed(2))) : '';
+                  const transporterName = del.transporters?.name || transporters.find(t => String(t.transporter_id) === String(del.transporter_id))?.name || '—';
+                  const processTypeVal = del.purchase_indent_items?.purchase_indents?.process_type || del.process_type || '';
                   const uiStatus = getRowVal(del, 'status');
 
                   return (
                     <tr key={del.delivery_id} className={`group hover:bg-slate-50/60 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
-                      <td className={`sticky left-0 z-[5] w-16 min-w-16 px-2 py-3 text-center whitespace-nowrap ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
+                      <td className={`sticky left-0 z-[5] w-12 min-w-12 px-2 py-3 text-center whitespace-nowrap ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                         <div className="flex items-center justify-center gap-1.5">
                           <input
                             type="checkbox"
@@ -1266,91 +1251,53 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           />
                         </div>
                       </td>
+                      <td className={`sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
+                        <div className="flex items-center justify-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            type="button"
+                            title="Edit Lift"
+                            onClick={() => setEditingLift(del)}
+                            className="p-1 h-6 w-6 text-slate-400 hover:text-primary hover:bg-primary/10 rounded transition-all"
+                          >
+                            <Pencil size={13} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            type="button"
+                            title={isHistory ? 'Move back to Pending' : 'Delete Lift'}
+                            onClick={() => handleDeleteDelivery(del)}
+                            className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                          >
+                            <Trash2 size={13} />
+                          </Button>
+                        </div>
+                      </td>
                       <td className="px-3 py-3 text-center text-slate-800 font-semibold whitespace-nowrap">
-                        {canEditIdentity ? (
-                          <Input
-                            type="text"
-                            value={liftingNumberVal}
-                            onChange={e => setRowVal(del.delivery_id, 'info_lifting_number', e.target.value)}
-                            className={`${infoInputCls} min-w-[110px]`}
-                          />
-                        ) : (liftingNumberVal || '—')}
+                        {del.lifting_number || '—'}
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {/* History shows the Receiving Date here; Pending keeps the dispatch (Actual) date */}
                         {isHistory ? (
-                          isSelected ? (
-                            <DatePicker
-                              showActions
-                              value={receivingDateVal}
-                              onChange={e => handleReceivingDateChange(del.delivery_id, e.target.value)}
-                              className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
-                            />
-                          ) : (receivingDateVal ? format(new Date(receivingDateVal), 'dd/MM/yyyy') : '—')
-                        ) : canEditInfo ? (
-                          <DatePicker
-                            showActions
-                            value={deliveryDateVal}
-                            onChange={e => setRowVal(del.delivery_id, 'info_delivery_date', e.target.value)}
-                            className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
-                          />
-                        ) : (deliveryDateVal ? format(new Date(deliveryDateVal), 'dd/MM/yyyy') : '—')}
-                      </td>
-                      <td className={`sticky left-16 z-[5] px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
-                        {canEditIdentity ? (
-                          <select
-                            value={productIdVal}
-                            onChange={e => setRowVal(del.delivery_id, 'info_product_id', e.target.value)}
-                            className={`${infoSelectCls} min-w-[170px]`}
-                          >
-                            {products.map(p => (
-                              <option key={p.product_id} value={String(p.product_id)}>{p.name} ({p.unit || '—'})</option>
-                            ))}
-                          </select>
+                          receivingDateVal ? format(new Date(receivingDateVal), 'dd/MM/yyyy') : '—'
                         ) : (
-                          <>
-                            {prod.name || '—'}
-                            <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
-                          </>
+                          del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'
                         )}
                       </td>
-                      <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
-                        {canEditInfo ? (
-                          <Input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={qtyKgVal}
-                            onChange={e => setRowVal(del.delivery_id, 'info_dispatch_qty_kg', e.target.value)}
-                            className={`${infoInputCls} text-center w-24`}
-                          />
-                        ) : (qtyKgVal || '—')}
+                      <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
+                        {prod.name || '—'}
+                        <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
                       </td>
                       <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
-                        {canEditInfo ? (
-                          <Input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={qtyBagVal}
-                            onChange={e => setRowVal(del.delivery_id, 'info_dispatch_qty_bag', e.target.value)}
-                            className={`${infoInputCls} text-center w-24`}
-                          />
-                        ) : (qtyBagVal || '—')}
+                        {qtyKgVal || '—'}
+                      </td>
+                      <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
+                        {qtyBagVal || '—'}
                       </td>
                       <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
-                        {canEditIdentity ? (
-                          <select
-                            value={transporterIdVal}
-                            onChange={e => setRowVal(del.delivery_id, 'info_transporter_id', e.target.value)}
-                            className={`${infoSelectCls} min-w-[140px]`}
-                          >
-                            <option value="">Select transp...</option>
-                            {transporters.map(t => (
-                              <option key={t.transporter_id} value={String(t.transporter_id)}>{t.name}</option>
-                            ))}
-                          </select>
-                        ) : (transporterName || '—')}
+                        {transporterName}
                       </td>
                       <td className="px-3 py-3 text-center">
                         <Input
@@ -1454,18 +1401,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         </td>
                       )}
                       <td className="px-3 py-3 text-center">
-                        {canEditInfo ? (
-                          <select
-                            value={processTypeVal}
-                            onChange={e => setRowVal(del.delivery_id, 'info_process_type', e.target.value)}
-                            className={`${infoSelectCls} min-w-[100px]`}
-                          >
-                            <option value="direct">Direct</option>
-                            <option value="process">Process</option>
-                          </select>
-                        ) : (
-                          <IndentTypeBadge processType={processTypeVal} />
-                        )}
+                        <IndentTypeBadge processType={processTypeVal} />
                       </td>
                       {showEditCols && (
                         <td className="px-3 py-3 text-center min-w-[140px]">
@@ -1483,7 +1419,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         </td>
                       )}
                       {showEditCols && (
-                        <td className="px-3 py-3 text-center">
+                        <td className="px-3 py-3 text-center min-w-[110px]">
                           {isSelected ? (
                             <Input
                               type="text"
@@ -1497,28 +1433,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           )}
                         </td>
                       )}
-                      <td className="px-2 py-3 text-center whitespace-nowrap">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          type="button"
-                          title={isSelected ? 'Stop Editing' : 'Edit Lift'}
-                          onClick={() => toggleSelect(del.delivery_id)}
-                          className={`p-1 h-6 w-6 rounded transition-all ${isSelected ? 'text-primary bg-primary/10' : 'text-slate-400 hover:text-primary hover:bg-primary/10'}`}
-                        >
-                          <Pencil size={13} />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          type="button"
-                          title="Delete Lift"
-                          onClick={() => handleDeleteDelivery(del)}
-                          className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
-                        >
-                          <Trash2 size={13} />
-                        </Button>
-                      </td>
                     </tr>
                   );
                 })}
@@ -1565,6 +1479,15 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
           </div>
         </div>
       </div>
+
+      <EditAawakLiftModal
+        isOpen={!!editingLift}
+        onClose={() => setEditingLift(null)}
+        delivery={editingLift}
+        products={products}
+        transporters={transporters}
+        onSuccess={loadData}
+      />
     </div>
   );
 };
