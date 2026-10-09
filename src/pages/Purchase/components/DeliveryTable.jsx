@@ -897,16 +897,18 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                   {/* Right Column: Actions (Edit / Delete) */}
                   {canModify && (
                     <div className="flex items-center justify-end xl:justify-center gap-1.5 shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        type="button"
-                        title="Edit Indent"
-                        onClick={() => setEditingItem(item)}
-                        className="p-1 h-7 w-7 rounded-lg shrink-0 text-slate-400 hover:text-primary hover:bg-primary/10 transition-all"
-                      >
-                        <Pencil size={13} />
-                      </Button>
+                      {!isSelected && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          type="button"
+                          title="Edit Indent"
+                          onClick={() => setEditingItem(item)}
+                          className="p-1 h-7 w-7 rounded-lg shrink-0 text-slate-400 hover:text-primary hover:bg-primary/10 transition-all"
+                        >
+                          <Pencil size={13} />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -1285,7 +1287,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   }
 
   return (
-    <div className="flex flex-col gap-4 font-sans flex-1 min-h-0">
+    <div className="flex flex-col gap-3 font-sans flex-1 min-h-0 overflow-hidden">
       {/* Sub-tabs + Search & Filter Toolbar, all in one wrapping row */}
       <div className="flex flex-wrap items-center gap-2 shrink-0">
         <div className="flex items-center gap-1 shrink-0">
@@ -1458,7 +1460,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
       </div>
 
       {/* Main Table - Modern Dispatch Day Container */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 min-h-0">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 min-h-0 overflow-hidden">
         {/* ── Sub-header bar with Select All Checkbox & Count (same as Sales Dispatch Planning) ── */}
         <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex-wrap shrink-0">
           <div className="flex items-center gap-2">
@@ -1560,16 +1562,18 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         <td className={`sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                           {canModify ? (
                             <div className="flex items-center justify-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                type="button"
-                                title="Edit Indent"
-                                onClick={() => setEditingItem(item)}
-                                className="p-1 h-6 w-6 text-slate-400 hover:text-primary hover:bg-primary/10 rounded transition-all"
-                              >
-                                <Pencil size={13} />
-                              </Button>
+                              {!isSelected && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  type="button"
+                                  title="Edit Indent"
+                                  onClick={() => setEditingItem(item)}
+                                  className="p-1 h-6 w-6 text-slate-400 hover:text-primary hover:bg-primary/10 rounded transition-all"
+                                >
+                                  <Pencil size={13} />
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="icon"
