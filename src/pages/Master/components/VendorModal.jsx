@@ -5,6 +5,7 @@ import { createVendor, updateVendor, deleteVendor } from '../../../services/vend
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor, user, onDelete }) => {
   const [name, setName] = useState('');
@@ -16,7 +17,7 @@ const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor, user, onDelete
   const [deleting, setDeleting] = useState(false);
 
   const isEditing = !!editingVendor;
-  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
+  const canDeleteVendor = canEditOrDelete(user);
 
   useEffect(() => {
     if (!isOpen) {
@@ -110,7 +111,7 @@ const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor, user, onDelete
           </ModalBody>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            {isEditing && isSuperAdmin && (
+            {isEditing && canDeleteVendor && (
               <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
                 <Trash2 size={16} className="mr-1" />
                 {deleting ? 'Deleting...' : 'Delete'}

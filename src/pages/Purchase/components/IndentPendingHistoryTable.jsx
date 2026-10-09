@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
+import { canEditOrDelete } from '../../../lib/permissions';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -69,12 +70,7 @@ const buildItemNoMap = (allItems) => {
  * auto-approved/Planned right at creation, so they land straight in History).
  */
 const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarExtra, searchTerm = '', onSearchChange, onDelete, groups = [] }) => {
-  // Same gating as the old Indent table: deletion is destructive (it removes
-  // the whole indent + every item/delivery under it), so only Super Admin —
-  // or a local dev build — gets the button at all.
-  const roleUpper = String(user?.role || '').trim().toUpperCase();
-  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
-  const canDelete = import.meta.env.DEV || isSuperAdmin;
+  const canDelete = canEditOrDelete(user);
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -319,6 +315,10 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
   };
 
   const handleDeleteRow = async (item) => {
+    if (!canDelete) {
+      toast.error('You do not have permission to delete indent items');
+      return;
+    }
     const pName = item.products?.name || 'this product';
     const iNum = item.purchase_indents?.indent_number || '';
     if (!window.confirm(`Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`)) return;
@@ -340,6 +340,10 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
   // per-row delete button did. Confirms once for the whole batch rather than
   // once per row.
   const deleteSelected = async () => {
+    if (!canDelete) {
+      toast.error('You do not have permission to delete indent items');
+      return;
+    }
     if (selectedCount === 0) { toast.error('No rows selected.'); return; }
     if (!window.confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`)) return;
     setDeleting(true);
@@ -651,16 +655,18 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                                   <ChevronDown size={13} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                                 </Button>
                               )}
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                type="button"
-                                title="Delete Row"
-                                onClick={() => handleDeleteRow(item)}
-                                className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
-                              >
-                                <Trash2 size={13} />
-                              </Button>
+                              {canDelete && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  type="button"
+                                  title="Delete Row"
+                                  onClick={() => handleDeleteRow(item)}
+                                  className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
+                                >
+                                  <Trash2 size={13} />
+                                </Button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -677,7 +683,6 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                                 placeholder="Select vendor..."
                                 searchPlaceholder="Search vendors..."
                                 align="start"
-                                disabled={!selected}
                                 className="h-8 text-xs w-full bg-white"
                               />
                             </div>
@@ -688,7 +693,6 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                                   type="text"
                                   inputMode="decimal"
                                   placeholder="0.00"
-                                  disabled={!selected}
                                   value={getValue(item, 'rate')}
                                   onChange={(e) => {
                                     let val = e.target.value.replace(/[^0-9.]/g, '');
@@ -702,10 +706,9 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                               <div className="col-span-6 sm:col-span-3">
                                 <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Approve Unit</label>
                                 <select
-                                  disabled={!selected}
                                   value={getValue(item, 'approve_unit')}
                                   onChange={(e) => handleApproveUnitChange(item, e.target.value)}
-                                  className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                                  className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
                                 >
                                   <option value="bag">BAG</option>
                                   <option value="kg">KG</option>
@@ -717,7 +720,6 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                                   type="text"
                                   inputMode="decimal"
                                   placeholder="Qty"
-                                  disabled={!selected}
                                   value={getValue(item, 'approve_unit_qty')}
                                   onChange={(e) => setItemField(item, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
                                   className="h-8 text-xs font-medium text-center bg-white"
@@ -735,7 +737,6 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                                 <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Delivery Date</label>
                                 <DatePicker
                                   value={getValue(item, 'planning_date')}
-                                  disabled={!selected}
                                   onChange={(e) => setFieldForSelected(item, 'planning_date', e.target.value)}
                                   placeholder="Select date..."
                                   className="h-8 text-xs w-full bg-white"
@@ -746,7 +747,6 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                                 <Input
                                   type="text"
                                   placeholder="Remarks..."
-                                  disabled={!selected}
                                   value={getValue(item, 'vendor_remarks')}
                                   onChange={(e) => setItemField(item, 'vendor_remarks', e.target.value)}
                                   className="h-8 text-xs w-full bg-white"
@@ -835,16 +835,18 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                               onChange={() => toggleSelect(item.item_id)}
                               className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                             />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              type="button"
-                              title="Delete Row"
-                              onClick={() => handleDeleteRow(item)}
-                              className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                            >
-                              <Trash2 size={14} />
-                            </Button>
+                            {canDelete && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                type="button"
+                                title="Delete Row"
+                                onClick={() => handleDeleteRow(item)}
+                                className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3 text-center text-slate-600">
@@ -866,11 +868,10 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                                 onValueChange={(v) => setFieldForSelected(item, 'vendor_id', v)}
                                 options={vendorOptions} placeholder="Select vendor..."
                                 searchPlaceholder="Search vendors..." align="start"
-                                disabled={!selected} className="h-8 text-xs" />
+                                className="h-8 text-xs" />
                             </td>
                             <td className="px-4 py-3">
                               <Input type="text" inputMode="decimal" placeholder="Rate"
-                                disabled={!selected}
                                 value={getValue(item, 'rate')}
                                 onChange={(e) => {
                                   let val = e.target.value.replace(/[^0-9.]/g, '');
@@ -882,10 +883,9 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                             </td>
                             <td className="px-4 py-3">
                               <select
-                                disabled={!selected}
                                 value={getValue(item, 'approve_unit')}
                                 onChange={(e) => handleApproveUnitChange(item, e.target.value)}
-                                className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                                className="w-full h-8 text-xs px-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
                               >
                                 <option value="bag">BAG</option>
                                 <option value="kg">KG</option>
@@ -894,7 +894,6 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                             <td className="px-4 py-3">
                               <div className="w-20 mx-auto">
                                 <Input type="text" inputMode="decimal" placeholder="Qty"
-                                  disabled={!selected}
                                   value={getValue(item, 'approve_unit_qty')}
                                   onChange={(e) => setItemField(item, 'approve_unit_qty', sanitizeQtyInput(e.target.value))}
                                   className="h-8 text-xs text-center" />
@@ -905,13 +904,11 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                             </td>
                             <td className="px-4 py-3 min-w-[150px] text-center">
                               <DatePicker value={getValue(item, 'planning_date')}
-                                disabled={!selected}
                                 onChange={(e) => setFieldForSelected(item, 'planning_date', e.target.value)}
                                 placeholder="Select date..." className="h-8 text-xs" />
                             </td>
                             <td className="px-4 py-3 min-w-[130px] text-center">
                               <Input type="text" placeholder="Remarks"
-                                disabled={!selected}
                                 value={getValue(item, 'vendor_remarks')}
                                 onChange={(e) => setItemField(item, 'vendor_remarks', e.target.value)}
                                 className="h-8 text-xs text-center" />

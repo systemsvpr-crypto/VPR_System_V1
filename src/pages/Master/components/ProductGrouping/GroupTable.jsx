@@ -2,8 +2,12 @@ import React, { useState, useMemo } from 'react';
 import { FolderTree, Edit2, Trash2, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DataTable from '@/components/DataTable';
+import useAuthStore from '../../../../store/authStore';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, searchTerm, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
+  const { user } = useAuthStore();
+  const userCanEdit = canEditOrDelete(user);
   const [expandedGroups, setExpandedGroups] = useState(new Set());
 
   const toggleExpand = (groupId) => {
@@ -83,16 +87,20 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, searchTerm,
                 </span>
               </td>
               <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
-                <div className="flex items-center justify-center gap-1">
-                  <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(g)}
-                    className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
-                    <Edit2 size={15} />
-                  </Button>
-                  <Button variant="ghost" size="icon" type="button" onClick={() => onDelete(g)}
-                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-all">
-                    <Trash2 size={15} />
-                  </Button>
-                </div>
+                {userCanEdit ? (
+                  <div className="flex items-center justify-center gap-1">
+                    <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(g)}
+                      className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
+                      <Edit2 size={15} />
+                    </Button>
+                    <Button variant="ghost" size="icon" type="button" onClick={() => onDelete(g)}
+                      className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-all">
+                      <Trash2 size={15} />
+                    </Button>
+                  </div>
+                ) : (
+                  <span className="text-slate-300 text-xs">—</span>
+                )}
               </td>
             </tr>
             {isExpanded && (
@@ -133,12 +141,16 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, searchTerm,
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
                   {g.allProducts?.length || 0} Products
                 </span>
-                <Button variant="ghost" size="icon" onClick={() => onEdit(g)} className="text-slate-400 hover:text-primary h-8 w-8">
-                  <Edit2 size={14} />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => onDelete(g)} className="text-slate-300 hover:text-red-500 h-8 w-8">
-                  <Trash2 size={14} />
-                </Button>
+                {userCanEdit && (
+                  <>
+                    <Button variant="ghost" size="icon" onClick={() => onEdit(g)} className="text-slate-400 hover:text-primary h-8 w-8">
+                      <Edit2 size={14} />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => onDelete(g)} className="text-slate-300 hover:text-red-500 h-8 w-8">
+                      <Trash2 size={14} />
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
             {isExpanded && (

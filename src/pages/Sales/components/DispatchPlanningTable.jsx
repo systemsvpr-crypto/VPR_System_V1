@@ -20,6 +20,7 @@ import FilterMenu from '@/components/FilterMenu';
 import { DatePicker } from '@/components/ui/date-picker';
 import DataTable from '@/components/DataTable';
 import { sanitizeQtyInput } from '@/lib/qty';
+import { canEditOrDelete } from '@/lib/permissions';
 import DirectOrderModal from './DirectOrderModal';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
@@ -86,11 +87,7 @@ const buildProductNoMap = (rawItems) => {
    Main component
 ────────────────────────────────────────────────────────── */
 const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchChange, onFilterChange, onSave, user, products, customers, ranks = [], productGroups = [], onImportProducts, onImportCustomers }) => {
-  // Same gate as the "Delete order" button in the main Sales orders list —
-  // this wipes rows out of sales_order_items/sales_orders permanently.
-  const roleUpper = String(user?.role || '').trim().toUpperCase();
-  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
-  const canDelete = import.meta.env.DEV || isSuperAdmin;
+  const canDelete = canEditOrDelete(user);
 
   const [items, setItems]                   = useState([]);
   const [historyPlans, setHistoryPlans]     = useState([]);
@@ -606,6 +603,10 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   // only gets some of them deleted, never actually goes empty, and silently
   // never gets cleaned up from sales_orders despite looking fully removed.
   const handleDeleteSelected = async () => {
+    if (!canDelete) {
+      toast.error('Permission denied. Only Admins can delete dispatch items.');
+      return;
+    }
     const toDelete = dashboardItems.filter(i => selectedForDispatch.has(i.item_id));
     if (toDelete.length === 0) { toast.error('No rows selected.'); return; }
 
@@ -638,6 +639,10 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   // dispatched or deducted from stock. Whether that number ends up
   // dispatched or cancelled is decided purely by which button gets clicked.
   const handleCancelOrder = async () => {
+    if (!canDelete) {
+      toast.error('Permission denied. Only Admins can cancel orders.');
+      return;
+    }
     const toCancel = dashboardItems
       .filter(item => selectedForDispatch.has(item.item_id))
       .map(item => ({ item, qty: buildDispatchPayload(item).convertedQty }))

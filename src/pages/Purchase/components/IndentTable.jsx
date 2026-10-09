@@ -3,12 +3,11 @@ import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import useAuthStore from '../../../store/authStore';
 import { getGroupNameFromItem } from '../../../services/productGroupingService';
+import { canEditOrDelete } from '../../../lib/permissions';
 
 const IndentTable = ({ indents, totalItems, loading, onEdit, onDelete, searchTerm, groups = [] }) => {
   const { user } = useAuthStore();
-  const roleUpper = String(user?.role || '').trim().toUpperCase();
-  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
-  const canDelete = import.meta.env.DEV || isSuperAdmin;
+  const canModify = canEditOrDelete(user);
 
   if (loading) {
     return (
@@ -73,16 +72,20 @@ const IndentTable = ({ indents, totalItems, loading, onEdit, onDelete, searchTer
             return (
               <tr key={`${o.indent_id}-${item ? item.item_id : 'empty'}-${index}`} className="group hover:bg-slate-50/80 transition-colors">
                 <td className="px-4 py-3 text-center flex items-center justify-center gap-1 whitespace-nowrap sticky left-0 bg-white group-hover:bg-slate-50 shadow-[4px_0_15px_-3px_rgba(0,0,0,0.1)]">
-                  <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(o)}
-                    className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
-                    <Edit2 size={15} />
-                  </Button>
-                  {canDelete && (
-                    <Button variant="ghost" size="icon" type="button" onClick={() => onDelete(o)}
-                      title="Delete indent"
-                      className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all">
-                      <Trash2 size={15} />
-                    </Button>
+                  {canModify ? (
+                    <>
+                      <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(o)}
+                        className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
+                        <Edit2 size={15} />
+                      </Button>
+                      <Button variant="ghost" size="icon" type="button" onClick={() => onDelete(o)}
+                        title="Delete indent"
+                        className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all">
+                        <Trash2 size={15} />
+                      </Button>
+                    </>
+                  ) : (
+                    <span className="text-slate-300 text-xs">—</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{format(new Date(o.indent_date), 'dd/MM/yyyy')}</td>

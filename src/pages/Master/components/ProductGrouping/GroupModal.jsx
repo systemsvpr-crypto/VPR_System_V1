@@ -6,6 +6,7 @@ import { getAllProducts } from '../../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }) => {
   const [groupName, setGroupName] = useState('');
@@ -19,7 +20,7 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
   const [alreadyGroupedProductIds, setAlreadyGroupedProductIds] = useState(new Set());
 
   const isEditing = !!editingGroup;
-  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
+  const canDeleteGroup = canEditOrDelete(user);
 
   // Products auto-linked to this group via group_id — their shared Brand Name
   // + Category is what the group name is built from, so editing those two
@@ -282,7 +283,7 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
           </ModalBody>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            {isEditing && isSuperAdmin && (
+            {isEditing && canDeleteGroup && (
               <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
                 <Trash2 size={16} className="mr-1" />
                 {deleting ? 'Deleting...' : 'Delete'}

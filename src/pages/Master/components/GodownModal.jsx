@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
+import { canEditOrDelete } from '../../../lib/permissions';
 
 const GodownModal = ({
   isOpen,
@@ -20,6 +21,7 @@ const GodownModal = ({
   editingGodown,
   products: propProducts = [],
   allGodowns: propGodowns = [],
+  user,
 }) => {
   const [name, setName] = useState('');
   const [godownType, setGodownType] = useState('Own');
@@ -141,6 +143,10 @@ const GodownModal = ({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (editingGodown && !canEditOrDelete(user)) {
+      toast.error('You do not have permission to edit godowns.');
+      return;
+    }
     const trimmedName = name.trim();
     if (!trimmedName) {
       toast.error('Godown name is required.');

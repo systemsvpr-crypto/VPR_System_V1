@@ -6,8 +6,9 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/comp
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
+import { canEditOrDelete } from '../../../lib/permissions';
 
-const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transporters = [], onSuccess }) => {
+const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transporters = [], user, onSuccess }) => {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     lifting_number: '',
@@ -75,6 +76,10 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canEditOrDelete(user)) {
+      toast.error('You do not have permission to edit deliveries');
+      return;
+    }
     if (!delivery) return;
 
     if (!form.lifting_number?.trim()) {

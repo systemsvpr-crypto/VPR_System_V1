@@ -1,8 +1,12 @@
 import { Building2, Edit2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DataTable from '@/components/DataTable';
+import useAuthStore from '../../../store/authStore';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const VendorTable = ({ vendors, totalItems, loading, onEdit, searchTerm, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
+  const { user } = useAuthStore();
+  const userCanEdit = canEditOrDelete(user);
   if (loading) {
     return (
       <div className="p-12 text-center">
@@ -46,10 +50,14 @@ const VendorTable = ({ vendors, totalItems, loading, onEdit, searchTerm, current
           <td className="px-4 py-3 text-center text-slate-600">{v.email || '—'}</td>
           <td className="px-4 py-3 text-center text-slate-600">{v.gst_number || '—'}</td>
           <td className="px-4 py-3 text-center">
-            <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(v)}
-              className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
-              <Edit2 size={15} />
-            </Button>
+            {userCanEdit ? (
+              <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(v)}
+                className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
+                <Edit2 size={15} />
+              </Button>
+            ) : (
+              <span className="text-slate-300 text-xs">—</span>
+            )}
           </td>
         </tr>
       )}
@@ -60,9 +68,11 @@ const VendorTable = ({ vendors, totalItems, loading, onEdit, searchTerm, current
               <h4 className="font-semibold text-slate-800">{v.name}</h4>
               <p className="text-xs text-slate-500 mt-0.5">{v.location || 'No Location'}</p>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => onEdit(v)} className="text-slate-400 hover:text-primary h-8 w-8">
-              <Edit2 size={14} />
-            </Button>
+            {userCanEdit && (
+              <Button variant="ghost" size="icon" onClick={() => onEdit(v)} className="text-slate-400 hover:text-primary h-8 w-8">
+                <Edit2 size={14} />
+              </Button>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="bg-slate-50 p-2 rounded-lg">

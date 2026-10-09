@@ -2,8 +2,12 @@ import { Award, Edit2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import DataTable from '@/components/DataTable';
+import useAuthStore from '../../../store/authStore';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const RankTable = ({ ranks, totalItems, loading, onEdit, onDelete, searchTerm, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
+  const { user } = useAuthStore();
+  const userCanEdit = canEditOrDelete(user);
   if (loading) {
     return (
       <div className="p-12 text-center">
@@ -44,16 +48,20 @@ const RankTable = ({ ranks, totalItems, loading, onEdit, onDelete, searchTerm, c
           <td className="px-4 py-3 text-center font-medium text-slate-800">{r.rank_name}</td>
           <td className="px-4 py-3 text-center text-slate-400">{r.created_at ? format(new Date(r.created_at), 'dd/MM/yyyy') : '—'}</td>
           <td className="px-4 py-3 text-center">
-            <div className="flex items-center justify-center gap-1">
-              <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(r)}
-                className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
-                <Edit2 size={15} />
-              </Button>
-              <Button variant="ghost" size="icon" type="button" onClick={() => onDelete(r)}
-                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-all">
-                <Trash2 size={15} />
-              </Button>
-            </div>
+            {userCanEdit ? (
+              <div className="flex items-center justify-center gap-1">
+                <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(r)}
+                  className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
+                  <Edit2 size={15} />
+                </Button>
+                <Button variant="ghost" size="icon" type="button" onClick={() => onDelete(r)}
+                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-all">
+                  <Trash2 size={15} />
+                </Button>
+              </div>
+            ) : (
+              <span className="text-slate-300 text-xs">—</span>
+            )}
           </td>
         </tr>
       )}
@@ -66,14 +74,16 @@ const RankTable = ({ ranks, totalItems, loading, onEdit, onDelete, searchTerm, c
                 {r.created_at ? format(new Date(r.created_at), 'dd/MM/yyyy') : '—'}
               </p>
             </div>
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" onClick={() => onEdit(r)} className="text-slate-400 hover:text-primary h-8 w-8">
-                <Edit2 size={14} />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => onDelete(r)} className="text-slate-300 hover:text-red-500 h-8 w-8">
-                <Trash2 size={14} />
-              </Button>
-            </div>
+            {userCanEdit && (
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" onClick={() => onEdit(r)} className="text-slate-400 hover:text-primary h-8 w-8">
+                  <Edit2 size={14} />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => onDelete(r)} className="text-slate-300 hover:text-red-500 h-8 w-8">
+                  <Trash2 size={14} />
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       )}

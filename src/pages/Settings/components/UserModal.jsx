@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
 import { USER_ROLES, GENDERS, PAGES, DEFAULT_USER_PAGES, PAGE_TABS } from '../../../constants';
+import { canEditOrDelete } from '../../../lib/permissions';
 
 const DEFAULT_FORM_DATA = {
   user_id: '', full_name: '', email: '', password: '', role: USER_ROLES[USER_ROLES.length - 1],
@@ -173,6 +174,10 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canEditOrDelete(currentUser)) {
+      toast.error('You do not have permission to modify users');
+      return;
+    }
     const cleanedData = {
       ...formData, user_id: editingUser ? formData.user_id?.trim() : undefined,
       username: formData.username?.trim(), email: formData.email?.trim(), full_name: formData.full_name?.trim()

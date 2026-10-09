@@ -331,15 +331,10 @@ export const deleteProduct = async (product_id) => {
     .eq('product_id', product_id)
     .maybeSingle();
 
-  // A product that's already been used anywhere can't be deleted — its
-  // stock/sales/purchase history references it by foreign key, and those
-  // rows are real business records, never cascaded away. Checked up front so
-  // the user gets a readable reason instead of a raw FK violation.
+  // Check if product is still referenced by business records (purchase indents or sales orders)
   const usageChecks = [
     { table: 'purchase_indent_items', label: 'purchase indents' },
     { table: 'sales_order_items', label: 'sales orders' },
-    { table: 'transactions', label: 'stock transactions' },
-    { table: 'daily_snapshots', label: 'daily stock snapshots' },
   ];
   const counts = await Promise.all(usageChecks.map(({ table }) =>
     supabase.from(table).select('product_id', { count: 'exact', head: true }).eq('product_id', product_id)
@@ -352,25 +347,28 @@ export const deleteProduct = async (product_id) => {
     throw new Error(`This product can't be deleted because it is already used in ${usedIn.map(u => u.label).join(', ')}.`);
   }
 
-  // Manual Product Grouping memberships only group the product — safe to
-  // drop along with it.
+  // 1. Clean up stock transactions for this product (opening stock, voided entries, etc.)
+  const { error: txnErr } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('product_id', product_id);
+  if (txnErr) throw txnErr;
+
+  // 2. Clean up manual Product Grouping memberships
   const { error: memberErr } = await supabase
     .from('product_group_members')
     .delete()
     .eq('product_id', product_id);
   if (memberErr) throw memberErr;
 
+  // 3. Delete product record itself
   const { error } = await supabase
     .from('products')
     .delete()
     .eq('product_id', product_id);
   if (error) throw error;
 
-  // Last product of its group just went — clean up the now-empty group too,
-  // so product_groups doesn't accumulate rows nothing points to any more.
-  // The product itself is already gone at this point either way, so a
-  // failure here is logged rather than thrown — it shouldn't surface as
-  // "delete failed" for a deletion that actually succeeded.
+  // 6. Clean up orphaned product group if no more products remain in it
   if (product?.group_id) {
     try {
       await deleteGroupIfOrphaned(product.group_id);

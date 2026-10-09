@@ -3,12 +3,12 @@ import { ShoppingCart, Edit2, ChevronDown, Lock, Trash2, Calendar, Check, Rotate
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import useAuthStore from '../../../store/authStore';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm, selectedIds, onToggleSelect, onToggleSelectAll }) => {
   const { user } = useAuthStore();
-  const roleUpper = String(user?.role || '').trim().toUpperCase();
-  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
-  const canDelete = import.meta.env.DEV || isSuperAdmin;
+  const canDelete = canEditOrDelete(user);
+  const userCanEditOrDelete = canDelete;
   const [expandedOrders, setExpandedOrders] = useState(new Set());
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('sales_orders_view_mode') || 'card');
 
@@ -95,7 +95,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
                 <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
                   {/* Left Column: Checkbox, Status Badge, Order No, Order Date */}
                   <div className="flex items-center gap-2.5 shrink-0 min-w-[155px]">
-                    {canDelete && (
+                    {userCanEditOrDelete && (
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -257,27 +257,29 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
                         <span>Items ({items.length})</span>
                       </Button>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      type="button"
-                      title="Edit order"
-                      onClick={() => onEdit(o)}
-                      className="p-1 h-7 w-7 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg shrink-0"
-                    >
-                      <Edit2 size={13} />
-                    </Button>
-                    {canDelete && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        type="button"
-                        title="Delete order"
-                        onClick={() => onDelete(o)}
-                        className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
-                      >
-                        <Trash2 size={13} />
-                      </Button>
+                    {userCanEditOrDelete && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          type="button"
+                          title="Edit order"
+                          onClick={() => onEdit(o)}
+                          className="p-1 h-7 w-7 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg shrink-0"
+                        >
+                          <Edit2 size={13} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          type="button"
+                          title="Delete order"
+                          onClick={() => onDelete(o)}
+                          className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
+                        >
+                          <Trash2 size={13} />
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -384,7 +386,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
           <table className="w-full text-sm relative">
             <thead className="sticky top-0 z-10 shadow-sm">
               <tr className="bg-blue-50 border-b border-slate-200">
-                {canDelete && (
+                {userCanEditOrDelete && (
                   <th className="w-10 px-2 py-3 text-center">
                     <input type="checkbox"
                       checked={allSelected}
@@ -406,7 +408,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
             <tbody className="divide-y divide-slate-100">
               {totalItems === 0 && (
                 <tr>
-                  <td colSpan={canDelete ? 10 : 9} className="p-12 text-center">
+                  <td colSpan={userCanEditOrDelete ? 10 : 9} className="p-12 text-center">
                     <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                       <ShoppingCart size={32} className="text-slate-300" />
                     </div>
@@ -423,7 +425,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
                 const rows = [
                   <tr key={o.order_id} className={`hover:bg-slate-50 transition-colors group cursor-pointer ${selectedIds?.has(o.order_id) ? 'bg-primary/5' : ''}`}
                     onClick={() => toggleExpand(o.order_id)}>
-                    {canDelete && (
+                    {userCanEditOrDelete && (
                       <td className="px-2 py-3 text-center" onClick={e => e.stopPropagation()}>
                         <input type="checkbox" checked={!!selectedIds?.has(o.order_id)} onChange={() => onToggleSelect(o.order_id)}
                           className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
@@ -463,16 +465,20 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
                     </td>
                     <td className="px-4 py-3 text-slate-400 text-xs">{format(new Date(o.created_at), 'dd/MM/yyyy')}</td>
                     <td className="px-4 py-3 text-center flex items-center justify-center gap-1" onClick={e => e.stopPropagation()}>
-                      <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(o)}
-                        className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
-                        <Edit2 size={15} />
-                      </Button>
-                      {canDelete && (
-                        <Button variant="ghost" size="icon" type="button" onClick={() => onDelete(o)}
-                          title="Delete order"
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all">
-                          <Trash2 size={15} />
-                        </Button>
+                      {userCanEditOrDelete ? (
+                        <>
+                          <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(o)}
+                            className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
+                            <Edit2 size={15} />
+                          </Button>
+                          <Button variant="ghost" size="icon" type="button" onClick={() => onDelete(o)}
+                            title="Delete order"
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all">
+                            <Trash2 size={15} />
+                          </Button>
+                        </>
+                      ) : (
+                        <span className="text-slate-300 text-xs">—</span>
                       )}
                     </td>
                   </tr>
@@ -480,7 +486,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
                 if (isExpanded && items.length > 0) {
                   rows.push(
                     <tr key={`${o.order_id}-details`}>
-                      <td colSpan={canDelete ? 10 : 9} className="px-0 py-0">
+                      <td colSpan={userCanEditOrDelete ? 10 : 9} className="px-0 py-0">
                         <div className="bg-slate-50 border-t border-slate-100">
                           <table className="w-full text-sm">
                             <thead>

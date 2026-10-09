@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
 import FilterMenu from '@/components/FilterMenu';
 import EditAawakLiftModal from './EditAawakLiftModal';
+import { canEditOrDelete } from '../../../lib/permissions';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -29,7 +30,8 @@ const IndentTypeBadge = ({ processType }) => (
 );
 
 const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [], vendors = [], groups = [] }) => {
-  const [activeSubTab, setActiveSubTab] = useState('pending'); // 'pending' ('In Transit') | 'history' ('AT TPT GDN', 'Arrived' & 'Received')
+  const canModify = canEditOrDelete(user);
+  const [activeSubTab, setActiveSubTab] = useState('pending'); // 'pending' | 'transporter-godown' | 'history'
   const [deliveries, setDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -54,6 +56,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   };
 
   const isHistory = activeSubTab === 'history';
+  const isTransporterGodown = activeSubTab === 'transporter-godown';
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => { setCurrentPage(1); }, [searchTerm, dateFilter, productFilter, transporterFilter, expDateFilter, godownFilter, activeSubTab, pageSize]);
@@ -72,19 +75,27 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     setLoading(false);
   };
 
-  // Pipeline division: Pending = 'In Transit' only (stock not yet recorded).
-  // History = 'In Transport Godown' (AT TPT GDN), 'Arrived' & 'Received' — once a
-  // lift's stock is tracked (even just at the transporter's own godown), it's out
-  // of Pending. Rows here stay editable until Arrived/Received locks them for good.
+  // Pipeline division:
+  // 1. Pending: 'In Transit' only (stock not yet recorded)
   const pendingDeliveries = useMemo(() => {
-    return deliveries.filter(d => d.status === 'In Transit');
+    return deliveries.filter(d => !d.status || d.status === 'In Transit');
   }, [deliveries]);
 
+  // 2. Transporter Godown: 'In Transport Godown' / 'AT TPT GDN' (stock sitting at transporter's godown)
+  const transporterGodownDeliveries = useMemo(() => {
+    return deliveries.filter(d => d.status === 'In Transport Godown' || d.status === 'AT TPT GDN');
+  }, [deliveries]);
+
+  // 3. History: 'Arrived' & 'Received' (stock finalized at destination godown)
   const historyDeliveries = useMemo(() => {
-    return deliveries.filter(d => d.status === 'In Transport Godown' || d.status === 'AT TPT GDN' || d.status === 'Arrived' || d.status === 'Received');
+    return deliveries.filter(d => d.status === 'Arrived' || d.status === 'Received');
   }, [deliveries]);
 
-  const activeDeliveriesList = isHistory ? historyDeliveries : pendingDeliveries;
+  const activeDeliveriesList = useMemo(() => {
+    if (activeSubTab === 'transporter-godown') return transporterGodownDeliveries;
+    if (activeSubTab === 'history') return historyDeliveries;
+    return pendingDeliveries;
+  }, [activeSubTab, pendingDeliveries, transporterGodownDeliveries, historyDeliveries]);
 
   const productOptions = useMemo(() => {
     const map = new Map();
@@ -384,8 +395,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   };
 
   const allSelected = currentDeliveries.length > 0 && currentDeliveries.every(d => selectedLifts.has(d.delivery_id));
-  // Godown / Review / Status / Driver / Vehicle columns stay hidden until a row is checked.
-  const showEditCols = selectedLifts.size > 0;
 
   const toggleSelectAll = () => {
     if (allSelected) {
@@ -404,8 +413,12 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   };
 
   const handleDeleteDelivery = async (del) => {
+    if (!canModify) {
+      toast.error('You do not have permission to delete/revert deliveries');
+      return;
+    }
     const liftNum = del.lifting_number || del.delivery_id;
-    if (isHistory) {
+    if (isHistory || isTransporterGodown) {
       if (!window.confirm(`Move delivery lift "${liftNum}" back to Aawak Pending? Its stock entry will be reversed.`)) return;
       try {
         await revertLiftToPending({ delivery_id: del.delivery_id, user_id: user?.user_id });
@@ -448,10 +461,14 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   };
 
   const handleDeleteSelected = async () => {
+    if (!canModify) {
+      toast.error('You do not have permission to delete/revert deliveries');
+      return;
+    }
     const toDeleteIds = Array.from(selectedLifts);
     if (toDeleteIds.length === 0) return;
 
-    if (isHistory) {
+    if (isHistory || isTransporterGodown) {
       if (!window.confirm(`Move ${toDeleteIds.length} selected delivery lift(s) back to Aawak Pending? This will reverse their stock entries.`)) {
         return;
       }
@@ -561,7 +578,11 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         <div className="p-12 text-center text-slate-400">
           <PackageOpen size={36} className="mx-auto mb-2 text-slate-300" />
           <p className="text-sm font-medium">
-            {activeSubTab === 'pending' ? 'No pending lifts found.' : 'No arrived lifts found.'}
+            {activeSubTab === 'pending'
+              ? 'No pending lifts found.'
+              : activeSubTab === 'transporter-godown'
+              ? 'No lifts found in transporter godown.'
+              : 'No arrived lifts found.'}
           </p>
         </div>
       ) : (
@@ -641,7 +662,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 leading-none">
-                            <Clock size={10} className="stroke-[2.5]" /> {uiStatus === 'AT TPT GDN' ? 'AT TPT GDN' : 'Expected'}
+                            {uiStatus === 'AT TPT GDN' ? <Truck size={10} className="stroke-[2.5]" /> : <Clock size={10} className="stroke-[2.5]" />} {uiStatus === 'AT TPT GDN' ? 'AT TPT GDN' : (uiStatus || 'Expected')}
                           </span>
                         )}
                       </div>
@@ -778,41 +799,42 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                   </div>
 
                   {/* Right Column: Edit / Delete Actions */}
-                  <div className="flex items-center justify-end xl:justify-center gap-1.5 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      type="button"
-                      title="Edit Lift"
-                      onClick={() => setEditingLift(del)}
-                      className="p-1 h-7 w-7 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg shrink-0"
-                    >
-                      <Pencil size={13} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      type="button"
-                      title="Delete Lift"
-                      onClick={() => handleDeleteDelivery(del)}
-                      className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
-                    >
-                      <Trash2 size={13} />
-                    </Button>
-                  </div>
+                  {canModify && (
+                    <div className="flex items-center justify-end xl:justify-center gap-1.5 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        type="button"
+                        title="Edit Lift"
+                        onClick={() => setEditingLift(del)}
+                        className="p-1 h-7 w-7 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg shrink-0"
+                      >
+                        <Pencil size={13} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        type="button"
+                        title="Delete Lift"
+                        onClick={() => handleDeleteDelivery(del)}
+                        className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
+                      >
+                        <Trash2 size={13} />
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
-                {/* Form Controls / Inputs Section - Always visible in one view, enabled when checked */}
+                {/* Form Controls / Inputs Section - Always visible and editable */}
                 <div className={`p-3 border-t transition-colors ${isSelected ? 'bg-primary/[0.02] border-primary/20' : 'bg-slate-50/60 border-slate-100'
                   }`}>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
                     <div>
                       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Status</label>
                       <select
-                        disabled={!isSelected}
                         value={uiStatus}
                         onChange={e => handleStatusChange(del.delivery_id, e.target.value)}
-                        className="w-full h-8 text-xs font-semibold px-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
+                        className="w-full h-8 text-xs font-semibold px-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
                       >
                         <option value="In Transit">In Transit</option>
                         <option value="AT TPT GDN">AT TPT GDN</option>
@@ -827,21 +849,19 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       <Input
                         type="number"
                         step="any"
-                        disabled={!isSelected}
                         value={getRowVal(del, 'received_quantity')}
                         onChange={e => setRowValForSelection(del.delivery_id, 'received_quantity', e.target.value)}
                         placeholder="Recv Qty"
-                        className="h-8 text-xs font-bold text-emerald-700 bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
+                        className="h-8 text-xs font-bold text-emerald-700 bg-white"
                       />
                     </div>
 
                     <div>
                       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Godown (Destination)</label>
                       <select
-                        disabled={!isSelected}
                         value={getRowVal(del, 'godown_id')}
                         onChange={e => handleGodownChange(del.delivery_id, e.target.value)}
-                        className="w-full h-8 text-xs px-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
+                        className="w-full h-8 text-xs px-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
                       >
                         <option value="">Select godown...</option>
                         {ownGodowns.map(g => (
@@ -856,7 +876,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         showActions
                         value={getRowVal(del, 'receiving_date')}
                         onChange={e => handleReceivingDateChange(del.delivery_id, e.target.value)}
-                        disabled={!isSelected}
                         placeholder="Select date"
                         className="h-8 text-xs bg-white"
                       />
@@ -868,67 +887,54 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         showActions
                         value={getRowVal(del, 'expected_delivery_date')}
                         onChange={e => handleExpDateChange(del.delivery_id, e.target.value)}
-                        disabled={!isSelected}
                         placeholder="Select date"
                         className="h-8 text-xs bg-white"
                       />
                     </div>
 
-                    {(isSelected || hasVehicle) && (
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Vehicle No.</label>
-                        <Input
-                          type="text"
-                          placeholder="Vehicle Number"
-                          disabled={!isSelected}
-                          value={getRowVal(del, 'vehicle_number')}
-                          onChange={e => setRowValForSelection(del.delivery_id, 'vehicle_number', e.target.value)}
-                          className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Vehicle No.</label>
+                      <Input
+                        type="text"
+                        placeholder="Vehicle Number"
+                        value={getRowVal(del, 'vehicle_number')}
+                        onChange={e => setRowValForSelection(del.delivery_id, 'vehicle_number', e.target.value)}
+                        className="h-8 text-xs bg-white"
+                      />
+                    </div>
 
-                    {(isSelected || hasLr) && (
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">LR Number</label>
-                        <Input
-                          type="text"
-                          placeholder="LR Number"
-                          disabled={!isSelected}
-                          value={getRowVal(del, 'lr_number')}
-                          onChange={e => setRowValForSelection(del.delivery_id, 'lr_number', e.target.value)}
-                          className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">LR Number</label>
+                      <Input
+                        type="text"
+                        placeholder="LR Number"
+                        value={getRowVal(del, 'lr_number')}
+                        onChange={e => setRowValForSelection(del.delivery_id, 'lr_number', e.target.value)}
+                        className="h-8 text-xs bg-white"
+                      />
+                    </div>
 
-                    {(isSelected || hasDriver) && (
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Driver Contact</label>
-                        <Input
-                          type="text"
-                          placeholder="Driver Phone"
-                          disabled={!isSelected}
-                          value={getRowVal(del, 'driver_phone_number')}
-                          onChange={e => setRowValForSelection(del.delivery_id, 'driver_phone_number', e.target.value)}
-                          className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Driver Contact</label>
+                      <Input
+                        type="text"
+                        placeholder="Driver Phone"
+                        value={getRowVal(del, 'driver_phone_number')}
+                        onChange={e => setRowValForSelection(del.delivery_id, 'driver_phone_number', e.target.value)}
+                        className="h-8 text-xs bg-white"
+                      />
+                    </div>
 
-                    {(isSelected || hasRemarks) && (
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Remarks</label>
-                        <Input
-                          type="text"
-                          placeholder="Remarks..."
-                          disabled={!isSelected}
-                          value={getRowVal(del, 'remarks')}
-                          onChange={e => setRowValForSelection(del.delivery_id, 'remarks', e.target.value)}
-                          className="h-8 text-xs bg-white disabled:bg-slate-100/80 disabled:text-slate-400 disabled:cursor-not-allowed"
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Remarks</label>
+                      <Input
+                        type="text"
+                        placeholder="Remarks..."
+                        value={getRowVal(del, 'remarks')}
+                        onChange={e => setRowValForSelection(del.delivery_id, 'remarks', e.target.value)}
+                        className="h-8 text-xs bg-white"
+                      />
+                    </div>
                   </div>
 
                   {/* Selection Status & Quick Save Footer */}
@@ -998,6 +1004,21 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
             <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeSubTab === 'pending' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
               }`}>
               {pendingDeliveries.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setActiveSubTab('transporter-godown'); setCurrentPage(1); setSelectedLifts(new Set()); setEditingRows({}); }}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${activeSubTab === 'transporter-godown'
+              ? 'bg-primary/10 text-primary'
+              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+              }`}
+          >
+            <Truck size={14} />
+            Transporter Godown
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeSubTab === 'transporter-godown' ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500'
+              }`}>
+              {transporterGodownDeliveries.length}
             </span>
           </button>
           <button
@@ -1127,7 +1148,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
             {filteredDeliveries.length} item{filteredDeliveries.length !== 1 ? 's' : ''}
           </span>
 
-          {selectedLifts.size > 0 && (
+          {canModify && selectedLifts.size > 0 && (
             <Button
               type="button"
               variant="destructive"
@@ -1199,21 +1220,21 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                   </th>
                   <th className="sticky left-12 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[70px] w-20">Action</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">{isHistory ? 'Receiving Date' : 'Date'}</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (KG)</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (Bags)</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">LR No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Exp. Recv. Date</th>
-                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px] whitespace-nowrap">Receiving Date</th>}
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px] whitespace-nowrap">Receiving Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Recv. Qty</th>
-                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Godown Name</th>}
-                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Review</th>}
-                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Status</th>}
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Godown Name</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Review</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[130px]">Status</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Driver No.</th>}
-                  {showEditCols && <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">Vehicle No.</th>}
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[140px]">Driver No.</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">Vehicle No.</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1252,39 +1273,38 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         </div>
                       </td>
                       <td className={`sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
-                        <div className="flex items-center justify-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            type="button"
-                            title="Edit Lift"
-                            onClick={() => setEditingLift(del)}
-                            className="p-1 h-6 w-6 text-slate-400 hover:text-primary hover:bg-primary/10 rounded transition-all"
-                          >
-                            <Pencil size={13} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            type="button"
-                            title={isHistory ? 'Move back to Pending' : 'Delete Lift'}
-                            onClick={() => handleDeleteDelivery(del)}
-                            className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
-                          >
-                            <Trash2 size={13} />
-                          </Button>
-                        </div>
+                        {canModify ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title="Edit Lift"
+                              onClick={() => setEditingLift(del)}
+                              className="p-1 h-6 w-6 text-slate-400 hover:text-primary hover:bg-primary/10 rounded transition-all"
+                            >
+                              <Pencil size={13} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              type="button"
+                              title={isHistory ? 'Move back to Pending' : 'Delete Lift'}
+                              onClick={() => handleDeleteDelivery(del)}
+                              className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300 text-xs">—</span>
+                        )}
                       </td>
                       <td className="px-3 py-3 text-center text-slate-800 font-semibold whitespace-nowrap">
                         {del.lifting_number || '—'}
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
-                        {/* History shows the Receiving Date here; Pending keeps the dispatch (Actual) date */}
-                        {isHistory ? (
-                          receivingDateVal ? format(new Date(receivingDateVal), 'dd/MM/yyyy') : '—'
-                        ) : (
-                          del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'
-                        )}
+                        {del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}
                       </td>
                       <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
                         {prod.name || '—'}
@@ -1300,17 +1320,22 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         {transporterName}
                       </td>
                       <td className="px-3 py-3 text-center">
-                        <Input
-                          type="text"
-                          placeholder="LR No."
-                          disabled={!isSelected}
-                          value={getRowVal(del, 'lr_number')}
-                          onChange={e => setRowVal(del.delivery_id, 'lr_number', e.target.value)}
-                          className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                        />
+                        {isHistory ? (
+                          <span className="text-slate-600 whitespace-nowrap">{getRowVal(del, 'lr_number') || '—'}</span>
+                        ) : (
+                          <Input
+                            type="text"
+                            placeholder="LR No."
+                            value={getRowVal(del, 'lr_number')}
+                            onChange={e => setRowVal(del.delivery_id, 'lr_number', e.target.value)}
+                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[110px]"
+                          />
+                        )}
                       </td>
                       <td className="px-3 py-3 text-center">
-                        {isSelected ? (
+                        {isHistory ? (
+                          <span className="text-slate-500 whitespace-nowrap">{del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}</span>
+                        ) : (
                           <DatePicker
                             showActions
                             value={getRowVal(del, 'expected_delivery_date')}
@@ -1318,24 +1343,25 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                             placeholder="Select date"
                             className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
                           />
-                        ) : (
-                          <span className="text-slate-500 whitespace-nowrap">{del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd/MM/yyyy') : '—'}</span>
                         )}
                       </td>
-                      {showEditCols && (
-                        <td className="px-3 py-3 text-center">
+                      <td className="px-3 py-3 text-center">
+                        {isHistory ? (
+                          <span className="text-slate-600 whitespace-nowrap">{receivingDateVal ? format(new Date(receivingDateVal), 'dd/MM/yyyy') : '—'}</span>
+                        ) : (
                           <DatePicker
                             showActions
                             value={getRowVal(del, 'receiving_date')}
                             onChange={e => handleReceivingDateChange(del.delivery_id, e.target.value)}
-                            disabled={!isSelected}
                             placeholder="Select date"
                             className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
                           />
-                        </td>
-                      )}
+                        )}
+                      </td>
                       <td className="px-3 py-3 text-center font-bold text-emerald-700 whitespace-nowrap">
-                        {isSelected ? (
+                        {isHistory ? (
+                          getRowVal(del, 'received_quantity') || '—'
+                        ) : (
                           <Input
                             type="number"
                             step="any"
@@ -1344,95 +1370,83 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                             onChange={e => setRowVal(del.delivery_id, 'received_quantity', e.target.value)}
                             className="h-8 text-xs font-bold text-emerald-700 bg-slate-50/50 border-slate-200 focus:bg-white min-w-[90px]"
                           />
-                        ) : (
-                          getRowVal(del, 'received_quantity') || '—'
                         )}
                       </td>
-                      {showEditCols && (
-                        <td className="px-3 py-3 text-center">
-                          {isSelected ? (
-                            <select
-                              value={getRowVal(del, 'godown_id')}
-                              onChange={e => handleGodownChange(del.delivery_id, e.target.value)}
-                              className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                            >
-                              <option value="">Select godown...</option>
-                              {ownGodowns.map(g => (
-                                <option key={g.godown_id} value={g.godown_id}>{g.name}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span className="text-slate-600 whitespace-nowrap">
-                              {godowns.find(g => String(g.godown_id) === String(getRowVal(del, 'godown_id')))?.name || '—'}
-                            </span>
-                          )}
-                        </td>
-                      )}
-                      {showEditCols && (
-                        <td className="px-3 py-3 text-center">
-                          {isSelected ? (
-                            <Input
-                              type="text"
-                              placeholder="Review..."
-                              value={getRowVal(del, 'remarks')}
-                              onChange={e => setRowVal(del.delivery_id, 'remarks', e.target.value)}
-                              className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                            />
-                          ) : (
-                            <span className="text-slate-600">{getRowVal(del, 'remarks') || '—'}</span>
-                          )}
-                        </td>
-                      )}
-                      {showEditCols && (
-                        <td className="px-3 py-3 text-center">
-                          {isSelected ? (
-                            <select
-                              value={uiStatus}
-                              onChange={e => handleStatusChange(del.delivery_id, e.target.value)}
-                              className="w-full h-8 text-xs font-semibold px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                            >
-                              <option value="In Transit">In Transit</option>
-                              <option value="AT TPT GDN">AT TPT GDN</option>
-                              <option value="Arrived">Arrived</option>
-                            </select>
-                          ) : (
-                            <span className="text-slate-600 font-semibold whitespace-nowrap">{uiStatus || '—'}</span>
-                          )}
-                        </td>
-                      )}
+                      <td className="px-3 py-3 text-center">
+                        {isHistory ? (
+                          <span className="text-slate-600 whitespace-nowrap">
+                            {godowns.find(g => String(g.godown_id) === String(getRowVal(del, 'godown_id')))?.name || '—'}
+                          </span>
+                        ) : (
+                          <select
+                            value={getRowVal(del, 'godown_id')}
+                            onChange={e => handleGodownChange(del.delivery_id, e.target.value)}
+                            className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px]"
+                          >
+                            <option value="">Select godown...</option>
+                            {ownGodowns.map(g => (
+                              <option key={g.godown_id} value={g.godown_id}>{g.name}</option>
+                            ))}
+                          </select>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        {isHistory ? (
+                          <span className="text-slate-600">{getRowVal(del, 'remarks') || '—'}</span>
+                        ) : (
+                          <Input
+                            type="text"
+                            placeholder="Review..."
+                            value={getRowVal(del, 'remarks')}
+                            onChange={e => setRowVal(del.delivery_id, 'remarks', e.target.value)}
+                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[130px]"
+                          />
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        {isHistory ? (
+                          <span className="text-slate-600 font-semibold whitespace-nowrap">{uiStatus || '—'}</span>
+                        ) : (
+                          <select
+                            value={uiStatus}
+                            onChange={e => handleStatusChange(del.delivery_id, e.target.value)}
+                            className="w-full h-8 text-xs font-semibold px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[130px]"
+                          >
+                            <option value="In Transit">In Transit</option>
+                            <option value="AT TPT GDN">AT TPT GDN</option>
+                            <option value="Arrived">Arrived</option>
+                          </select>
+                        )}
+                      </td>
                       <td className="px-3 py-3 text-center">
                         <IndentTypeBadge processType={processTypeVal} />
                       </td>
-                      {showEditCols && (
-                        <td className="px-3 py-3 text-center min-w-[140px]">
-                          {isSelected ? (
-                            <Input
-                              type="text"
-                              placeholder="Driver No."
-                              value={getRowVal(del, 'driver_phone_number')}
-                              onChange={e => setRowVal(del.delivery_id, 'driver_phone_number', e.target.value)}
-                              className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                            />
-                          ) : (
-                            <span className="text-slate-600 whitespace-nowrap">{getRowVal(del, 'driver_phone_number') || '—'}</span>
-                          )}
-                        </td>
-                      )}
-                      {showEditCols && (
-                        <td className="px-3 py-3 text-center min-w-[110px]">
-                          {isSelected ? (
-                            <Input
-                              type="text"
-                              placeholder="Vehicle No."
-                              value={getRowVal(del, 'vehicle_number')}
-                              onChange={e => setRowVal(del.delivery_id, 'vehicle_number', e.target.value)}
-                              className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-200 disabled:cursor-not-allowed"
-                            />
-                          ) : (
-                            <span className="text-slate-600 whitespace-nowrap">{getRowVal(del, 'vehicle_number') || '—'}</span>
-                          )}
-                        </td>
-                      )}
+                      <td className="px-3 py-3 text-center min-w-[140px]">
+                        {isHistory ? (
+                          <span className="text-slate-600 whitespace-nowrap">{getRowVal(del, 'driver_phone_number') || '—'}</span>
+                        ) : (
+                          <Input
+                            type="text"
+                            placeholder="Driver No."
+                            value={getRowVal(del, 'driver_phone_number')}
+                            onChange={e => setRowVal(del.delivery_id, 'driver_phone_number', e.target.value)}
+                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
+                          />
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-center min-w-[110px]">
+                        {isHistory ? (
+                          <span className="text-slate-600 whitespace-nowrap">{getRowVal(del, 'vehicle_number') || '—'}</span>
+                        ) : (
+                          <Input
+                            type="text"
+                            placeholder="Vehicle No."
+                            value={getRowVal(del, 'vehicle_number')}
+                            onChange={e => setRowVal(del.delivery_id, 'vehicle_number', e.target.value)}
+                            className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white"
+                          />
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -1486,6 +1500,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         delivery={editingLift}
         products={products}
         transporters={transporters}
+        user={user}
         onSuccess={loadData}
       />
     </div>

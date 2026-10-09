@@ -6,8 +6,9 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/comp
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
+import { canEditOrDelete } from '../../../lib/permissions';
 
-const EditDeliveryIndentModal = ({ isOpen, onClose, item, products = [], vendors = [], onSuccess }) => {
+const EditDeliveryIndentModal = ({ isOpen, onClose, item, products = [], vendors = [], user, onSuccess }) => {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     indent_date: '',
@@ -48,6 +49,10 @@ const EditDeliveryIndentModal = ({ isOpen, onClose, item, products = [], vendors
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canEditOrDelete(user)) {
+      toast.error('You do not have permission to edit indents');
+      return;
+    }
     if (!item) return;
 
     if (!form.indent_number?.trim()) {

@@ -770,6 +770,15 @@ export const getApprovedItemsForDelivery = async () => {
     });
 };
 
+export const getPendingDeliveryItemsForPlanning = async () => {
+  const items = await getApprovedItemsForDelivery();
+  return (items || []).filter(
+    i => i.planning_status !== 'Cancelled' &&
+         Number(i.remaining_alloc_qty ?? i.remaining_qty ?? 0) > 0 &&
+         i.purchase_indents?.is_void !== true
+  );
+};
+
 export const getDirectItemsForAawak = async () => {
   const items = await fetchAllRows(() => supabase
     .from('purchase_indent_items')
@@ -1458,6 +1467,13 @@ export const getAawakDeliveries = async (statusFilter = null) => {
   };
 
   return fetchAllRows(buildQuery);
+};
+
+export const getInTransitAawakDeliveries = async () => {
+  const deliveries = await getAawakDeliveries();
+  return (deliveries || []).filter(
+    d => (!d.status || d.status === 'In Transit') && d.purchase_indent_items?.purchase_indents?.is_void !== true
+  );
 };
 
 // Item-centric view for the Purchase Dashboard: every non-void indent line item,

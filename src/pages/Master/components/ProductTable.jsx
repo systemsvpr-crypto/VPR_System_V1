@@ -3,8 +3,12 @@ import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import DataTable from '@/components/DataTable';
 import { formatQty } from '@/lib/qty';
+import useAuthStore from '../../../store/authStore';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stockMap, groupNameMap, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
+  const { user } = useAuthStore();
+  const userCanEdit = canEditOrDelete(user);
   return (
     <DataTable
       headers={[
@@ -41,10 +45,14 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
           </td>
           <td className="px-4 py-3 text-center text-slate-400 text-xs">{format(new Date(p.created_at), 'dd/MM/yyyy')}</td>
           <td className="px-4 py-3 text-center">
-            <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(p)}
-              className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
-              <Edit2 size={15} />
-            </Button>
+            {userCanEdit ? (
+              <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(p)}
+                className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
+                <Edit2 size={15} />
+              </Button>
+            ) : (
+              <span className="text-slate-300 text-xs">—</span>
+            )}
           </td>
         </tr>
       )}
@@ -55,9 +63,11 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
               <h4 className="font-semibold text-slate-800">{p.name}</h4>
               <p className="text-xs text-slate-500 mt-0.5">{p.product_type} • {p.unit}</p>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => onEdit(p)} className="text-slate-400 hover:text-primary h-8 w-8">
-              <Edit2 size={14} />
-            </Button>
+            {userCanEdit && (
+              <Button variant="ghost" size="icon" onClick={() => onEdit(p)} className="text-slate-400 hover:text-primary h-8 w-8">
+                <Edit2 size={14} />
+              </Button>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="bg-slate-50 p-2 rounded-lg">

@@ -1,8 +1,12 @@
 import { Truck, Edit2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DataTable from '@/components/DataTable';
+import useAuthStore from '../../../store/authStore';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const TransporterTable = ({ transporters, totalItems, loading, onEdit, searchTerm, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange }) => {
+  const { user } = useAuthStore();
+  const userCanEdit = canEditOrDelete(user);
   if (loading) {
     return (
       <div className="p-12 text-center">
@@ -44,10 +48,14 @@ const TransporterTable = ({ transporters, totalItems, loading, onEdit, searchTer
           <td className="px-4 py-3 text-center text-slate-600">{t.vehicle_number || '—'}</td>
           <td className="px-4 py-3 text-center text-slate-600">{t.driver_phone_number || '—'}</td>
           <td className="px-4 py-3 text-center">
-            <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(t)}
-              className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
-              <Edit2 size={15} />
-            </Button>
+            {userCanEdit ? (
+              <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(t)}
+                className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
+                <Edit2 size={15} />
+              </Button>
+            ) : (
+              <span className="text-slate-300 text-xs">—</span>
+            )}
           </td>
         </tr>
       )}
@@ -58,9 +66,11 @@ const TransporterTable = ({ transporters, totalItems, loading, onEdit, searchTer
               <h4 className="font-semibold text-slate-800">{t.name}</h4>
               <p className="text-xs text-slate-500 mt-0.5">{t.vehicle_number || 'No Vehicle No.'}</p>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => onEdit(t)} className="text-slate-400 hover:text-primary h-8 w-8">
-              <Edit2 size={14} />
-            </Button>
+            {userCanEdit && (
+              <Button variant="ghost" size="icon" onClick={() => onEdit(t)} className="text-slate-400 hover:text-primary h-8 w-8">
+                <Edit2 size={14} />
+              </Button>
+            )}
           </div>
           <div className="bg-slate-50 p-2 rounded-lg text-xs">
             <span className="text-slate-500 block mb-1">Driver Phone</span>

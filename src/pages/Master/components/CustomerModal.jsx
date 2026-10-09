@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDelete, ranks: propRanks = [] }) => {
   const [name, setName] = useState('');
@@ -22,7 +23,7 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDe
   const [ranksList, setRanksList] = useState(propRanks);
 
   const isEditing = !!editingCustomer;
-  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
+  const canDeleteCustomer = canEditOrDelete(user);
 
   useEffect(() => {
     if (propRanks && propRanks.length > 0) {
@@ -164,7 +165,7 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDe
           </ModalBody>
           <ModalFooter className="px-4 sm:px-6 flex-wrap">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            {isEditing && isSuperAdmin && (
+            {isEditing && canDeleteCustomer && (
               <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
                 <Trash2 size={16} className="mr-1" />
                 {deleting ? 'Deleting...' : 'Delete'}

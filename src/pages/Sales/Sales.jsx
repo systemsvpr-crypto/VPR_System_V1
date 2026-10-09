@@ -9,6 +9,7 @@ import { getAllCustomers } from '../../services/customerService';
 import { getAllRanks } from '../../services/rankService';
 import { getAllPricingGroups } from '../../services/pricingService';
 import { isOrderFullyDispatched } from '@/lib/orderDispatchStatus';
+import { canEditOrDelete } from '@/lib/permissions';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { TabSwitcher } from '@/components/StandardButtons';
@@ -61,12 +62,7 @@ const Sales = () => {
   const [selectedOrderIds, setSelectedOrderIds] = useState(new Set());
   const [deletingSelectedOrders, setDeletingSelectedOrders] = useState(false);
 
-  // Same dev/Super Admin gate OrderTable uses for its own row delete button —
-  // duplicated here (rather than lifted up) since it's a one-line check and
-  // this is the only other place in this file that needs it.
-  const roleUpper = String(user?.role || '').trim().toUpperCase();
-  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
-  const canDeleteOrders = import.meta.env.DEV || isSuperAdmin;
+  const canDeleteOrders = canEditOrDelete(user);
 
   const visibleTabs = useMemo(() => {
     const allowedTabs = user?.tab_access?.sales;
@@ -182,6 +178,10 @@ const Sales = () => {
   };
 
   const handleEditOrder = (order) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can edit orders.');
+      return;
+    }
     setEditingOrder(order);
     setModalOpen(true);
   };
@@ -192,6 +192,10 @@ const Sales = () => {
   };
 
   const handleDeleteOrder = async (order) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can delete orders.');
+      return;
+    }
     if (!window.confirm(`Permanently delete order ${order.order_number}? This cannot be undone.`)) return;
     try {
       await deleteOrder(order.order_id);
@@ -222,6 +226,10 @@ const Sales = () => {
   };
 
   const handleDeleteSelectedOrders = async () => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can delete orders.');
+      return;
+    }
     if (selectedOrderIds.size === 0) { toast.error('No orders selected.'); return; }
     if (!window.confirm(`Permanently delete ${selectedOrderIds.size} selected order${selectedOrderIds.size !== 1 ? 's' : ''}? This cannot be undone.`)) return;
     setDeletingSelectedOrders(true);

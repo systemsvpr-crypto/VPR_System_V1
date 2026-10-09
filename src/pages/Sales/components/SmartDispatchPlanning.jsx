@@ -8,6 +8,7 @@ import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAllOrderItemsForDispatch } from '../../../services/salesService';
 import { getAllProductStock } from '../../../services/masterService';
+import { getInTransitAawakDeliveries, getPendingDeliveryItemsForPlanning } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { sanitizeQtyInput, roundQty, formatQty } from '@/lib/qty';
@@ -73,7 +74,7 @@ const comparePriority = (a, b) => {
    Allocation engine — pure, so the same logic backs the
    on-screen plan and the "Export All Locations" file.
 ────────────────────────────────────────────────────────── */
-const computePlan = ({ lines, locationId, locationName, stockMap, overrides, partyTypes }) => {
+const computePlan = ({ lines, locationId, locationName, stockMap, inTransitMap = new Map(), overrides, partyTypes }) => {
   const locLines = lines.filter(l => l.godownId === locationId);
   const planned = [];
   const excluded = [];
@@ -90,6 +91,11 @@ const computePlan = ({ lines, locationId, locationName, stockMap, overrides, par
 
   byProduct.forEach((productLines, productId) => {
     const available = Math.max(0, stockMap[productId]?.[locationId] ?? 0);
+    const inTransit = inTransitMap.get(`${productId}_${locationId}`) || inTransitMap.get(String(productId)) || null;
+    const recvQty = inTransit?.totalQty || 0;
+    const recvDate = inTransit?.earliestDate || null;
+    const inTransitLifts = inTransit?.deliveries || [];
+
     const sorted = [...productLines].sort(comparePriority);
     const rankOf = new Map(sorted.map((l, i) => [l.itemId, i + 1]));
     const result = new Map();
@@ -141,7 +147,15 @@ const computePlan = ({ lines, locationId, locationName, stockMap, overrides, par
     const productAllocated = sorted.map(l => {
       const r = result.get(l.itemId);
       const balance = roundQty(l.remaining - r.suggested);
-      return { ...l, ...r, balance, status: statusOf(r.suggested, l.remaining) };
+      return {
+        ...l,
+        ...r,
+        balance,
+        status: statusOf(r.suggested, l.remaining),
+        recvQty,
+        recvDate,
+        inTransitLifts,
+      };
     });
     allocated.push(...productAllocated);
 
@@ -151,6 +165,9 @@ const computePlan = ({ lines, locationId, locationName, stockMap, overrides, par
       productName: sorted[0].productName,
       unit: sorted[0].unit,
       available,
+      inTransitQty: recvQty,
+      inTransitDate: recvDate,
+      inTransitLifts,
       suggested,
       balanceStock: roundQty(available - suggested),
       parties: [...new Set(sorted.map(l => l.partyName))],
@@ -223,22 +240,28 @@ const downloadCsv = (rows, filename) => {
 const planToCsvRows = (plan, locationName) => {
   const rows = [
     [`Location: ${locationName}`],
-    ['Party', 'Item', 'Order No.', 'Unit', 'Pending Qty', 'Dispatch Qty', 'Balance Qty', 'Manually Edited'],
+    ['Party', 'Item', 'Order No.', 'Unit', 'Pending Qty', 'Recv Qty (In Transit)', 'Recv Date', 'Dispatch Qty', 'Balance Qty', 'Manually Edited'],
   ];
   plan.parties.forEach(p => {
-    const dispatchLines = p.lines.filter(l => l.suggested > 0);
+    const dispatchLines = p.lines.filter(l => l.suggested > 0 || l.remaining > 0);
     if (dispatchLines.length === 0) return;
     dispatchLines.forEach(l => rows.push([
-      p.partyName, l.productName, l.orderNumber, l.unit, l.remaining, l.suggested, l.balance, l.manual ? 'Yes' : '',
+      p.partyName, l.productName, l.orderNumber, l.unit, l.remaining,
+      l.recvQty > 0 ? l.recvQty : '', l.recvDate ? fmtDate(l.recvDate) : '',
+      l.suggested, l.balance, l.manual ? 'Yes' : '',
     ]));
-    rows.push(['', `Total — ${p.partyName}`, '', '', '', roundQty(dispatchLines.reduce((s, l) => s + l.suggested, 0)), '', '']);
+    rows.push(['', `Total — ${p.partyName}`, '', '', '', '', '', roundQty(p.lines.filter(l => l.suggested > 0).reduce((s, l) => s + l.suggested, 0)), '', '']);
   });
   rows.push([]);
   rows.push(['Item-wise Summary']);
-  rows.push(['Item', 'Unit', 'Available Stock', 'Dispatch Qty', 'Balance Stock', 'Remaining Orders']);
-  plan.items.forEach(i => rows.push([i.productName, i.unit, i.available, i.suggested, i.balanceStock, i.remainingOrders]));
+  rows.push(['Item', 'Unit', 'Available Stock', 'In-Transit Recv Qty', 'In-Transit Recv Date', 'Dispatch Qty', 'Balance Stock', 'Remaining Orders']);
+  plan.items.forEach(i => rows.push([
+    i.productName, i.unit, i.available,
+    i.inTransitQty > 0 ? i.inTransitQty : '', i.inTransitDate ? fmtDate(i.inTransitDate) : '',
+    i.suggested, i.balanceStock, i.remainingOrders,
+  ]));
   rows.push([]);
-  rows.push(['Grand Total Dispatch', '', '', plan.totals.suggested]);
+  rows.push(['Grand Total Dispatch', '', '', '', '', plan.totals.suggested]);
   rows.push([]);
   return rows;
 };
@@ -247,7 +270,7 @@ const planToCsvRows = (plan, locationName) => {
 // Column templates — rows stack as cards below md and line up as a table above it.
 const PARTY_COLS = 'md:grid-cols-[minmax(0,2.2fr)_repeat(3,minmax(0,1fr))_minmax(0,1.1fr)_140px_20px]';
 const ITEM_COLS = 'md:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))_minmax(0,1.1fr)_20px]';
-const LINE_COLS = 'md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_repeat(3,minmax(0,0.9fr))_minmax(0,1.1fr)]';
+const LINE_COLS = 'md:grid-cols-[minmax(0,1.5fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.85fr)_minmax(0,0.95fr)_minmax(0,0.85fr)_minmax(0,0.8fr)_minmax(0,1.1fr)]';
 
 const StatCard = ({ icon: Icon, label, value, sub, tone }) => {
   const tones = {
@@ -309,6 +332,8 @@ const HeaderRow = ({ cols, labels }) => (
 const SmartDispatchPlanning = ({ godowns }) => {
   const [rawItems, setRawItems] = useState([]);
   const [stockRows, setStockRows] = useState([]);
+  const [inTransitDeliveries, setInTransitDeliveries] = useState([]);
+  const [pendingDeliveryItems, setPendingDeliveryItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -330,12 +355,16 @@ const SmartDispatchPlanning = ({ godowns }) => {
   const loadData = useCallback(async (silent = false) => {
     silent ? setRefreshing(true) : setLoading(true);
     try {
-      const [data, stock] = await Promise.all([
+      const [data, stock, inTransit, pendingDelivery] = await Promise.all([
         getAllOrderItemsForDispatch(),
         getAllProductStock().catch(() => []),
+        getInTransitAawakDeliveries().catch(() => []),
+        getPendingDeliveryItemsForPlanning().catch(() => []),
       ]);
       setRawItems(data || []);
       setStockRows(stock || []);
+      setInTransitDeliveries(inTransit || []);
+      setPendingDeliveryItems(pendingDelivery || []);
       setLastUpdated(new Date());
     } catch {
       toast.error('Failed to load dispatch data');
@@ -368,6 +397,74 @@ const SmartDispatchPlanning = ({ godowns }) => {
     });
     return map;
   }, [stockRows]);
+
+  const inTransitMap = useMemo(() => {
+    const map = new Map();
+
+    const addEntry = (prodId, godownId, qty, date, meta) => {
+      if (!prodId || qty <= 0) return;
+      if (godownId) {
+        const locKey = `${prodId}_${godownId}`;
+        if (!map.has(locKey)) {
+          map.set(locKey, { totalQty: 0, earliestDate: null, dates: [], deliveries: [] });
+        }
+        const entry = map.get(locKey);
+        entry.totalQty = roundQty(entry.totalQty + qty);
+        if (date) {
+          entry.dates.push(date);
+          if (!entry.earliestDate || new Date(date) < new Date(entry.earliestDate)) {
+            entry.earliestDate = date;
+          }
+        }
+        entry.deliveries.push(meta);
+      }
+
+      const prodKey = String(prodId);
+      if (!map.has(prodKey)) {
+        map.set(prodKey, { totalQty: 0, earliestDate: null, dates: [], deliveries: [] });
+      }
+      const prodEntry = map.get(prodKey);
+      prodEntry.totalQty = roundQty(prodEntry.totalQty + qty);
+      if (date) {
+        prodEntry.dates.push(date);
+        if (!prodEntry.earliestDate || new Date(date) < new Date(prodEntry.earliestDate)) {
+          prodEntry.earliestDate = date;
+        }
+      }
+      prodEntry.deliveries.push(meta);
+    };
+
+    // 1. Aawak Details (In Transit)
+    (inTransitDeliveries || []).forEach(del => {
+      const prodId = del.purchase_indent_items?.product_id;
+      if (!prodId) return;
+      const godownId = del.purchase_delivery_godowns?.[0]?.godown_id || del.purchase_indent_items?.approved_godown_id || '';
+
+      let qty = 0;
+      if (del.received_quantity != null && Number(del.received_quantity) > 0) {
+        qty = Number(del.received_quantity);
+      } else {
+        const unit = (del.purchase_indent_items?.products?.unit || '').toLowerCase();
+        const fallback = unit === 'kg' ? del.dispatch_qty_kg : del.dispatch_qty_bag;
+        qty = Number(fallback || del.dispatch_qty_bag || del.dispatch_qty_kg || 0);
+      }
+
+      const date = del.receiving_date || del.expected_delivery_date || del.delivery_date || null;
+      addEntry(prodId, godownId, qty, date, { ...del, _source: 'aawak_in_transit' });
+    });
+
+    // 2. Delivery Section (Pending)
+    (pendingDeliveryItems || []).forEach(item => {
+      const prodId = item.product_id;
+      if (!prodId) return;
+      const godownId = item.approved_godown_id || '';
+      const qty = Number(item.remaining_alloc_qty ?? item.remaining_qty ?? 0);
+      const date = item.expected_dispatch_date || item.planning_date || null;
+      addEntry(prodId, godownId, qty, date, { ...item, _source: 'delivery_pending' });
+    });
+
+    return map;
+  }, [inTransitDeliveries, pendingDeliveryItems]);
 
   /* ── pending order lines (same remaining-qty rule as Dispatch Planning) ── */
   const pendingLines = useMemo(() =>
@@ -414,8 +511,8 @@ const SmartDispatchPlanning = ({ godowns }) => {
 
   const plan = useMemo(() => computePlan({
     lines: pendingLines, locationId: activeLocation, locationName: activeLocationName,
-    stockMap, overrides, partyTypes,
-  }), [pendingLines, activeLocation, activeLocationName, stockMap, overrides, partyTypes]);
+    stockMap, inTransitMap, overrides, partyTypes,
+  }), [pendingLines, activeLocation, activeLocationName, stockMap, inTransitMap, overrides, partyTypes]);
 
   /* ── filters ── */
   const term = search.trim().toLowerCase();
@@ -494,13 +591,13 @@ const SmartDispatchPlanning = ({ godowns }) => {
     const rows = [];
     let grand = 0;
     locations.forEach(loc => {
-      const p = computePlan({ lines: pendingLines, locationId: loc.godown_id, locationName: loc.name, stockMap, overrides, partyTypes });
+      const p = computePlan({ lines: pendingLines, locationId: loc.godown_id, locationName: loc.name, stockMap, inTransitMap, overrides, partyTypes });
       if (p.totals.suggested <= 0) return;
       grand += p.totals.suggested;
       rows.push(...planToCsvRows(p, loc.name));
     });
     if (rows.length === 0) { toast.error('Nothing to dispatch at any location.'); return; }
-    rows.push(['All Locations — Grand Total Dispatch', '', '', roundQty(grand)]);
+    rows.push(['All Locations — Grand Total Dispatch', '', '', '', '', roundQty(grand)]);
     downloadCsv(rows, `dispatch_plan_all_locations_${stamp()}.csv`);
   };
 
@@ -509,8 +606,17 @@ const SmartDispatchPlanning = ({ godowns }) => {
   const renderLines = (lines, { showParty }) => (
     <div className="rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
       <div className={`hidden md:grid ${LINE_COLS} gap-3 px-3 py-2 bg-slate-50 rounded-t-lg`}>
-        {[showParty ? 'Party' : 'Item', 'Order', 'Pending', 'Dispatch', 'Balance', 'Status'].map((h, i) => (
-          <div key={h} className={`text-[10px] font-semibold text-slate-500 uppercase tracking-wide ${i >= 2 && i <= 4 ? 'text-right' : ''}`}>{h}</div>
+        {[
+          { text: showParty ? 'Party' : 'Item' },
+          { text: 'Order' },
+          { text: 'Pending', right: true },
+          { text: 'Recv Qty', right: true },
+          { text: 'Recv Date', center: true },
+          { text: 'Dispatch', right: true },
+          { text: 'Balance', right: true },
+          { text: 'Status' },
+        ].map((h, i) => (
+          <div key={i} className={`text-[10px] font-semibold text-slate-500 uppercase tracking-wide ${h.right ? 'text-right' : h.center ? 'text-center' : ''}`}>{h.text}</div>
         ))}
       </div>
       {lines.length === 0 && <div className="px-3 py-4 text-xs text-slate-400 text-center">No lines match the filters.</div>}
@@ -532,8 +638,35 @@ const SmartDispatchPlanning = ({ godowns }) => {
                 <span className="block text-[10px] text-slate-400">{fmtDate(l.orderDate)}</span>
               </div>
               <div className="md:hidden flex items-start justify-end"><StatusPill status={l.status} /></div>
-              <div className="col-span-2 grid grid-cols-3 gap-3 md:contents">
+              <div className="col-span-2 grid grid-cols-2 sm:grid-cols-5 gap-2 md:contents">
                 <Metric label="Pending" value={`${formatQty(l.remaining)} ${l.unit}`} />
+                <div className="min-w-0 md:text-right">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide md:hidden">Recv Qty</div>
+                  {l.recvQty > 0 ? (
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 whitespace-nowrap">
+                      {formatQty(l.recvQty)} {l.unit}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400 font-medium">—</span>
+                  )}
+                </div>
+                <div className="min-w-0 md:text-center">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide md:hidden">Recv Date</div>
+                  {l.recvDate ? (
+                    <span
+                      className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 whitespace-nowrap"
+                      title={l.inTransitLifts?.length > 1 ? `${l.inTransitLifts.length} in-transit lifts arriving` : undefined}
+                    >
+                      <Calendar size={11} className="text-slate-400" />
+                      {fmtDate(l.recvDate)}
+                      {l.inTransitLifts?.length > 1 && (
+                        <span className="text-[10px] text-blue-600 font-bold">+{l.inTransitLifts.length - 1}</span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400 font-medium">—</span>
+                  )}
+                </div>
                 <div className="min-w-0 md:text-right">
                   <div className="text-[10px] text-slate-400 uppercase tracking-wide md:hidden">Dispatch</div>
                   <div className="flex items-center gap-1 md:justify-end">
@@ -752,7 +885,17 @@ const SmartDispatchPlanning = ({ godowns }) => {
                       <div className="flex items-center gap-2.5 min-w-0">
                         <span className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0"><Package size={16} /></span>
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-semibold text-slate-800 break-words">{i.productName}</div>
+                          <div className="text-sm font-semibold text-slate-800 break-words flex items-center gap-1.5 flex-wrap">
+                            <span>{i.productName}</span>
+                            {i.inTransitQty > 0 && (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0"
+                                title={`Incoming shipments: ${formatQty(i.inTransitQty)} ${i.unit}${i.inTransitDate ? ` arriving/expected ${fmtDate(i.inTransitDate)}` : ''}`}
+                              >
+                                <Truck size={10} /> +{formatQty(i.inTransitQty)} {i.unit} incoming{i.inTransitDate ? ` (${fmtDate(i.inTransitDate)})` : ''}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[11px] text-slate-400">{i.unit || '—'}</div>
                         </div>
                         <span className="md:hidden"><ViewPlanChevron open={isOpen} /></span>

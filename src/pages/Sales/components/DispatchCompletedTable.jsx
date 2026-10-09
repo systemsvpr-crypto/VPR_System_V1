@@ -13,14 +13,12 @@ import FilterMenu from '@/components/FilterMenu';
 import { DatePicker } from '@/components/ui/date-picker';
 import { format } from 'date-fns';
 
+import { canEditOrDelete } from '../../../lib/permissions';
+
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
 const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, onFilterChange, onSave, products, godowns, user }) => {
-  // Same gate as Dispatch Planning's "Delete Selected" — this permanently
-  // wipes rows out of dispatch_plans/transactions.
-  const roleUpper = String(user?.role || '').trim().toUpperCase();
-  const isSuperAdmin = roleUpper === 'SUPER ADMIN' || roleUpper === 'SUPER_ADMIN' || roleUpper === 'SUPERADMIN';
-  const canDelete = import.meta.env.DEV || isSuperAdmin;
+  const canDelete = canEditOrDelete(user);
 
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -282,6 +280,10 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
   // place, so this only ever runs against Pending/Planned/Partially
   // Dispatched plans.
   const handleDeleteSelected = async () => {
+    if (!canDelete) {
+      toast.error('You do not have permission to delete dispatch plans');
+      return;
+    }
     if (checkedRows.size === 0) return;
     const planIds = [...checkedRows];
     const confirmMsg = planIds.length === 1

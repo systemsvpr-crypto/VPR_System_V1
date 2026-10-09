@@ -1,7 +1,12 @@
 import { ToggleLeft, ToggleRight, Warehouse, Trash2, Edit2 } from 'lucide-react';
 import DataTable from '@/components/DataTable';
-const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTerm, user, onDelete, typeFilter, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange, productCounts = {} }) => {
-  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
+import useAuthStore from '../../../store/authStore';
+import { canEditOrDelete } from '@/lib/permissions';
+
+const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTerm, user: propUser, onDelete, typeFilter, currentPage, totalPages, itemsPerPage, onPageChange, onItemsPerPageChange, productCounts = {} }) => {
+  const { user: authUser } = useAuthStore();
+  const user = propUser || authUser;
+  const userCanEdit = canEditOrDelete(user);
   if (loading) {
     return (
       <div className="p-12 text-center">
@@ -59,19 +64,21 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTer
             }
           </td>
           <td className="px-4 py-3 text-center">
-            <div className="flex items-center justify-center gap-2">
-              <button onClick={() => onEdit(g)} className="text-slate-400 hover:text-primary transition-colors" title="Edit Godown">
-                <Edit2 size={15} />
-              </button>
-              <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary transition-colors">
-                {g.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
-              </button>
-              {isSuperAdmin && (
+            {userCanEdit ? (
+              <div className="flex items-center justify-center gap-2">
+                <button onClick={() => onEdit(g)} className="text-slate-400 hover:text-primary transition-colors" title="Edit Godown">
+                  <Edit2 size={15} />
+                </button>
+                <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary transition-colors" title="Toggle Status">
+                  {g.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
+                </button>
                 <button onClick={() => onDelete(g)} className="text-slate-300 hover:text-red-500 transition-colors" title="Delete Godown">
                   <Trash2 size={16} />
                 </button>
-              )}
-            </div>
+              </div>
+            ) : (
+              <span className="text-slate-300 text-xs">—</span>
+            )}
           </td>
         </tr>
       )}
@@ -82,19 +89,19 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTer
               <h4 className="font-semibold text-slate-800">{g.name}</h4>
               <p className="text-xs text-slate-500 mt-0.5">{g.godown_type || 'Own'}</p>
             </div>
-            <div className="flex gap-2">
-              <button onClick={() => onEdit(g)} className="text-slate-400 hover:text-primary h-8 w-8" title="Edit Godown">
-                <Edit2 size={14} />
-              </button>
-              <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary h-8 w-8">
-                {g.is_active ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
-              </button>
-              {isSuperAdmin && (
+            {userCanEdit && (
+              <div className="flex gap-2">
+                <button onClick={() => onEdit(g)} className="text-slate-400 hover:text-primary h-8 w-8" title="Edit Godown">
+                  <Edit2 size={14} />
+                </button>
+                <button onClick={() => onToggle(g)} className="text-slate-400 hover:text-primary h-8 w-8" title="Toggle Status">
+                  {g.is_active ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                </button>
                 <button onClick={() => onDelete(g)} className="text-slate-300 hover:text-red-500 h-8 w-8" title="Delete Godown">
                   <Trash2 size={14} />
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="bg-slate-50 p-2 rounded-lg">

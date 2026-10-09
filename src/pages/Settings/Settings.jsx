@@ -7,8 +7,12 @@ import { Button } from '@/components/ui/button';
 import UserModal from './components/UserModal';
 import { UserRow, MobileUserCard } from './components/UserTable';
 import DataTable from '@/components/DataTable';
+import useAuthStore from '../../store/authStore';
+import { canEditOrDelete } from '../../lib/permissions';
 
 const Settings = () => {
+  const { user: currentUser } = useAuthStore();
+  const canModify = canEditOrDelete(currentUser);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -29,6 +33,16 @@ const Settings = () => {
   };
 
   const handleOpenModal = (user = null) => {
+    if (user && !canModify) {
+      // Non-admin can only view if opened in view mode, or blocked if editing
+      setEditingUser(user);
+      setIsModalOpen(true);
+      return;
+    }
+    if (!user && !canModify) {
+      toast.error('You do not have permission to add users');
+      return;
+    }
     setEditingUser(user);
     setIsModalOpen(true);
   };
@@ -62,7 +76,7 @@ const Settings = () => {
             <Input type="text" placeholder="Search users..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 order-1 md:order-2">
-            {!loading && (
+            {canModify && !loading && (
               <Button onClick={() => handleOpenModal()} className="gap-2 px-4 font-medium">
                 <Plus size={20} /><span>Add User</span>
               </Button>

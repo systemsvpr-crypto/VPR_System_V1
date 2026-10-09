@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalTitle } from '@/components/ui/modal';
 import FilterMenu from '@/components/FilterMenu';
+import { canEditOrDelete } from '../../../lib/permissions';
 
 const LIFT_STATUS_STYLE = {
   'In Transit': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: Timer, label: 'In Transit' },
@@ -35,6 +36,7 @@ const IndentTypeBadge = ({ processType }) => (
 );
 
 const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = [], groups = [] }) => {
+  const canDelete = canEditOrDelete(user);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('purchase_view_mode') || 'card');
@@ -66,6 +68,10 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
   };
 
   const handleDeleteItem = async (item) => {
+    if (!canDelete) {
+      toast.error('You do not have permission to delete purchase items');
+      return;
+    }
     if (!window.confirm(`Are you sure you want to delete purchase indent item "${item.product_name}" (Indent: ${item.indent_number}) and all its deliveries?`)) {
       return;
     }
@@ -88,6 +94,10 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
   };
 
   const handleDeleteLift = async (deliveryId, liftNo) => {
+    if (!canDelete) {
+      toast.error('You do not have permission to delete delivery lifts');
+      return;
+    }
     if (!window.confirm(`Are you sure you want to delete lift "${liftNo || deliveryId}"?`)) {
       return;
     }
@@ -192,6 +202,10 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
   };
 
   const handleDeleteSelected = async () => {
+    if (!canDelete) {
+      toast.error('You do not have permission to delete purchase items');
+      return;
+    }
     if (selectedItems.size === 0) return;
     if (!window.confirm(`Are you sure you want to delete ${selectedItems.size} selected purchase item(s) and all their deliveries?`)) {
       return;
@@ -447,17 +461,19 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                     ) : (
                       <span className="text-[11px] text-slate-400 px-2">No lifts</span>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      type="button"
-                      title="Delete purchase item"
-                      disabled={deletingId === item.item_id}
-                      onClick={() => handleDeleteItem(item)}
-                      className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0 disabled:opacity-50"
-                    >
-                      <Trash2 size={13} />
-                    </Button>
+                    {canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        type="button"
+                        title="Delete purchase item"
+                        disabled={deletingId === item.item_id}
+                        onClick={() => handleDeleteItem(item)}
+                        className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0 disabled:opacity-50"
+                      >
+                        <Trash2 size={13} />
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -539,7 +555,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
         </div>
 
         <div className="flex items-center gap-3">
-          {selectedItems.size > 0 && (
+          {canDelete && selectedItems.size > 0 && (
             <Button
               variant="destructive"
               size="sm"
@@ -666,18 +682,20 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                             onChange={() => toggleSelect(item.item_id)}
                             className="rounded border-slate-300 text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
                           />
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteItem(item);
-                            }}
-                            disabled={deletingId === item.item_id}
-                            title="Delete row"
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteItem(item);
+                              }}
+                              disabled={deletingId === item.item_id}
+                              title="Delete row"
+                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
@@ -826,7 +844,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                         <tr>
-                          <th className="w-12 text-center px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
+                          {canDelete && <th className="w-12 text-center px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>}
                           <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lift No.</th>
                           <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                           <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
@@ -846,17 +864,19 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                             const SIcon = style.icon;
                             return (
                               <tr key={lift.delivery_id} className="hover:bg-slate-50">
-                                <td className="px-2 py-2.5 text-center whitespace-nowrap">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteLift(lift.delivery_id, lift.lifting_number)}
-                                    disabled={deletingId === lift.delivery_id}
-                                    title="Delete lift"
-                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                </td>
+                                {canDelete && (
+                                  <td className="px-2 py-2.5 text-center whitespace-nowrap">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteLift(lift.delivery_id, lift.lifting_number)}
+                                      disabled={deletingId === lift.delivery_id}
+                                      title="Delete lift"
+                                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  </td>
+                                )}
                                 <td className="px-3 py-2.5 font-semibold text-teal-700 whitespace-nowrap">{lift.lifting_number || '—'}</td>
                                 <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">
                                   {lift.delivery_date ? format(new Date(lift.delivery_date), 'dd/MM/yyyy') : '—'}

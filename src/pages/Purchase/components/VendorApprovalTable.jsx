@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dropdown } from '@/components/ui/dropdown';
 import { sanitizeQtyInput } from '@/lib/qty';
+import { canEditOrDelete } from '../../../lib/permissions';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -24,6 +25,7 @@ const IndentTypeBadge = ({ processType }) => (
 );
 
 const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
+  const canDelete = canEditOrDelete(user);
   const [indents, setIndents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -261,6 +263,10 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
   };
 
   const handleDeleteIndent = async (indent) => {
+    if (!canDelete) {
+      toast.error('You do not have permission to delete indents');
+      return;
+    }
     const iNum = indent.indent_number || 'this indent';
     if (!window.confirm(`Permanently delete indent "${iNum}" and all its items? This cannot be undone.`)) return;
     try {
@@ -274,6 +280,10 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
   };
 
   const handleDeleteItem = async (item) => {
+    if (!canDelete) {
+      toast.error('You do not have permission to delete indent items');
+      return;
+    }
     const pName = item.products?.name || 'this item';
     if (!window.confirm(`Permanently delete "${pName}"? This cannot be undone.`)) return;
     try {
@@ -286,6 +296,10 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
   };
 
   const handleDeleteSelected = async () => {
+    if (!canDelete) {
+      toast.error('You do not have permission to delete indent items');
+      return;
+    }
     if (selectedCount === 0) { toast.error('No items selected.'); return; }
     if (!window.confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`)) return;
     setDeleting(true);
@@ -380,11 +394,13 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                   className="text-xs h-7">
                   Clear
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleDeleteSelected} disabled={deleting || approvingAll}
-                  className="gap-1 text-xs h-7 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
-                  {deleting ? <div className="animate-spin rounded-full h-3 w-3 border-t border-b border-red-600" /> : <Trash2 size={13} />}
-                  Delete Selected ({selectedCount})
-                </Button>
+                {canDelete && (
+                  <Button variant="outline" size="sm" onClick={handleDeleteSelected} disabled={deleting || approvingAll}
+                    className="gap-1 text-xs h-7 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
+                    {deleting ? <div className="animate-spin rounded-full h-3 w-3 border-t border-b border-red-600" /> : <Trash2 size={13} />}
+                    Delete Selected ({selectedCount})
+                  </Button>
+                )}
                 <Button size="sm" onClick={approveAllSelected} disabled={approvingAll || deleting}
                   className="gap-1 text-xs h-7">
                   {approvingAll ? (
@@ -519,16 +535,18 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                               <span>{isExpanded ? 'Hide Items' : `View Items (${items.length})`}</span>
                               <ChevronDown size={13} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              type="button"
-                              title="Delete Indent"
-                              onClick={() => handleDeleteIndent(indent)}
-                              className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
-                            >
-                              <Trash2 size={13} />
-                            </Button>
+                            {canDelete && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                type="button"
+                                title="Delete Indent"
+                                onClick={() => handleDeleteIndent(indent)}
+                                className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
+                              >
+                                <Trash2 size={13} />
+                              </Button>
+                            )}
                           </div>
                         </div>
 
@@ -561,16 +579,18 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                                     <span className="font-semibold text-slate-900">{item.products?.name}</span>
                                     <span className="text-[10px] text-slate-400 uppercase">({item.products?.unit})</span>
                                   </div>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    type="button"
-                                    title="Delete Item"
-                                    onClick={() => handleDeleteItem(item)}
-                                    className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
-                                  >
-                                    <Trash2 size={12} />
-                                  </Button>
+                                  {canDelete && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      type="button"
+                                      title="Delete Item"
+                                      onClick={() => handleDeleteItem(item)}
+                                      className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                                    >
+                                      <Trash2 size={12} />
+                                    </Button>
+                                  )}
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-2">
@@ -842,16 +862,18 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                                               {changed ? 'Save & Approve' : 'Approve'}
                                             </Button>
                                           )}
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            type="button"
-                                            title="Delete Item"
-                                            onClick={() => handleDeleteItem(item)}
-                                            className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                          >
-                                            <Trash2 size={13} />
-                                          </Button>
+                                          {canDelete && (
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              type="button"
+                                              title="Delete Item"
+                                              onClick={() => handleDeleteItem(item)}
+                                              className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                            >
+                                              <Trash2 size={13} />
+                                            </Button>
+                                          )}
                                         </div>
                                       </td>
                                     </tr>

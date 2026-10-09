@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/Select';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const createEmptyProduct = (defaultUnit = 'bag') => ({
   id: Date.now() + Math.random(),
@@ -51,7 +52,7 @@ const ProductModal = ({
   const [duplicateNotice, setDuplicateNotice] = useState('');
 
   const isEditing = !!editingProduct;
-  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
+  const canDeleteProduct = canEditOrDelete(user);
 
   // Sync prop changes
   useEffect(() => {
@@ -708,7 +709,7 @@ const ProductModal = ({
           </ModalBody>
           <ModalFooter className="px-4 sm:px-6 py-3 sm:py-4 flex-wrap gap-2 sm:gap-3">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            {isEditing && isSuperAdmin && (
+            {isEditing && canDeleteProduct && (
               <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="sm:mr-auto">
                 <Trash2 size={16} className="mr-1" />
                 {deleting ? 'Deleting...' : 'Delete'}

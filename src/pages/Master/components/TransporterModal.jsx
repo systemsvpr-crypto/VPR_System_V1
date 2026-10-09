@@ -5,6 +5,7 @@ import { createTransporter, updateTransporter, deleteTransporter } from '../../.
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user, onDelete, godowns }) => {
   const [name, setName] = useState('');
@@ -15,7 +16,7 @@ const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user
   const [deleting, setDeleting] = useState(false);
 
   const isEditing = !!editingTransporter;
-  const isSuperAdmin = user?.role?.toUpperCase() === 'SUPER ADMIN';
+  const canDeleteTransporter = canEditOrDelete(user);
 
   useEffect(() => {
     if (!isOpen) {
@@ -110,7 +111,7 @@ const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user
           </ModalBody>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            {isEditing && isSuperAdmin && (
+            {isEditing && canDeleteTransporter && (
               <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
                 <Trash2 size={16} className="mr-1" />
                 {deleting ? 'Deleting...' : 'Delete'}

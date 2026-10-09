@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
+import { canEditOrDelete } from '../../lib/permissions';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -85,6 +86,7 @@ const getStockLevel = (stock, maxLevel) => {
  */
 const UltimateIMS = () => {
   const { user } = useAuthStore();
+  const canModify = canEditOrDelete(user);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -381,6 +383,10 @@ const UltimateIMS = () => {
   // Saves Lead Time / Safety Factor to the product master when the input
   // loses focus (only if it actually changed).
   const handlePlanningBlur = async (row, field) => {
+    if (!canModify) {
+      toast.error('You do not have permission to modify product planning parameters');
+      return;
+    }
     const value = planningEdits[row.key]?.[field];
     if (value === undefined) return;
     const label = field === 'lead_time' ? 'Lead Time' : 'Safety Factor';
@@ -636,7 +642,7 @@ const UltimateIMS = () => {
                       </td>
                       {[['lead_time', leadTimeVal, 'Days'], ['safety_factor', safetyFactorVal, 'Factor']].map(([field, val, placeholder]) => (
                         <td key={field} className="px-4 py-3 text-center tabular-nums whitespace-nowrap">
-                          {selected ? (
+                          {selected && canModify ? (
                             <div className="w-20 mx-auto">
                               <Input type="text" placeholder={placeholder}
                                 value={val}

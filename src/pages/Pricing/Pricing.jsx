@@ -26,9 +26,11 @@ import PricingTable from './components/PricingTable';
 import PricingModal from './components/PricingModal';
 import RateHistoryModal from './components/RateHistoryModal';
 import { TabSwitcher } from '../../components/StandardButtons';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const Pricing = () => {
   const { user } = useAuthStore();
+  const userCanEdit = canEditOrDelete(user);
   const [groups, setGroups] = useState([]);
   const [ranks, setRanks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -243,6 +245,7 @@ const Pricing = () => {
   };
 
   const handleRateChange = (groupId, field, value) => {
+    if (!userCanEdit) return;
     if (value !== '' && !/^\d*\.?\d*$/.test(value)) return;
     setEditedRates((prev) => ({
       ...prev,
@@ -260,6 +263,10 @@ const Pricing = () => {
 
   // --- Bulk Save Handler ---
   const handleBulkSave = async () => {
+    if (!userCanEdit) {
+      toast.error('Permission denied. Only Admins can modify pricing.');
+      return;
+    }
     if (selectedGroupIds.size === 0) return;
 
     const updates = [];
@@ -321,6 +328,10 @@ const Pricing = () => {
 
   // --- Save Single Row (when Enter pressed) ---
   const handleSaveSingleRow = async (groupId) => {
+    if (!userCanEdit) {
+      toast.error('Permission denied. Only Admins can modify pricing.');
+      return;
+    }
     const rates = editedRates[groupId];
     if (!rates) return;
 
@@ -369,12 +380,16 @@ const Pricing = () => {
 
   // --- Bulk Delete Handlers ---
   const handleOpenBulkDelete = () => {
+    if (!userCanEdit) {
+      toast.error('Permission denied. Only Admins can delete pricing groups.');
+      return;
+    }
     if (selectedGroupIds.size === 0) return;
     setBulkDeleteModalOpen(true);
   };
 
   const handleConfirmBulkDelete = async () => {
-    if (selectedGroupIds.size === 0) return;
+    if (!userCanEdit || selectedGroupIds.size === 0) return;
     const ids = Array.from(selectedGroupIds);
 
     setBulkDeleting(true);
@@ -395,6 +410,10 @@ const Pricing = () => {
 
   // --- Modal Openers ---
   const handleOpenAdd = () => {
+    if (!userCanEdit) {
+      toast.error('Permission denied. Only Admins can add pricing.');
+      return;
+    }
     setEditingGroup(null);
     setPricingModalOpen(true);
   };
@@ -405,12 +424,16 @@ const Pricing = () => {
   };
 
   const handleOpenDelete = (group) => {
+    if (!userCanEdit) {
+      toast.error('Permission denied. Only Admins can delete pricing groups.');
+      return;
+    }
     setGroupToDelete(group);
     setDeleteModalOpen(true);
   };
 
   const handleConfirmDelete = async () => {
-    if (!groupToDelete) return;
+    if (!userCanEdit || !groupToDelete) return;
     try {
       setDeleting(true);
       await deletePricingGroup(groupToDelete.group_id);
@@ -492,7 +515,7 @@ const Pricing = () => {
         </div>
 
         {/* Submit & Delete Buttons on Search Bar Card */}
-        {selectedGroupIds.size > 0 && (
+        {userCanEdit && selectedGroupIds.size > 0 && (
           <div className="flex items-center gap-2 border-t lg:border-t-0 lg:border-l border-slate-200 pt-2 lg:pt-0 lg:pl-3 animate-in fade-in shrink-0">
             <span className="text-xs font-bold text-primary px-2.5 py-1 bg-primary/10 rounded-md whitespace-nowrap">
               {selectedGroupIds.size} Selected

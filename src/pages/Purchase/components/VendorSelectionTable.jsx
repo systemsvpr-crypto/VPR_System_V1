@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 import FilterMenu from '@/components/FilterMenu';
+import { canEditOrDelete } from '../../../lib/permissions';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -33,6 +34,7 @@ const convertApproveQty = (qty, fromUnit, targetUnit, pkgSize) => {
 };
 
 const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
+  const canDelete = canEditOrDelete(user);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -316,6 +318,10 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
   };
 
   const handleDeleteRow = async (item) => {
+    if (!canDelete) {
+      toast.error('You do not have permission to delete indent items');
+      return;
+    }
     const pName = item.products?.name || 'this product';
     const iNum = item.purchase_indents?.indent_number || '';
     if (!window.confirm(`Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`)) return;
@@ -335,6 +341,10 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
   };
 
   const handleDeleteSelected = async () => {
+    if (!canDelete) {
+      toast.error('You do not have permission to delete indent items');
+      return;
+    }
     if (selectedCount === 0) { toast.error('No items selected.'); return; }
     if (!window.confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`)) return;
     setDeletingSelected(true);
@@ -475,7 +485,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
           </button>
         </div>
 
-        {selectedCount > 0 && (
+        {canDelete && selectedCount > 0 && (
           <Button size="sm" variant="outline" onClick={handleDeleteSelected} disabled={deletingSelected || savingAll}
             className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
             {deletingSelected ? (
@@ -688,16 +698,18 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                               <span>{isExpanded ? 'Hide Form' : 'Plan / Edit'}</span>
                               <ChevronDown size={13} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              type="button"
-                              title="Delete Row"
-                              onClick={() => handleDeleteRow(item)}
-                              className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
-                            >
-                              <Trash2 size={13} />
-                            </Button>
+                            {canDelete && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                type="button"
+                                title="Delete Row"
+                                onClick={() => handleDeleteRow(item)}
+                                className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
+                              >
+                                <Trash2 size={13} />
+                              </Button>
+                            )}
                           </div>
                         </div>
 
@@ -869,16 +881,18 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                               onChange={() => toggleSelect(item.item_id)}
                               className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                             />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              type="button"
-                              title="Delete Row"
-                              onClick={() => handleDeleteRow(item)}
-                              className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                            >
-                              <Trash2 size={14} />
-                            </Button>
+                            {canDelete && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                type="button"
+                                title="Delete Row"
+                                onClick={() => handleDeleteRow(item)}
+                                className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            )}
                           </div>
                         </td>
                         <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">

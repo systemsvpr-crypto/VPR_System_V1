@@ -5,6 +5,7 @@ import { createPricingGroup, updatePricingGroup } from '../../../services/pricin
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const INITIAL_FORM_STATE = {
   group_name: '',
@@ -84,6 +85,10 @@ const PricingModal = ({ isOpen, onClose, editingGroup, onSuccess, user, ranks = 
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can modify pricing.');
+      return;
+    }
     if (!validate()) return;
 
     setSubmitting(true);

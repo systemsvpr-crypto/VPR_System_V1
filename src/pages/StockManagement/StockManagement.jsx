@@ -27,6 +27,7 @@ import DispatchModal from './components/DispatchModal';
 import BulkDispatchModal from './components/BulkDispatchModal';
 import DeleteConfirmModal from './components/DeleteConfirmModal';
 import { TransactionFilters, TransactionTable } from './components/TransactionTable';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const ACTIONS = [
   { id: 'factory-in', label: 'Godown in', icon: Factory, color: 'bg-blue-50 text-blue-600 border-blue-200' },
@@ -125,6 +126,10 @@ const StockManagement = () => {
   };
 
   const handleEdit = (txn) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can edit transactions.');
+      return;
+    }
     let editTxn = { ...txn, qty: String(Number(txn.qty)) };
     if (txn.pair_id) {
       const pair = transactions.find(t => t.pair_id === txn.pair_id && t.txn_id !== txn.txn_id);
@@ -145,6 +150,10 @@ const StockManagement = () => {
   };
 
   const handleDeleteClick = (txn) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can delete transactions.');
+      return;
+    }
     setDeletingTransaction(txn);
   };
 

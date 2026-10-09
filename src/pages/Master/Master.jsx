@@ -32,6 +32,7 @@ import GroupModal from './components/ProductGrouping/GroupModal';
 import BulkImportEntityModal, { CUSTOMER_CONFIG, VENDOR_CONFIG, TRANSPORTER_CONFIG } from './components/BulkImportEntityModal';
 import RankTable from './components/RankTable';
 import RankModal from './components/RankModal';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const TABS = [
   { id: 'products', label: 'Products', icon: Package },
@@ -470,6 +471,10 @@ const Master = () => {
   };
 
   const handleEditProduct = (product) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can edit products.');
+      return;
+    }
     setEditingProduct(product);
     setProductModalOpen(true);
   };
@@ -480,6 +485,10 @@ const Master = () => {
   };
 
   const handleEditGodown = (godown) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can edit godowns.');
+      return;
+    }
     setEditingGodown(godown);
     setGodownModalOpen(true);
   };
@@ -490,6 +499,10 @@ const Master = () => {
   };
 
   const handleToggleGodown = async (godown) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can modify godowns.');
+      return;
+    }
     try {
       await toggleGodownStatus(godown.godown_id, !godown.is_active);
       toast.success(`Godown ${godown.is_active ? 'deactivated' : 'activated'}`);
@@ -498,6 +511,10 @@ const Master = () => {
   };
 
   const handleEditCustomer = (customer) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can edit customers.');
+      return;
+    }
     setEditingCustomer(customer);
     setCustomerModalOpen(true);
   };
@@ -508,6 +525,10 @@ const Master = () => {
   };
 
   const handleEditVendor = (vendor) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can edit vendors.');
+      return;
+    }
     setEditingVendor(vendor);
     setVendorModalOpen(true);
   };
@@ -518,6 +539,10 @@ const Master = () => {
   };
 
   const handleEditTransporter = (transporter) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can edit transporters.');
+      return;
+    }
     setEditingTransporter(transporter);
     setTransporterModalOpen(true);
   };
@@ -528,6 +553,10 @@ const Master = () => {
   };
 
   const handleEditGroup = (group) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can edit groups.');
+      return;
+    }
     setEditingGroup(group);
     setGroupModalOpen(true);
   };
@@ -538,6 +567,10 @@ const Master = () => {
   };
 
   const handleDeleteGroup = async (group) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can delete groups.');
+      return;
+    }
     if (!window.confirm(`Delete group "${group.group_name}"? This action cannot be undone.`)) return;
     try {
       await deleteGroup(group.group_id);
@@ -547,6 +580,10 @@ const Master = () => {
   };
 
   const handleEditRank = (rank) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can edit ranks.');
+      return;
+    }
     setEditingRank(rank);
     setRankModalOpen(true);
   };
@@ -557,6 +594,10 @@ const Master = () => {
   };
 
   const handleDeleteRank = async (rank) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can delete ranks.');
+      return;
+    }
     if (!window.confirm(`Delete rank "${rank.rank_name}"? This action cannot be undone.`)) return;
     try {
       await deleteRank(rank.rank_id);
@@ -566,6 +607,10 @@ const Master = () => {
   };
 
   const handleDeleteGodown = async (godown) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can delete godowns.');
+      return;
+    }
     if (!window.confirm(`Delete godown "${godown.name}"? This action cannot be undone.`)) return;
     try {
       await deleteGodown(godown.godown_id);
@@ -804,7 +849,7 @@ const Master = () => {
       <ProductModal isOpen={productModalOpen} onClose={handleCloseProductModal}
         godowns={godowns} groups={groups} products={products} user={user} onSuccess={loadData} editingProduct={editingProduct} />
       <GodownModal isOpen={godownModalOpen} onClose={handleCloseGodownModal}
-        onSuccess={loadData} editingGodown={editingGodown} products={products} allGodowns={godowns} />
+        onSuccess={loadData} editingGodown={editingGodown} products={products} allGodowns={godowns} user={user} />
       <BulkImportModal isOpen={importModalOpen} onClose={() => setImportModalOpen(false)}
         godowns={godowns} products={products} user={user} onSuccess={loadData} />
       <BulkImportOpeningStockModal isOpen={openingStockImportOpen} onClose={() => setOpeningStockImportOpen(false)}

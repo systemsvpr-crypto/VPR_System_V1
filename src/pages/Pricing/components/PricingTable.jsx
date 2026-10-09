@@ -7,6 +7,8 @@ import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import DataTable from '@/components/DataTable';
+import useAuthStore from '../../../store/authStore';
+import { canEditOrDelete } from '@/lib/permissions';
 
 const formatRate = (rate) => {
   if (rate === null || rate === undefined || rate === '') return '—';
@@ -85,6 +87,7 @@ const PricingTableRow = ({
   onSaveSingleRow,
   onViewHistory,
   ranks = [],
+  userCanEdit = true,
 }) => {
   return (
     <tr
@@ -97,13 +100,17 @@ const PricingTableRow = ({
     >
       {/* 1. Checkbox Column */}
       <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={() => onToggleSelect(g.group_id)}
-          className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer accent-primary mx-auto block"
-          title={isSelected ? 'Deselect row' : 'Select row to edit rates'}
-        />
+        {userCanEdit ? (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onToggleSelect(g.group_id)}
+            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer accent-primary mx-auto block"
+            title={isSelected ? 'Deselect row' : 'Select row to edit rates'}
+          />
+        ) : (
+          <span className="text-slate-300 text-xs">—</span>
+        )}
       </td>
 
       {/* 2. Product Name */}
@@ -231,6 +238,7 @@ const PricingCardRow = ({
   onRateChange,
   onViewHistory,
   ranks = [],
+  userCanEdit = true,
 }) => {
   return (
     <div
@@ -242,15 +250,17 @@ const PricingCardRow = ({
       }`}
     >
       <div className="flex justify-between items-start gap-2">
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={() => onToggleSelect(g.group_id)}
-            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer accent-primary"
-          />
-          <span className="text-xs text-slate-400">Select to edit</span>
-        </div>
+        {userCanEdit ? (
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => onToggleSelect(g.group_id)}
+              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer accent-primary"
+            />
+            <span className="text-xs text-slate-400">Select to edit</span>
+          </div>
+        ) : <div />}
 
         <div className="text-right flex-1">
           <h4 className="font-semibold text-slate-800 text-sm">{g.group_name}</h4>
@@ -347,6 +357,9 @@ const PricingTable = ({
   emptyMessage,
   ranks = [],
 }) => {
+  const { user } = useAuthStore();
+  const userCanEdit = canEditOrDelete(user);
+
   // Map groups to new row objects containing _isSelected and _rowRates for fast memoized rendering
   const rows = useMemo(() => {
     return groups.map((g) => {
@@ -401,7 +414,7 @@ const PricingTable = ({
 
   const tableHeaders = [
     {
-      label: (
+      label: userCanEdit ? (
         <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
           <input
             type="checkbox"
@@ -414,7 +427,7 @@ const PricingTable = ({
             title={allPageSelected ? 'Deselect all on this page' : 'Select all on this page'}
           />
         </div>
-      ),
+      ) : '',
       className: 'w-14 text-center',
     },
     'Product Name',
@@ -455,6 +468,7 @@ const PricingTable = ({
           onSaveSingleRow={onSaveSingleRow}
           onViewHistory={onViewHistory}
           ranks={ranks}
+          userCanEdit={userCanEdit}
         />
       )}
       renderCard={(g) => (
@@ -467,6 +481,7 @@ const PricingTable = ({
           onRateChange={onRateChange}
           onViewHistory={onViewHistory}
           ranks={ranks}
+          userCanEdit={userCanEdit}
         />
       )}
     />

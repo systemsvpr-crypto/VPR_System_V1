@@ -19,6 +19,7 @@ import DeliveryTable from './components/DeliveryTable';
 import AawakDetailsTable from './components/AawakDetailsTable';
 import PurchaseCompleteTable from './components/PurchaseCompleteTable';
 import FilterMenu from '@/components/FilterMenu';
+import { canEditOrDelete } from '../../lib/permissions';
 
 // "Vendor Approval" (VendorSelectionTable) is planning — picking vendor,
 // rate, qty, expected delivery date. "Approval" (VendorApprovalTable) is the
@@ -127,11 +128,19 @@ const Purchase = () => {
   };
 
   const handleEditIndent = (indent) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('You do not have permission to edit indents');
+      return;
+    }
     setEditingIndent(indent);
     setModalOpen(true);
   };
 
   const handleDeleteIndent = async (indent) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('You do not have permission to delete indents');
+      return;
+    }
     if (!window.confirm(`Permanently delete indent "${indent.indent_number}"? This cannot be undone.`)) return;
     try {
       await deleteIndent(indent.indent_id);
@@ -149,6 +158,10 @@ const Purchase = () => {
   // this lives in IndentPendingHistoryTable itself (one prompt for the whole
   // batch); this just does the deletion + reload.
   const handleDeleteSelectedItems = async (itemsToDelete) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('You do not have permission to delete indent items');
+      return;
+    }
     if (!itemsToDelete || itemsToDelete.length === 0) return;
     try {
       for (const item of itemsToDelete) {
