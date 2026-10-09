@@ -191,7 +191,7 @@ export const createOrder = async ({ order_date, order_number, customer_id, items
   }
 
   if (notify_customer) {
-    notifyOrderConfirmation(customer_id, items).catch(err => {
+    notifyOrderConfirmation(customer_id, items, order_date).catch(err => {
       console.error('WhatsApp order confirmation failed:', err.message);
     });
   }
@@ -270,7 +270,7 @@ export const createDirectOrder = async ({ order_date, order_number, customer_id,
   const dispatchedItems = createdItems.filter(item => !failedItemIds.has(item.item_id));
 
   if (notify_customer && dispatchedItems.length > 0) {
-    notifyOrderConfirmation(customer_id, dispatchedItems).catch(err => {
+    notifyOrderConfirmation(customer_id, dispatchedItems, order_date).catch(err => {
       console.error('WhatsApp order confirmation failed:', err.message);
     });
   }
@@ -278,7 +278,20 @@ export const createDirectOrder = async ({ order_date, order_number, customer_id,
   return { order, items: createdItems, planErrors };
 };
 
-const notifyOrderConfirmation = async (customer_id, items) => {
+const formatOrderReceivedDate = (dateStr) => {
+  if (!dateStr) return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  try {
+    if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+      const [year, month, day] = dateStr.slice(0, 10).split('-');
+      return `${day}/${month}/${year}`;
+    }
+    return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch {
+    return String(dateStr);
+  }
+};
+
+const notifyOrderConfirmation = async (customer_id, items, order_date) => {
   const { data: customer } = await supabase
     .from('customers')
     .select('name, phone_number')
@@ -289,21 +302,28 @@ const notifyOrderConfirmation = async (customer_id, items) => {
   const productIds = [...new Set(items.map(i => i.product_id))];
   const { data: productRows } = await supabase
     .from('products')
-    .select('product_id, name')
+    .select('product_id, name, unit')
     .in('product_id', productIds);
-  const nameMap = {};
-  (productRows || []).forEach(p => { nameMap[p.product_id] = p.name; });
+  const prodMap = {};
+  (productRows || []).forEach(p => { prodMap[p.product_id] = p; });
 
   const itemDetails = items
-    .map(i => `${nameMap[i.product_id] || 'Item'} x ${Number(i.quantity)}`)
+    .map(i => {
+      const p = prodMap[i.product_id];
+      const unit = (i.Selected_Unit || p?.unit || '').trim();
+      const qty = i.sales_qty != null ? Number(i.sales_qty) : Number(i.quantity);
+      return `${p?.name || 'Item'} x ${qty}${unit ? ' ' + unit : ''}`;
+    })
     .join(', ');
   const totalQty = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+  const formattedOrderDate = formatOrderReceivedDate(order_date);
 
   await sendOrderConfirmationWhatsapp({
     phone: customer.phone_number,
     customerName: customer.name,
     itemDetails,
     totalQty,
+    orderDate: formattedOrderDate,
   });
 };
 
@@ -375,7 +395,7 @@ export const updateOrder = async (order_id, { order_date, order_number, customer
   }
 
   if (notify_customer) {
-    notifyOrderConfirmation(customer_id, items).catch(err => {
+    notifyOrderConfirmation(customer_id, items, order_date).catch(err => {
       console.error('WhatsApp order confirmation failed:', err.message);
     });
   }

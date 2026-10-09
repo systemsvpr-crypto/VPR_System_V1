@@ -12,12 +12,17 @@ const sendWhatsappTemplate = async ({ phone, template, language, parameters }) =
   }
 };
 
-export const sendOrderConfirmationWhatsapp = async ({ phone, customerName, itemDetails, totalQty }) => {
+export const sendOrderConfirmationWhatsapp = async ({ phone, customerName, itemDetails, totalQty, orderDate }) => {
   await sendWhatsappTemplate({
     phone,
     template: 'order_confirmation',
     language: 'en',
-    parameters: [customerName || 'Customer', itemDetails || '-', String(totalQty ?? '')],
+    parameters: [
+      sanitizeParam(customerName || 'Customer'), // {{1}}
+      sanitizeParam(itemDetails || '-', false),   // {{2}}
+      sanitizeParam(String(totalQty ?? '0')),    // {{3}}
+      sanitizeParam(orderDate || '-'),           // {{4}}
+    ],
   });
 };
 
