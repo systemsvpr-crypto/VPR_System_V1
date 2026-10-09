@@ -185,7 +185,30 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
     ? items.reduce((sum, item) => sum + (Number(item.rate) || 0) * (Number(item.quantity) || 0), 0)
     : 0;
 
-  const headerGroupId = group_id !== undefined ? (group_id || null) : (items?.find(i => i.group_id)?.group_id || null);
+  // Auto-resolve missing group_id for items from the products table
+  const missingGroupProductIds = (items || [])
+    .filter(i => !i.group_id && i.product_id)
+    .map(i => i.product_id);
+
+  let productGroupMap = {};
+  if (missingGroupProductIds.length > 0) {
+    const { data: prods } = await supabase
+      .from('products')
+      .select('product_id, group_id')
+      .in('product_id', missingGroupProductIds);
+    (prods || []).forEach(p => {
+      if (p.product_id && p.group_id) {
+        productGroupMap[p.product_id] = p.group_id;
+      }
+    });
+  }
+
+  const resolvedItems = (items || []).map(item => ({
+    ...item,
+    group_id: item.group_id || productGroupMap[item.product_id] || null,
+  }));
+
+  const headerGroupId = group_id !== undefined ? (group_id || null) : (resolvedItems.find(i => i.group_id)?.group_id || null);
 
   // vendor_id and godown_id are both optional at the header level — a
   // Process-type indent (e.g. the "Reorder" quick action on Ultimate IMS) can
@@ -218,8 +241,12 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
     attemptNumber = await generateNextIndentNumber();
   }
 
-  if (items.length > 0) {
-    const itemRows = items.map(item => ({
+  if (resolvedItems.length > 0) {
+    const targetGodownId = isDirect ? (godown_id || null) : null;
+    const targetVendorId = vendor_id || null;
+    const targetRemarks = remarks || null;
+
+    const itemRows = resolvedItems.map(item => ({
       indent_id: indent.indent_id,
       product_id: item.product_id,
       group_id: item.group_id || headerGroupId || null,
@@ -228,9 +255,9 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
       // quantity itself gets overwritten with the Approved Qty later.
       indent_qty: Number(item.quantity),
       rate: Number(item.rate),
-      approved_godown_id: godown_id || null,
-      vendor_id: vendor_id || null,
-      vendor_remarks: remarks || null,
+      approved_godown_id: targetGodownId,
+      vendor_id: targetVendorId,
+      vendor_remarks: targetRemarks,
       // reorder_unit/reorder_unit_qty are just a record of what was actually
       // picked/typed on Ultimate IMS's Reorder — quantity above is always the
       // converted, product-master-unit figure that drives the pipeline/stock.
@@ -242,7 +269,13 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
       // already hold the converted master-unit figure.
       direct_indent_unit: item.direct_indent_unit || null,
       direct_indent_qty: item.direct_indent_qty != null ? Number(item.direct_indent_qty) : null,
-      ...(isDirect ? { approval_status: 'Approved', planning_status: 'Planned', approved_by: created_by || null } : {}),
+      ...(isDirect ? {
+        approval_status: 'Approved',
+        planning_status: 'Planned',
+        approved_by: created_by || null,
+        approved_vendor_id: targetVendorId,
+        approved_rate: Number(item.rate) || 0,
+      } : {}),
     }));
     const { error: itemErr } = await supabase
       .from('purchase_indent_items')
@@ -270,7 +303,30 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
   }
   const isDirect = effectiveProcessType === 'direct';
 
-  const headerGroupId = group_id !== undefined ? (group_id || null) : (items?.find(i => i.group_id)?.group_id || null);
+  // Auto-resolve missing group_id for items from the products table
+  const missingUpdGroupProductIds = (items || [])
+    .filter(i => !i.group_id && i.product_id)
+    .map(i => i.product_id);
+
+  let updProductGroupMap = {};
+  if (missingUpdGroupProductIds.length > 0) {
+    const { data: prods } = await supabase
+      .from('products')
+      .select('product_id, group_id')
+      .in('product_id', missingUpdGroupProductIds);
+    (prods || []).forEach(p => {
+      if (p.product_id && p.group_id) {
+        updProductGroupMap[p.product_id] = p.group_id;
+      }
+    });
+  }
+
+  const resolvedItems = (items || []).map(item => ({
+    ...item,
+    group_id: item.group_id || updProductGroupMap[item.product_id] || null,
+  }));
+
+  const headerGroupId = group_id !== undefined ? (group_id || null) : (resolvedItems.find(i => i.group_id)?.group_id || null);
 
   // Godown and vendor are optional — '' (cleared in the UI) has to become
   // null rather than being sent as-is, since '' isn't a valid uuid.
@@ -283,7 +339,7 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
   // is planned — overwriting it here from every item's (often still
   // untouched) rate would wipe out that correct, incrementally-built total.
   if (isDirect) {
-    updateFields.total_amount = items.reduce((sum, item) => sum + (Number(item.rate) || 0) * (Number(item.quantity) || 0), 0);
+    updateFields.total_amount = resolvedItems.reduce((sum, item) => sum + (Number(item.rate) || 0) * (Number(item.quantity) || 0), 0);
   }
 
   const { error: indentErr } = await supabase
@@ -298,28 +354,35 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
     .eq('indent_id', indent_id);
   if (fetchErr) throw fetchErr;
 
-  const incomingIds = new Set(items.filter(i => i.item_id).map(i => i.item_id));
+  const incomingIds = new Set(resolvedItems.filter(i => i.item_id).map(i => i.item_id));
 
-  for (const item of items) {
+  for (const item of resolvedItems) {
     const itemGroupId = item.group_id || headerGroupId || null;
+    const baseItemPayload = {
+      product_id: item.product_id,
+      group_id: itemGroupId,
+      quantity: Number(item.quantity),
+      indent_qty: Number(item.quantity),
+      rate: Number(item.rate),
+      direct_indent_unit: item.direct_indent_unit || null,
+      direct_indent_qty: item.direct_indent_qty != null ? Number(item.direct_indent_qty) : null,
+    };
+
+    if (isDirect) {
+      baseItemPayload.approved_godown_id = godown_id || null;
+      baseItemPayload.vendor_id = vendor_id || null;
+      baseItemPayload.approved_vendor_id = vendor_id || null;
+      baseItemPayload.vendor_remarks = remarks || null;
+      baseItemPayload.approved_rate = Number(item.rate) || 0;
+      baseItemPayload.approval_status = 'Approved';
+      baseItemPayload.planning_status = 'Planned';
+      if (user_id) baseItemPayload.approved_by = user_id;
+    }
+
     if (item.item_id && incomingIds.has(item.item_id)) {
       const { error: updErr } = await supabase
         .from('purchase_indent_items')
-        .update({
-          product_id: item.product_id,
-          group_id: itemGroupId,
-          quantity: Number(item.quantity),
-          // Still editing the indent itself (pre-approval), so indent_qty
-          // tracks quantity here too — it only stops following quantity once
-          // Vendor Selection/Approval starts treating quantity as Approved Qty.
-          indent_qty: Number(item.quantity),
-          rate: Number(item.rate),
-          // Record of what was actually picked/typed on this item's own
-          // Unit + Qty inputs — quantity/indent_qty above already hold the
-          // converted master-unit figure.
-          direct_indent_unit: item.direct_indent_unit || null,
-          direct_indent_qty: item.direct_indent_qty != null ? Number(item.direct_indent_qty) : null,
-        })
+        .update(baseItemPayload)
         .eq('item_id', item.item_id);
       if (updErr) throw updErr;
     } else {
@@ -327,13 +390,7 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
         .from('purchase_indent_items')
         .insert({
           indent_id,
-          product_id: item.product_id,
-          group_id: itemGroupId,
-          quantity: Number(item.quantity),
-          indent_qty: Number(item.quantity),
-          rate: Number(item.rate),
-          direct_indent_unit: item.direct_indent_unit || null,
-          direct_indent_qty: item.direct_indent_qty != null ? Number(item.direct_indent_qty) : null,
+          ...baseItemPayload,
         });
       if (insErr) throw insErr;
     }
@@ -349,10 +406,17 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
   }
 
   // Make sure every remaining item under this indent — including ones
-  // untouched by this edit — reflects Direct's "already approved" status,
+  // untouched by this edit — reflects Direct's "already approved" status and godown,
   // so they all show up in Delivery's Pending list right away.
   if (isDirect) {
-    const directFields = { vendor_id, approval_status: 'Approved', planning_status: 'Planned' };
+    const directFields = {
+      approved_godown_id: godown_id || null,
+      vendor_id: vendor_id || null,
+      approved_vendor_id: vendor_id || null,
+      vendor_remarks: remarks || null,
+      approval_status: 'Approved',
+      planning_status: 'Planned',
+    };
     if (user_id) directFields.approved_by = user_id;
     const { error: directErr } = await supabase
       .from('purchase_indent_items')

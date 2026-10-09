@@ -373,7 +373,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
   }
 
   return (
-    <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-col gap-4 flex-1">
       {/* Everything in one wrapping row: Pending/History toggle + search +
           filters + item count. */}
       <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -508,7 +508,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
         </Button>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0 overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 flex flex-col">
           {/* ── Sub-header bar with Select All Checkbox & Count (same as Sales Dispatch Planning) ── */}
           <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex-wrap shrink-0">
             <div className="flex items-center gap-2">
@@ -531,7 +531,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
           </div>
 
           {viewMode === 'card' ? (
-            <div className="flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
+            <div className="p-4 bg-slate-50/50">
               {isEmpty ? (
                 <div className="p-12 text-center">
                   <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
@@ -815,9 +815,9 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+            <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full text-sm">
-                <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
+                <thead className="bg-blue-50 border-b border-slate-200">
                   <tr>
                     <th className="w-16 px-2 py-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">

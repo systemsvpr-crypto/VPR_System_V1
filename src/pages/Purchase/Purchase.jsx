@@ -207,7 +207,7 @@ const Purchase = () => {
   };
 
   return (
-    <div className="h-full flex-1 flex flex-col gap-3 min-h-0 overflow-hidden">
+    <div className="flex flex-col gap-6 shrink-0 pb-2">
 
 
       <div className="flex items-center gap-6 border-b border-slate-200 shrink-0 overflow-x-auto custom-scrollbar">
@@ -231,9 +231,9 @@ const Purchase = () => {
           <p className="text-sm text-slate-400">You don't have access to any Purchase tabs. Contact your administrator.</p>
         </div>
       ) : (
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-col gap-4 flex-1">
           {activeTab === 'indent' && (
-            <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <div className="flex flex-col gap-4 flex-1">
               <IndentPendingHistoryTable
                 vendors={vendors}
                 user={user}

@@ -125,9 +125,9 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
       setForm({
         indent_date: editingIndent.indent_date?.split('T')[0] || new Date().toISOString().split('T')[0],
         indent_number: editingIndent.indent_number || '',
-        godown_id: editingIndent.godown_id || '',
-        vendor_id: editingIndent.vendor_id || '',
-        remarks: editingIndent.remarks || '',
+        godown_id: editingIndent.purchase_indent_items?.[0]?.approved_godown_id || editingIndent.godown_id || '',
+        vendor_id: editingIndent.purchase_indent_items?.[0]?.vendor_id || editingIndent.purchase_indent_items?.[0]?.approved_vendor_id || editingIndent.vendor_id || '',
+        remarks: editingIndent.purchase_indent_items?.[0]?.vendor_remarks || editingIndent.remarks || '',
         process_type: editingIndent.process_type || 'direct',
         items: (editingIndent.purchase_indent_items || []).map(item => {
           const prod = allProducts.find(p => p.product_id === item.product_id);

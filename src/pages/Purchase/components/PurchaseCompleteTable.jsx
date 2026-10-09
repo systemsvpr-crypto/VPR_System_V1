@@ -494,7 +494,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
   }
 
   return (
-    <div className="flex flex-col gap-3 font-sans flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-col gap-4 font-sans flex-1">
       {/* Filter Toolbar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
         <div className="flex flex-wrap items-center gap-3 flex-1">
@@ -601,7 +601,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
       </div>
 
       {/* Main Table / Cards */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 min-h-0 overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
         {/* ── Sub-header bar with Select All Checkbox & Count (same as Sales Dispatch Planning) ── */}
         <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex-wrap shrink-0">
           <div className="flex items-center gap-2">
@@ -626,9 +626,9 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
         {viewMode === 'card' ? (
           renderCards()
         ) : (
-          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+          <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-xs">
-              <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
+              <thead className="bg-blue-50 border-b border-slate-200">
                 <tr>
                   <th className="w-16 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">
                     <div className="flex items-center justify-center gap-1">

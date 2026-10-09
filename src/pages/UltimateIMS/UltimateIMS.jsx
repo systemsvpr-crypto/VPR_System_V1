@@ -233,6 +233,7 @@ const UltimateIMS = () => {
 
 
       const built = Array.from(groups.values()).map((g) => {
+        const prod = productMap.get(g.productId);
         const statsArray = Array.from(g.godownStats.values()).map(st => ({
           ...st,
           godownName: godownMap.get(st.godownId)?.name || 'Unassigned Godown',
@@ -241,11 +242,12 @@ const UltimateIMS = () => {
         return {
           key: g.productId,
           productId: g.productId,
-          productName: productMap.get(g.productId)?.name || 'Unassigned Product',
-          unit: productMap.get(g.productId)?.unit || '—',
-          packagingSize: getPackagingSize(productMap.get(g.productId)),
-          leadTime: productMap.get(g.productId)?.lead_time ?? '',
-          safetyFactor: productMap.get(g.productId)?.safety_factor ?? '',
+          groupId: prod?.group_id || null,
+          productName: prod?.name || 'Unassigned Product',
+          unit: prod?.unit || '—',
+          packagingSize: getPackagingSize(prod),
+          leadTime: prod?.lead_time ?? '',
+          safetyFactor: prod?.safety_factor ?? '',
           stats: statsArray
         };
       }).sort((a, b) => a.productName.localeCompare(b.productName));
@@ -447,12 +449,20 @@ const UltimateIMS = () => {
         toast.error(`${row?.productName || 'Selected product'}: enter a valid reorder qty.`);
         return;
       }
-      items.push({ product_id: key, quantity: masterQty, rate: 0, reorder_unit: unit, reorder_unit_qty: rawQty });
+      items.push({
+        product_id: key,
+        group_id: row?.groupId || null,
+        quantity: masterQty,
+        rate: 0,
+        reorder_unit: unit,
+        reorder_unit_qty: rawQty,
+      });
     }
 
     setSaving(true);
     try {
       const indent_number = await generateNextIndentNumber();
+      const headerGroupId = items.find(i => i.group_id)?.group_id || null;
       await createIndent({
         indent_date: indentDate,
         indent_number,
@@ -465,6 +475,7 @@ const UltimateIMS = () => {
         items,
         created_by: user?.user_id,
         process_type: 'process',
+        group_id: headerGroupId,
       });
       toast.success(`Indent ${indent_number} created with ${items.length} item(s). See Purchase > Indent > Pending.`);
       setSelectedRows(new Set());

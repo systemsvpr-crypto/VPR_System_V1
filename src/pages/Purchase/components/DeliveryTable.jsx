@@ -707,7 +707,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   };
 
   const renderPendingCards = () => (
-    <div className="overflow-y-auto p-3 custom-scrollbar bg-slate-50/50 flex flex-col gap-2 flex-1 min-h-0">
+    <div className="p-3 bg-slate-50/50 flex flex-col gap-2">
       {currentList.length === 0 ? (
         <div className="p-12 text-center text-slate-400">
           <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
@@ -749,6 +749,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
 
             const vendorName = item.approved_vendor?.name || item.item_vendor?.name || '—';
             const rateVal = (item.rate != null && item.rate !== '') || (item.approved_rate != null && item.approved_rate !== '') ? Number(item.rate ?? item.approved_rate) : null;
+            const destGodown = godowns.find(g => String(g.godown_id) === String(item.approved_godown_id));
+            const destGodownName = destGodown?.name || '';
 
             const expDeliveryDate = getRowVal(item.item_id, 'exp_date', item.planning_date || '');
 
@@ -821,6 +823,13 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         <span className="text-slate-400">Vendor:</span>
                         <span className="font-medium text-slate-700 truncate max-w-[140px]" title={vendorName}>{vendorName}</span>
                       </div>
+                      {destGodownName && (
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <MapPin size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Destination:</span>
+                          <span className="font-semibold text-slate-700 truncate max-w-[140px]" title={destGodownName}>{destGodownName}</span>
+                        </div>
+                      )}
                       {rateVal !== null && (
                         <div className="flex items-center gap-1 text-slate-600">
                           <span className="text-slate-400">Rate:</span>
@@ -1064,7 +1073,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   );
 
   const renderHistoryCards = () => (
-    <div className="overflow-y-auto p-3 custom-scrollbar bg-slate-50/50 flex flex-col gap-2 flex-1 min-h-0">
+    <div className="p-3 bg-slate-50/50 flex flex-col gap-2">
       {currentList.length === 0 ? (
         <div className="p-12 text-center text-slate-400">
           <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
@@ -1287,7 +1296,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   }
 
   return (
-    <div className="flex flex-col gap-3 font-sans flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-col gap-4 font-sans flex-1">
       {/* Sub-tabs + Search & Filter Toolbar, all in one wrapping row */}
       <div className="flex flex-wrap items-center gap-2 shrink-0">
         <div className="flex items-center gap-1 shrink-0">
@@ -1460,7 +1469,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
       </div>
 
       {/* Main Table - Modern Dispatch Day Container */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 min-h-0 overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
         {/* ── Sub-header bar with Select All Checkbox & Count (same as Sales Dispatch Planning) ── */}
         <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex-wrap shrink-0">
           <div className="flex items-center gap-2">
@@ -1485,9 +1494,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
         {activeSubTab === 'pending' ? (
           viewMode === 'card' ? renderPendingCards() : (
             /* PENDING TABLE */
-            <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+            <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full text-xs">
-                <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
+                <thead className="bg-blue-50 border-b border-slate-200">
                   <tr>
                     <th className="sticky left-0 z-20 bg-blue-50 w-12 min-w-12 px-2 py-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
@@ -1728,9 +1737,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
         ) : (
           viewMode === 'card' ? renderHistoryCards() : (
             /* HISTORY TABLE */
-            <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+            <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full text-xs">
-                <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
+                <thead className="bg-blue-50 border-b border-slate-200">
                   <tr>
                     <th className="sticky left-0 z-20 bg-blue-50 w-12 min-w-12 px-2 py-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">

@@ -132,14 +132,12 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   const resolveGodownId = (del) => {
     const editGodown = editingRows[del.delivery_id]?.godown_id;
     if (editGodown !== undefined) return editGodown;
-    // An arrived lift keeps showing where its stock actually went.
-    if (!isRowLocked(del) && defaultGodownId) return defaultGodownId;
     const currentAlloc = del.purchase_delivery_godowns?.[0]?.godown_id;
     // While "AT TPT GDN," the allocation points at the transporter's own
     // godown — not a valid destination pick — so fall back to the godown
-    // approved for this indent line (the only godown an indent carries).
+    // approved for this indent line.
     if (currentAlloc && currentAlloc !== del.transporter_id) return currentAlloc;
-    return del.purchase_indent_items?.approved_godown_id || '';
+    return del.purchase_indent_items?.approved_godown_id || defaultGodownId || '';
   };
 
   const filteredDeliveries = useMemo(() => {
@@ -573,7 +571,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   };
 
   const renderCards = () => (
-    <div className="flex-1 min-h-0 overflow-y-auto p-3 custom-scrollbar bg-slate-50/50">
+    <div className="p-3 bg-slate-50/50">
       {filteredDeliveries.length === 0 ? (
         <div className="p-12 text-center text-slate-400">
           <PackageOpen size={36} className="mx-auto mb-2 text-slate-300" />
@@ -988,7 +986,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   }
 
   return (
-    <div className="flex flex-col gap-3 font-sans flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-col gap-4 font-sans flex-1">
       {/* Everything in one wrapping row: Pending/History toggle + search +
           filters + item count + Submit. */}
       <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -1181,7 +1179,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
       </div>
 
       {/* Main Table - Modern Rounded-XL Container */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 min-h-0 overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
         {/* ── Sub-header bar with Select All Checkbox & Count (same as Sales Dispatch Planning) ── */}
         <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex-wrap shrink-0">
           <div className="flex items-center gap-2">
@@ -1205,9 +1203,9 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         </div>
 
         {viewMode === 'card' ? renderCards() : (
-          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+          <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-xs">
-              <thead className="bg-blue-50 border-b border-slate-200 sticky top-0 z-10">
+              <thead className="bg-blue-50 border-b border-slate-200">
                 <tr>
                   <th className="sticky left-0 z-20 bg-blue-50 w-12 min-w-12 px-2 py-3 text-center">
                     <div className="flex items-center justify-center gap-1.5">
