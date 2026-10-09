@@ -304,7 +304,7 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
+    <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0 overflow-hidden shadow-sm">
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 flex-wrap gap-2 shrink-0">
         <div className="flex items-center gap-3">
           <span className="text-sm text-slate-500">
@@ -347,7 +347,7 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
       {viewMode === 'card' && renderCards()}
 
       {viewMode === 'table' && (
-        <div className="overflow-x-auto custom-scrollbar flex-1 min-h-0">
+        <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
           <table className="w-full text-sm whitespace-nowrap">
           <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
             <tr>
@@ -446,7 +446,7 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
           totalItems={filteredPlans.length}
           startIndex={(currentPage - 1) * ITEMS_PER_PAGE + 1}
           endIndex={Math.min(currentPage * ITEMS_PER_PAGE, filteredPlans.length)}
-          onPageChange={setCurrentPage} className="border-t border-slate-200" />
+          onPageChange={setCurrentPage} className="border-t border-slate-200 shrink-0" />
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 import { supabase, fetchAllRows, fetchAllRowsInChunks } from '../supabase';
 import { sendPurchaseDeliveredWhatsapp } from './whatsappService';
+import { roundQty } from '../lib/qty';
 
 const getTodayLocal = () => {
   const d = new Date();
@@ -2006,10 +2007,9 @@ export const updatePendingDeliveryRowInfo = async ({ item_id, indent_id, indent_
   }
 };
 
-// Saves the lift-level columns edited directly on an Aawak row. Lifting No.,
-// transporter and product are only changed while the lift is still
-// "In Transit" — once stock has been posted (AT TPT GDN / Arrived) its
-// transactions are keyed on them, so the caller must not send them then.
+// Saves the lift-level columns edited directly on an Aawak row or modal.
+// Automatically calculates received_quantity in master units, synchronizes
+// godown allocations, and backward-syncs stock ledger & indent records.
 export const updateAawakLiftInfo = async ({
   delivery_id,
   item_id,
@@ -2027,6 +2027,26 @@ export const updateAawakLiftInfo = async ({
   vehicle_number,
   remarks,
 }) => {
+  // Fetch existing delivery with item and product info to calculate unit conversion & backward sync
+  const { data: existing, error: fetchErr } = await supabase
+    .from('purchase_deliveries')
+    .select(`
+      delivery_id, status, item_id, indent_id, delivery_date, lifting_number, lr_number, vehicle_number, received_quantity, transporter_id,
+      purchase_indent_items(
+        item_id, product_id, quantity,
+        purchase_indents(indent_id, process_type),
+        products(product_id, name, unit, packaging_size, mux)
+      )
+    `)
+    .eq('delivery_id', delivery_id)
+    .single();
+  if (fetchErr) throw new Error('Delivery not found.');
+
+  const item = existing.purchase_indent_items;
+  const product = item?.products;
+  const pkgSize = getPackagingSize(product);
+  const prodUnit = (product?.unit || '').toLowerCase();
+
   const liftFields = {};
   if (lifting_number !== undefined) liftFields.lifting_number = lifting_number;
   if (delivery_date !== undefined) liftFields.delivery_date = delivery_date;
@@ -2038,16 +2058,82 @@ export const updateAawakLiftInfo = async ({
   if (driver_phone_number !== undefined) liftFields.driver_phone_number = driver_phone_number || null;
   if (vehicle_number !== undefined) liftFields.vehicle_number = vehicle_number || null;
   if (remarks !== undefined) liftFields.remarks = remarks || null;
+
+  // Calculate master unit received_quantity if dispatch quantities are updated
+  let newMasterQty = null;
+  if (dispatch_qty_kg !== undefined || dispatch_qty_bag !== undefined) {
+    const numKg = dispatch_qty_kg !== undefined && dispatch_qty_kg !== '' && dispatch_qty_kg !== null ? Number(dispatch_qty_kg) : null;
+    const numBag = dispatch_qty_bag !== undefined && dispatch_qty_bag !== '' && dispatch_qty_bag !== null ? Number(dispatch_qty_bag) : null;
+
+    if (prodUnit.includes('bag')) {
+      if (numBag != null) {
+        newMasterQty = numBag;
+      } else if (numKg != null && pkgSize > 0) {
+        newMasterQty = roundQty(numKg / pkgSize);
+      }
+    } else {
+      // Default to kg
+      if (numKg != null) {
+        newMasterQty = numKg;
+      } else if (numBag != null && pkgSize > 0) {
+        newMasterQty = roundQty(numBag * pkgSize);
+      }
+    }
+  }
+
+  if (newMasterQty != null) {
+    liftFields.received_quantity = roundQty(newMasterQty);
+  }
+
   if (Object.keys(liftFields).length > 0) {
     const { error } = await supabase.from('purchase_deliveries').update(liftFields).eq('delivery_id', delivery_id);
     if (error) throw error;
   }
-  if (product_id && item_id) {
-    const { error } = await supabase.from('purchase_indent_items').update({ product_id }).eq('item_id', item_id);
+
+  // Backward sync: update purchase_delivery_godowns qty
+  if (newMasterQty != null) {
+    await supabase
+      .from('purchase_delivery_godowns')
+      .update({ qty: roundQty(newMasterQty) })
+      .eq('delivery_id', delivery_id);
+  }
+
+  // Backward sync: update stock ledger (transactions table) if active PURCHASE_IN transaction exists
+  const effectiveLiftingNum = lifting_number || existing.lifting_number;
+  if (effectiveLiftingNum) {
+    const { data: existingTxns } = await supabase
+      .from('transactions')
+      .select('txn_id, qty, godown_id')
+      .eq('lifting_number', effectiveLiftingNum)
+      .eq('txn_type', 'PURCHASE_IN')
+      .eq('is_void', false);
+
+    if (existingTxns && existingTxns.length > 0) {
+      const activeTxn = existingTxns[0];
+      const txnUpdates = {};
+      if (newMasterQty != null) txnUpdates.qty = roundQty(newMasterQty);
+      if (delivery_date) txnUpdates.txn_date = String(delivery_date).slice(0, 10);
+      if (lr_number !== undefined) txnUpdates.lr_number = lr_number || null;
+      if (vehicle_number !== undefined) txnUpdates.vehicle_number = vehicle_number || null;
+
+      if (Object.keys(txnUpdates).length > 0) {
+        await supabase
+          .from('transactions')
+          .update(txnUpdates)
+          .eq('txn_id', activeTxn.txn_id);
+      }
+    }
+  }
+
+  // Backward sync: update process_type on purchase_indents
+  const effectiveIndentId = indent_id || existing.indent_id || item?.purchase_indents?.indent_id;
+  if (process_type && effectiveIndentId) {
+    const { error } = await supabase.from('purchase_indents').update({ process_type }).eq('indent_id', effectiveIndentId);
     if (error) throw error;
   }
-  if (process_type && indent_id) {
-    const { error } = await supabase.from('purchase_indents').update({ process_type }).eq('indent_id', indent_id);
+
+  if (product_id && (item_id || existing.item_id)) {
+    const { error } = await supabase.from('purchase_indent_items').update({ product_id }).eq('item_id', item_id || existing.item_id);
     if (error) throw error;
   }
 };

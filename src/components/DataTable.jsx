@@ -29,18 +29,18 @@ const DataTable = ({
   const isTableView = viewMode === 'table';
 
   const cardWrapperClass = isCardView 
-    ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-5 p-4 flex-1 bg-slate-50/50 content-start'
+    ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-5 p-4 flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-slate-50/50 content-start'
     : isTableView
     ? 'hidden'
-    : 'md:hidden grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 flex-1 bg-slate-50/50 content-start';
+    : 'md:hidden grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-slate-50/50 content-start';
 
   const tableWrapperClass = isTableView
-    ? 'flex flex-col flex-1'
+    ? 'flex flex-col flex-1 min-h-0 overflow-hidden'
     : isCardView
     ? 'hidden'
-    : 'hidden md:flex flex-col flex-1';
+    : 'hidden md:flex flex-col flex-1 min-h-0 overflow-hidden';
   return (
-    <div className="flex flex-col flex-1 bg-white w-full">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-white w-full">
       {/* Card View */}
       <div className={cardWrapperClass}>
         {data.length > 0 && (
@@ -106,7 +106,7 @@ const DataTable = ({
 
       {/* Footer - Unified for both views */}
       {!hidePagination && (
-        <div className="px-4 py-2.5 border-t border-royal-600/25 bg-blue-50 flex items-center justify-between gap-4 rounded-b-[24px]">
+        <div className="px-4 py-2.5 border-t border-royal-600/25 bg-blue-50 flex items-center justify-between gap-4 rounded-b-[24px] shrink-0">
           {/* Left Side: Row Dropdown */}
           <div className="flex items-center gap-2">
             <select

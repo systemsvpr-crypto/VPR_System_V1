@@ -1182,9 +1182,9 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   };
 
   return (
-    <div className="flex flex-col flex-1">
+    <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
       {/* ── Pending/History toggle, search, and (pending view only) filter controls — all in one row ── */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
         <div className="flex items-center gap-1 shrink-0">
           {[
             { id: 'pending', label: 'Pending' },
@@ -1333,7 +1333,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
           <p className="text-sm text-slate-400">Loading dispatch items...</p>
         </div>
       ) : (
-      <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1">
+      <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0 overflow-hidden shadow-sm">
 
         {/* ── legend (shown for both Pending and History) ── */}
         <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-400 flex-wrap shrink-0">

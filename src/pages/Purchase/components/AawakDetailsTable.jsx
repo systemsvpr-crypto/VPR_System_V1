@@ -1502,6 +1502,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         isOpen={!!editingLift}
         onClose={() => setEditingLift(null)}
         delivery={editingLift}
+        activeSubTab={activeSubTab}
         products={products}
         transporters={transporters}
         user={user}

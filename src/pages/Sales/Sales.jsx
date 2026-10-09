@@ -245,9 +245,7 @@ const Sales = () => {
   };
 
   return (
-    <div className="flex flex-col gap-6 shrink-0 pb-2">
-
-
+    <div className="h-full flex-1 flex flex-col gap-3 min-h-0 overflow-hidden font-sans">
       <div className="flex justify-start w-full shrink-0 overflow-x-auto pb-1 custom-scrollbar">
         <TabSwitcher
           activeTab={activeTab}
@@ -268,9 +266,9 @@ const Sales = () => {
           <p className="text-sm text-slate-400">You don't have access to any Sales tabs. Contact your administrator.</p>
         </div>
       ) : (
-      <div className="flex flex-col gap-4 flex-1">
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {activeTab === 'orders' && (
-        <div className="flex flex-col gap-4 flex-1">
+        <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2.5 shrink-0">
             <div className="flex items-center gap-2 shrink-0">
               <div className="relative w-44 sm:w-52 lg:w-60 shrink-0">
@@ -334,12 +332,12 @@ const Sales = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1">
+          <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0 overflow-hidden shadow-sm">
             <OrderTable orders={currentOrders} totalItems={filteredOrders.length} loading={loading}
               onEdit={handleEditOrder} onDelete={handleDeleteOrder} searchTerm={searchTerm}
               selectedIds={selectedOrderIds} onToggleSelect={handleToggleSelectOrder} onToggleSelectAll={handleToggleSelectAllOrders} />
             {!loading && filteredOrders.length > 0 && (
-              <div className="shrink-0 px-4 py-2.5 border-t border-royal-600/25 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-4 rounded-b-xl">
+              <div className="shrink-0 px-4 py-2.5 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   <select
                     value={pageSize}
@@ -347,32 +345,32 @@ const Sales = () => {
                       setPageSize(Number(e.target.value));
                       setCurrentPage(1);
                     }}
-                    className="ring-1 ring-royal-600/25 rounded-xl px-2 py-1 focus:outline-none focus:ring-2 focus:ring-royal-500/30 bg-white font-medium text-xs md:text-sm"
+                    className="border border-slate-300 rounded-md px-2 py-1 focus:outline-none focus:border-primary bg-white font-medium text-xs shadow-sm"
                   >
                     {PAGE_SIZE_OPTIONS.map((val) => (
                       <option key={val} value={val}>{val}</option>
                     ))}
                   </select>
-                  <span className="text-[10px] md:text-sm text-slate-600 whitespace-nowrap font-medium hidden sm:inline">
+                  <span className="text-xs text-slate-500 whitespace-nowrap font-medium hidden sm:inline">
                     {filteredOrders.length > 0 ? ((currentPage - 1) * pageSize) + 1 : 0}-{Math.min(currentPage * pageSize, filteredOrders.length)} of {filteredOrders.length}
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2 md:gap-4 text-slate-700">
+                <div className="flex items-center gap-3">
                   <button
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="p-1.5 md:px-2 md:py-1 ring-1 ring-royal-600/25 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-royal-50 transition flex items-center justify-center text-royal-600"
+                    className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
                   >
                     <ChevronLeft size={16} strokeWidth={2.5} />
                   </button>
-                  <div className="flex items-center text-xs md:text-sm font-semibold text-slate-600">
-                    {currentPage} / {totalPages || 1}
+                  <div className="flex items-center text-xs font-semibold text-slate-600">
+                    Page {currentPage} of {totalPages || 1}
                   </div>
                   <button
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     disabled={currentPage === Math.max(1, totalPages)}
-                    className="p-1.5 md:px-2 md:py-1 ring-1 ring-royal-600/25 rounded-xl bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-royal-50 transition flex items-center justify-center text-royal-600"
+                    className="p-1.5 border border-slate-300 rounded-md bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center justify-center text-primary"
                   >
                     <ChevronRight size={16} strokeWidth={2.5} />
                   </button>
@@ -405,35 +403,35 @@ const Sales = () => {
       )}
 
       {activeTab === 'smart-dispatch' && (
-        <SmartDispatchPlanning godowns={godowns} />
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <SmartDispatchPlanning godowns={godowns} />
+        </div>
       )}
 
       {activeTab === 'dispatch-planning' && (
-        <div className="flex flex-col gap-4 flex-1">
-          <div className="flex-1 flex flex-col">
-            <DispatchPlanningTable godowns={godowns} searchTerm={searchTerm} dispatchFilter={dispatchFilter}
-              onSearchChange={setSearchTerm} onFilterChange={setDispatchFilter}
-              onSave={loadData} user={user} products={products} customers={customers}
-              ranks={ranks} productGroups={productGroups}
-              onImportProducts={(product) => setProducts(prev => [...prev, product])}
-              onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])} />
-          </div>
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <DispatchPlanningTable godowns={godowns} searchTerm={searchTerm} dispatchFilter={dispatchFilter}
+            onSearchChange={setSearchTerm} onFilterChange={setDispatchFilter}
+            onSave={loadData} user={user} products={products} customers={customers}
+            ranks={ranks} productGroups={productGroups}
+            onImportProducts={(product) => setProducts(prev => [...prev, product])}
+            onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])} />
         </div>
       )}
 
       {activeTab === 'dispatch-completed' && (
-        <div className="flex flex-col gap-4 flex-1">
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <DispatchCompletedTable searchTerm={searchTerm} onSearchChange={setSearchTerm} completeFilter={completeFilter} onFilterChange={setCompleteFilter} onSave={loadData} products={products} godowns={godowns} user={user} />
         </div>
       )}
 
       {activeTab === 'inform-after-dispatch' && (
-        <div className="flex flex-col gap-4 flex-1">
+        <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <div className="relative w-full md:w-72">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
-                <Input type="text" placeholder="Search dispatch plans..." className="pl-9"
+                <Input type="text" placeholder="Search dispatch plans..." className="pl-9 h-9 text-xs"
                   value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
               </div>
               <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
@@ -458,12 +456,12 @@ const Sales = () => {
       )}
 
       {activeTab === 'skip-delivered' && (
-        <div className="flex flex-col gap-4 flex-1">
+        <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <div className="relative w-full md:w-72">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={18} />
-                <Input type="text" placeholder="Search items..." className="pl-9"
+                <Input type="text" placeholder="Search items..." className="pl-9 h-9 text-xs"
                   value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
               </div>
               <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">

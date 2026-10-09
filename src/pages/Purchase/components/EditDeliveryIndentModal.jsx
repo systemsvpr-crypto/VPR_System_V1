@@ -122,28 +122,26 @@ const EditDeliveryIndentModal = ({ isOpen, onClose, item, products = [], vendors
               {/* Indent Number */}
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Indent Number <span className="text-red-500">*</span>
+                  Indent Number
                 </label>
                 <Input
                   type="text"
-                  required
-                  placeholder="e.g. IND-001"
+                  readOnly
+                  disabled
                   value={form.indent_number}
-                  onChange={e => handleChange('indent_number', e.target.value)}
-                  className="h-9 text-xs"
+                  className="h-9 text-xs bg-slate-100 text-slate-500 cursor-not-allowed select-none"
                 />
               </div>
 
-              {/* Indent Date */}
+              {/* Indent Date (Read-only) */}
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
                   Indent Date
                 </label>
                 <DatePicker
-                  showActions
+                  disabled
                   value={form.indent_date}
-                  onChange={e => handleChange('indent_date', e.target.value)}
-                  className="h-9 text-xs"
+                  className="h-9 text-xs bg-slate-100 text-slate-500 cursor-not-allowed select-none border-slate-200"
                 />
               </div>
 
@@ -153,9 +151,9 @@ const EditDeliveryIndentModal = ({ isOpen, onClose, item, products = [], vendors
                   Indent Type
                 </label>
                 <select
+                  disabled
                   value={form.process_type}
-                  onChange={e => handleChange('process_type', e.target.value)}
-                  className="w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed focus:outline-none"
                 >
                   <option value="direct">Direct</option>
                   <option value="process">Process</option>
@@ -181,16 +179,15 @@ const EditDeliveryIndentModal = ({ isOpen, onClose, item, products = [], vendors
                 </select>
               </div>
 
-              {/* Product */}
+              {/* Product (Read-only) */}
               <div className="sm:col-span-2">
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Product Name <span className="text-red-500">*</span>
+                  Product Name
                 </label>
                 <select
-                  required
+                  disabled
                   value={form.product_id}
-                  onChange={e => handleChange('product_id', e.target.value)}
-                  className="w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed focus:outline-none"
                 >
                   <option value="">Select product...</option>
                   {products.map(p => (
@@ -198,6 +195,11 @@ const EditDeliveryIndentModal = ({ isOpen, onClose, item, products = [], vendors
                       {p.name} {p.unit ? `(${p.unit})` : ''}
                     </option>
                   ))}
+                  {form.product_id && !products.some(p => String(p.product_id) === String(form.product_id)) && (
+                    <option value={form.product_id}>
+                      {selectedProduct?.name || item?.products?.name || 'Selected Product'} {selectedProduct?.unit || item?.products?.unit ? `(${selectedProduct?.unit || item?.products?.unit})` : ''}
+                    </option>
+                  )}
                 </select>
               </div>
 

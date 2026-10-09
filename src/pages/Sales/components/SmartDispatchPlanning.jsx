@@ -731,9 +731,9 @@ const SmartDispatchPlanning = ({ godowns }) => {
   const list = viewMode === 'party' ? visibleParties : visibleItems;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
       {/* ── location + view toggles ── */}
-      <div className="bg-white rounded-xl border border-slate-200 p-2 sm:p-3 flex flex-col lg:flex-row lg:items-center gap-3">
+      <div className="bg-white rounded-xl border border-slate-200 p-2 sm:p-3 flex flex-col lg:flex-row lg:items-center gap-3 shrink-0">
         <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 flex-1">
           {locations.map(loc => {
             const isActive = loc.godown_id === activeLocation;
@@ -764,7 +764,7 @@ const SmartDispatchPlanning = ({ godowns }) => {
       </div>
 
       {/* ── summary ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
         <StatCard icon={Users} label="Total Parties" value={totals.parties} sub="in this location" tone="blue" />
         <StatCard icon={Package} label="Total Pending Qty" value={formatQty(totals.pending)} sub="across all parties" tone="emerald" />
         <StatCard icon={Truck} label="Suggested Dispatch" value={formatQty(totals.suggested)} sub={`${totals.pct}% of pending`} tone="indigo" />
@@ -772,7 +772,7 @@ const SmartDispatchPlanning = ({ godowns }) => {
       </div>
 
       {/* ── toolbar ── */}
-      <div className="flex flex-col md:flex-row md:items-center gap-2">
+      <div className="flex flex-col md:flex-row md:items-center gap-2 shrink-0">
         <div className="grid grid-cols-2 md:flex gap-2 flex-1">
           <div className="relative col-span-2 md:w-64">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={15} />
@@ -811,13 +811,15 @@ const SmartDispatchPlanning = ({ godowns }) => {
         </div>
       </div>
       {lastUpdated && (
-        <p className="-mt-2 text-[11px] text-slate-400 flex items-center gap-1.5">
+        <p className="-mt-1 text-[11px] text-slate-400 flex items-center gap-1.5 shrink-0">
           <Calendar size={11} /> Updated {format(lastUpdated, 'dd MMM yyyy, hh:mm a')} · Oldest orders first, then smaller batches; leftover stock is split partially. Never exceeds godown stock.
         </p>
       )}
 
-      {/* ── party-wise / item-wise list ── */}
-      <div className="bg-white rounded-xl border border-slate-200">
+      {/* ── scrollable main content area (party list, excluded, what remains) ── */}
+      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-3 pr-0.5">
+        {/* ── party-wise / item-wise list ── */}
+        <div className="bg-white rounded-xl border border-slate-200">
         {list.length === 0 ? (
           <div className="p-12 text-center">
             <ClipboardList size={30} className="text-slate-300 mx-auto mb-3" />
@@ -1004,6 +1006,7 @@ const SmartDispatchPlanning = ({ godowns }) => {
             ))}
           </dl>
         </div>
+      </div>
       </div>
     </div>
   );

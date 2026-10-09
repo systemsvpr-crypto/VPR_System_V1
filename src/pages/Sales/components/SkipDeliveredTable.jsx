@@ -437,7 +437,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
   );
 
   return (
-    <>
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col flex-1 min-h-0">
         {/* Sub-header Bar: Legend, Count & View Mode Switcher */}
         <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex-wrap gap-2 shrink-0">
@@ -497,7 +497,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
       <SkipDeliverModal isOpen={dispatchModalOpen} onClose={closeDispatch}
         item={dispatchItem} customers={customers} products={products}
         godowns={godowns} user={user} onSave={handleSaved} />
-    </>
+    </div>
   );
 };
 

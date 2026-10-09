@@ -64,7 +64,7 @@ const DragScrollTable = ({ children, className = "" }) => {
       onMouseLeave={endDrag}
       onMouseUp={endDrag}
       onMouseMove={handleMouseMove}
-      className={`overflow-x-auto custom-scrollbar flex-1 ${isDragging ? 'cursor-grabbing select-none' : 'cursor-grab'} ${className}`}
+      className={`overflow-x-auto overflow-y-auto min-h-0 custom-scrollbar flex-1 ${isDragging ? 'cursor-grabbing select-none' : 'cursor-grab'} ${className}`}
       style={{ WebkitOverflowScrolling: 'touch' }}
     >
       {children}

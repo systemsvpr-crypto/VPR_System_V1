@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Truck, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { updateAawakLiftInfo } from '../../../services/purchaseService';
+import { updateAawakLiftInfo, getPackagingSize } from '../../../services/purchaseService';
+import { roundQty } from '@/lib/qty';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { canEditOrDelete } from '../../../lib/permissions';
 
-const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transporters = [], user, onSuccess }) => {
+const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products = [], transporters = [], user, onSuccess }) => {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     lifting_number: '',
@@ -25,7 +26,15 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
     remarks: '',
   });
 
-  const canEditIdentity = delivery?.status === 'In Transit';
+  const isTransporterGodownOrHistory =
+    activeSubTab === 'transporter-godown' ||
+    activeSubTab === 'history' ||
+    delivery?.status === 'In Transport Godown' ||
+    delivery?.status === 'AT TPT GDN' ||
+    delivery?.status === 'Arrived' ||
+    delivery?.status === 'Received';
+
+  const canEditTransporter = delivery?.status === 'In Transit' || activeSubTab === 'pending';
 
   useEffect(() => {
     if (delivery && isOpen) {
@@ -50,7 +59,7 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
         dispatch_qty_kg: delivery.dispatch_qty_kg != null ? String(delivery.dispatch_qty_kg) : '',
         dispatch_qty_bag: delivery.dispatch_qty_bag != null ? String(delivery.dispatch_qty_bag) : '',
         transporter_id: transpId ? String(transpId) : '',
-        process_type: indent.process_type || 'direct',
+        process_type: indent.process_type || delivery.process_type || 'direct',
         lr_number: delivery.lr_number || '',
         expected_delivery_date: delivery.expected_delivery_date ? delivery.expected_delivery_date.slice(0, 10) : '',
         driver_phone_number: delivery.driver_phone_number || '',
@@ -60,8 +69,39 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
     }
   }, [delivery, isOpen, products, transporters]);
 
+  const currentProduct = products.find(p => String(p.product_id) === String(form.product_id)) || delivery?.purchase_indent_items?.products || {};
+  const packagingSize = getPackagingSize(currentProduct);
+
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleDispatchKgChange = (val) => {
+    if (val === '') {
+      setForm(prev => ({ ...prev, dispatch_qty_kg: '', dispatch_qty_bag: '' }));
+      return;
+    }
+    const num = parseFloat(val);
+    const convertedBags = (!isNaN(num) && packagingSize > 0) ? String(roundQty(num / packagingSize)) : '';
+    setForm(prev => ({
+      ...prev,
+      dispatch_qty_kg: val,
+      dispatch_qty_bag: convertedBags,
+    }));
+  };
+
+  const handleDispatchBagChange = (val) => {
+    if (val === '') {
+      setForm(prev => ({ ...prev, dispatch_qty_kg: '', dispatch_qty_bag: '' }));
+      return;
+    }
+    const num = parseFloat(val);
+    const convertedKg = (!isNaN(num) && packagingSize > 0) ? String(roundQty(num * packagingSize)) : '';
+    setForm(prev => ({
+      ...prev,
+      dispatch_qty_bag: val,
+      dispatch_qty_kg: convertedKg,
+    }));
   };
 
   const handleTransporterSelect = (tId) => {
@@ -96,20 +136,18 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
         delivery_date: form.delivery_date || null,
         dispatch_qty_kg: form.dispatch_qty_kg,
         dispatch_qty_bag: form.dispatch_qty_bag,
-        process_type: form.process_type,
-        lr_number: form.lr_number,
-        expected_delivery_date: form.expected_delivery_date,
+        expected_delivery_date: form.expected_delivery_date || null,
         driver_phone_number: form.driver_phone_number,
         vehicle_number: form.vehicle_number,
         remarks: form.remarks,
       };
 
-      if (canEditIdentity) {
-        payload.lifting_number = form.lifting_number.trim();
+      // In Pending section, LR Number and Transporter can also be updated
+      if (!isTransporterGodownOrHistory) {
+        payload.lr_number = form.lr_number;
+      }
+      if (canEditTransporter) {
         payload.transporter_id = form.transporter_id || null;
-        if (form.product_id && form.product_id !== 'null' && form.product_id !== 'undefined') {
-          payload.product_id = form.product_id;
-        }
       }
 
       await updateAawakLiftInfo(payload);
@@ -136,7 +174,7 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
               <h2 className="text-base font-bold text-slate-800">Edit Lift Details</h2>
               <p className="text-xs text-slate-500">
                 {delivery?.lifting_number ? `Lifting #${delivery.lifting_number}` : 'Update delivery lift particulars'}
-                {!canEditIdentity && ' (Product & Transporter locked — stock already posted)'}
+                {isTransporterGodownOrHistory ? ' (Locked fields for stock consistency)' : ''}
               </p>
             </div>
           </div>
@@ -145,18 +183,17 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
           <ModalBody className="space-y-4 py-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {/* Lifting Number */}
+              {/* Lifting Number (Read-only across all sections) */}
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Lifting Number <span className="text-red-500">*</span>
+                  Lifting Number
                 </label>
                 <Input
                   type="text"
-                  required
-                  disabled={!canEditIdentity}
+                  readOnly
+                  disabled
                   value={form.lifting_number}
-                  onChange={e => handleChange('lifting_number', e.target.value)}
-                  className="h-9 text-xs"
+                  className="h-9 text-xs bg-slate-100 text-slate-500 cursor-not-allowed select-none"
                 />
               </div>
 
@@ -173,16 +210,15 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
                 />
               </div>
 
-              {/* Product */}
+              {/* Product (Read-only across all sections) */}
               <div className="sm:col-span-2">
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Product Name {!canEditIdentity && '(Locked)'}
+                  Product Name
                 </label>
                 <select
-                  disabled={!canEditIdentity}
+                  disabled
                   value={form.product_id}
-                  onChange={e => handleChange('product_id', e.target.value)}
-                  className="w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                  className="w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed focus:outline-none"
                 >
                   <option value="">Select product...</option>
                   {products.map(p => (
@@ -201,13 +237,13 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
               {/* Transporter */}
               <div className="sm:col-span-2">
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Transporter {!canEditIdentity && '(Locked)'}
+                  Transporter {!canEditTransporter && '(Locked)'}
                 </label>
                 <select
-                  disabled={!canEditIdentity}
+                  disabled={!canEditTransporter}
                   value={form.transporter_id}
                   onChange={e => handleTransporterSelect(e.target.value)}
-                  className="w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                  className={`w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 ${!canEditTransporter ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white focus:outline-none focus:ring-2 focus:ring-primary/30'}`}
                 >
                   <option value="">Select transporter...</option>
                   {transporters.map(t => (
@@ -234,7 +270,7 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
                   min="0"
                   placeholder="0.00"
                   value={form.dispatch_qty_kg}
-                  onChange={e => handleChange('dispatch_qty_kg', e.target.value)}
+                  onChange={e => handleDispatchKgChange(e.target.value)}
                   className="h-9 text-xs"
                 />
               </div>
@@ -242,7 +278,7 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
               {/* Dispatch Qty Bag */}
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Dispatch Qty (Bags)
+                  Dispatch Qty (Bags) {packagingSize ? `(${packagingSize} kg/bag)` : ''}
                 </label>
                 <Input
                   type="number"
@@ -250,22 +286,24 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
                   min="0"
                   placeholder="0.00"
                   value={form.dispatch_qty_bag}
-                  onChange={e => handleChange('dispatch_qty_bag', e.target.value)}
+                  onChange={e => handleDispatchBagChange(e.target.value)}
                   className="h-9 text-xs"
                 />
               </div>
 
-              {/* LR Number */}
+              {/* LR Number (Read-only in Transporter Godown & History, editable in Pending) */}
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  LR Number
+                  LR Number {isTransporterGodownOrHistory && '(Read-only)'}
                 </label>
                 <Input
                   type="text"
                   placeholder="LR No."
+                  readOnly={isTransporterGodownOrHistory}
+                  disabled={isTransporterGodownOrHistory}
                   value={form.lr_number}
                   onChange={e => handleChange('lr_number', e.target.value)}
-                  className="h-9 text-xs"
+                  className={`h-9 text-xs ${isTransporterGodownOrHistory ? 'bg-slate-100 text-slate-500 cursor-not-allowed select-none' : ''}`}
                 />
               </div>
 
@@ -282,15 +320,15 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, products = [], transpor
                 />
               </div>
 
-              {/* Indent Type */}
+              {/* Indent Type (Read-only) */}
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
                   Indent Type
                 </label>
                 <select
+                  disabled
                   value={form.process_type}
-                  onChange={e => handleChange('process_type', e.target.value)}
-                  className="w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed focus:outline-none"
                 >
                   <option value="direct">Direct</option>
                   <option value="process">Process</option>

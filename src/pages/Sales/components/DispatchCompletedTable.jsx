@@ -555,8 +555,8 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
   };
 
   return (
-    <>
-      <div className="flex flex-wrap items-center gap-2 mb-4 shrink-0">
+    <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
         <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 shrink-0">
           {[
             { id: 'pending', label: 'Pending' },
@@ -661,7 +661,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0">
+      <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0 overflow-hidden shadow-sm">
         {/* Sub-header */}
         <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-400 flex-wrap shrink-0">
           <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
@@ -679,7 +679,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
         {viewMode === 'card' && renderCards()}
 
         {viewMode === 'table' && (
-          <div className="overflow-x-auto custom-scrollbar flex-1 min-h-0">
+          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
             <table className="w-full text-xs relative">
             <thead className="sticky top-0 z-10 shadow-sm">
               <tr className="bg-blue-50 border-b border-slate-200">
@@ -840,7 +840,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
             </div>
           </div>
       </div>
-    </>
+    </div>
   );
 };
 
