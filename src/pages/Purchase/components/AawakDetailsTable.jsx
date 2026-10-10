@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, Check, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Save, Phone, MessageSquare, Pencil } from 'lucide-react';
+import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, Check, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Save, Phone, MessageSquare, Pencil, X } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAawakDeliveries, updateAawakLift, deleteDelivery, updateDeliveriesExpectedDeliveryDate, updateAawakLiftInfo, revertLiftToPending } from '../../../services/purchaseService';
@@ -7,7 +7,6 @@ import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
-import FilterMenu from '@/components/FilterMenu';
 import EditAawakLiftModal from './EditAawakLiftModal';
 import { canEditOrDelete } from '../../../lib/permissions';
 
@@ -987,9 +986,8 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
   return (
     <div className="flex flex-col gap-4 font-sans flex-1">
-      {/* Everything in one wrapping row: Pending/History toggle + search +
-          filters + item count + Submit. */}
-      <div className="flex flex-wrap items-center gap-2 shrink-0">
+      {/* Header Bar Tier 1: Subtabs + View Switcher & Submit */}
+      <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
@@ -1037,83 +1035,6 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
             </span>
           </button>
         </div>
-
-        <div className="relative w-full sm:flex-1 sm:min-w-[160px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
-          <Input
-            type="text"
-            placeholder="Search product, lift, vendor, LR no..."
-            className="pl-9 h-9 text-xs w-full"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-
-        <FilterMenu
-          activeCount={[dateFilter, productFilter, transporterFilter, godownFilter, expDateFilter].filter(Boolean).length}
-          onClear={() => { setDateFilter(''); setProductFilter(''); setTransporterFilter(''); setGodownFilter(''); setExpDateFilter(''); }}
-        >
-          {/* Calendar Filter for Delivery Date */}
-          <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 w-full">
-            <span className="whitespace-nowrap font-medium text-slate-500">Date:</span>
-            <input
-              type="date"
-              value={dateFilter}
-              onChange={e => setDateFilter(e.target.value)}
-              className="h-7 text-xs bg-transparent flex-1 min-w-0 focus:outline-none text-slate-700 cursor-pointer"
-            />
-          </div>
-
-          <select
-            value={productFilter}
-            onChange={e => setProductFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-          >
-            <option value="">Product (-- All --)</option>
-            {productOptions.map(p => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-
-          <select
-            value={transporterFilter}
-            onChange={e => setTransporterFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-          >
-            <option value="">Transporter (-- All --)</option>
-            {transporterOptions.map(t => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-
-          <select
-            value={godownFilter}
-            onChange={e => setGodownFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-          >
-            <option value="">Godown (-- All --)</option>
-            {ownGodowns.map(g => (
-              <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
-            ))}
-          </select>
-
-          {/* Calendar Filter for Expected Receiving Date */}
-          <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 w-full">
-            <span className="whitespace-nowrap font-medium text-slate-500">Exp. Recv Date:</span>
-            <input
-              type="date"
-              value={expDateFilter}
-              onChange={e => setExpDateFilter(e.target.value)}
-              className="h-7 text-xs bg-transparent flex-1 min-w-0 focus:outline-none text-slate-700 cursor-pointer"
-            />
-          </div>
-        </FilterMenu>
-
-        {(searchTerm || dateFilter || productFilter || transporterFilter || godownFilter || expDateFilter) && (
-          <Button variant="outline" size="sm" onClick={clearFilters} className="h-9 text-xs border-slate-200 hover:bg-slate-50 shrink-0">
-            Clear
-          </Button>
-        )}
 
         <div className="flex items-center gap-2 shrink-0 sm:ml-auto">
           {/* View Mode Switcher */}
@@ -1176,6 +1097,93 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
             {submitting ? 'Submitting...' : 'Submit'}
           </Button>
         </div>
+      </div>
+
+      {/* Header Bar Tier 2: Search and Inline Regular Filters */}
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
+        {/* Search Bar */}
+        <div className="relative w-full sm:w-64 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
+          <Input
+            type="text"
+            placeholder="Search product, lift, vendor, LR no..."
+            className="pl-9 h-9 text-xs w-full bg-white shadow-sm border-slate-200"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        {/* Delivery Date Filter */}
+        <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 shrink-0">
+          <span className="whitespace-nowrap font-medium text-slate-500">Date:</span>
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={e => setDateFilter(e.target.value)}
+            className="h-7 text-xs bg-transparent min-w-0 focus:outline-none text-slate-700 cursor-pointer"
+          />
+        </div>
+
+        {/* Product Filter Dropdown */}
+        <select
+          value={productFilter}
+          onChange={e => setProductFilter(e.target.value)}
+          className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[130px] max-w-[170px]"
+        >
+          <option value="">Product (-- All --)</option>
+          {productOptions.map(p => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+
+        {/* Transporter Filter Dropdown */}
+        <select
+          value={transporterFilter}
+          onChange={e => setTransporterFilter(e.target.value)}
+          className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[130px] max-w-[170px]"
+        >
+          <option value="">Transporter (-- All --)</option>
+          {transporterOptions.map(t => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+
+        {/* Godown Destination Dropdown */}
+        <select
+          value={godownFilter}
+          onChange={e => setGodownFilter(e.target.value)}
+          className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[120px] max-w-[160px]"
+        >
+          <option value="">Godown (-- All --)</option>
+          {ownGodowns.map(g => (
+            <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
+          ))}
+        </select>
+
+        {/* Expected Receiving Date Filter */}
+        <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 shrink-0">
+          <span className="whitespace-nowrap font-medium text-slate-500">Exp. Recv Date:</span>
+          <input
+            type="date"
+            value={expDateFilter}
+            onChange={e => setExpDateFilter(e.target.value)}
+            className="h-7 text-xs bg-transparent min-w-0 focus:outline-none text-slate-700 cursor-pointer"
+          />
+        </div>
+
+        {/* Clear Filters Button */}
+        {(searchTerm || dateFilter || productFilter || transporterFilter || godownFilter || expDateFilter) && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={clearFilters}
+            className="h-9 px-2.5 text-xs border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm shrink-0 gap-1"
+            title="Clear all filters"
+          >
+            <X size={13} />
+            Clear
+          </Button>
+        )}
       </div>
 
       {/* Main Table - Modern Rounded-XL Container */}
