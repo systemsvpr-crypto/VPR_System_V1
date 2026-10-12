@@ -103,7 +103,7 @@ const TransactionTable = ({
           { label: 'Type', className: 'text-center' },
           { label: 'Lift/Dispatch #', className: 'text-center' },
           { label: 'Qty', className: 'text-center' },
-          { label: 'Actions', className: 'text-center w-20' }
+          ...(userCanEdit ? [{ label: 'Actions', className: 'text-center w-20' }] : [])
         ]}
         data={transactions}
         renderRow={(t) => (
@@ -139,8 +139,9 @@ const TransactionTable = ({
               {['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? '+' : '-'}
               {formatQty(t.qty)}
             </td>
+            {userCanEdit && (
             <td className="px-4 py-3 text-center">
-              {userCanEdit && canEdit(t.txn_type) ? (
+              {canEdit(t.txn_type) ? (
                 <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                   <button onClick={() => onEdit(t)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-primary transition-colors" title="Edit transaction">
                     <Pencil size={15} />
@@ -153,6 +154,7 @@ const TransactionTable = ({
                 <span className="text-slate-300 text-xs">—</span>
               )}
             </td>
+            )}
           </tr>
         )}
         renderCard={(t) => (

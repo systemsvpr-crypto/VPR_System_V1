@@ -10,6 +10,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { Dropdown } from '@/components/ui/dropdown';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 import { canEditOrDelete } from '../../../lib/permissions';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -76,7 +77,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState('pending'); // 'pending' | 'history'
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
+  const [pageSize, setPageSize] = useState(100);
 
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [edits, setEdits] = useState({});
@@ -215,6 +216,20 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
   // just the row being edited, unlike Vendor/Date above.
   const setItemField = (item, field, value) => {
     setEdits(prev => ({ ...prev, [item.item_id]: { ...prev[item.item_id], [field]: value } }));
+  };
+
+  // Free-text fields (Remarks): typing on a checked row writes the same text
+  // into every checked row, on every keystroke. An unchecked row edits only itself.
+  const setTextForSelected = (item, field, value) => {
+    if (!selectedItems.has(item.item_id)) {
+      setItemField(item, field, value);
+      return;
+    }
+    setEdits(prev => {
+      const next = { ...prev };
+      selectedItems.forEach(id => { next[id] = { ...next[id], [field]: value }; });
+      return next;
+    });
   };
 
   // Switching Approve Unit re-bases whatever Qty is currently showing into
@@ -396,9 +411,9 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
           ))}
         </div>
 
-        <div className="relative w-full sm:flex-1 sm:min-w-[160px]">
+        <div className="relative w-full sm:w-60 lg:w-64 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
-          <Input type="text" placeholder="Search indent no., product, vendor..." className="pl-9 h-9 w-full"
+          <Input type="text" placeholder="Search indent no., product, vendor..." className="pl-9 h-9 text-xs w-full"
             value={searchTerm} onChange={(e) => onSearchChange?.(e.target.value)} />
         </div>
 
@@ -748,7 +763,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                                   type="text"
                                   placeholder="Remarks..."
                                   value={getValue(item, 'vendor_remarks')}
-                                  onChange={(e) => setItemField(item, 'vendor_remarks', e.target.value)}
+                                  onChange={(e) => setTextForSelected(item, 'vendor_remarks', e.target.value)}
                                   className="h-8 text-xs w-full bg-white"
                                 />
                               </div>
@@ -768,7 +783,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto custom-scrollbar">
+            <TableScrollSync>
               <table className="w-full text-sm relative [&_td]:align-middle">
                 <thead>
                   <tr className="bg-blue-50 border-b border-slate-200">
@@ -781,12 +796,12 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                           className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                           title="Select all"
                         />
-                        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Action</span>
+                        {canDelete && <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Action</span>}
                       </div>
                     </th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Number</th>
-                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">Product Name</th>
+                    <th className="sticky left-0 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">Product Name</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Indent Qty</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[160px]">Vendor Name</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Rate</th>
@@ -826,7 +841,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                       || indent.vendors?.name || '—';
                     const approvedQtyPreview = getApprovedQtyPreview(item);
                     return (
-                      <tr key={item.item_id} className={`hover:bg-slate-50 transition-colors ${selected ? 'bg-primary/5' : ''}`}>
+                      <tr key={item.item_id} className={`group hover:bg-slate-50 transition-colors ${selected ? 'bg-primary/5' : ''}`}>
                         <td className="px-2 py-3 text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1.5">
                             <input
@@ -853,7 +868,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                           {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
                         </td>
                         <td className="px-4 py-3 text-center font-medium text-slate-800">{indent.indent_number || '—'}</td>
-                        <td className="px-4 py-3 text-center whitespace-nowrap">
+                        <td className={`sticky left-0 z-[4] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-4 py-3 text-center whitespace-nowrap ${selected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                           <span className="font-medium text-slate-800">{item.products?.name || '—'}</span>{' '}
                           <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
                         </td>
@@ -910,7 +925,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                             <td className="px-4 py-3 min-w-[130px] text-center">
                               <Input type="text" placeholder="Remarks"
                                 value={getValue(item, 'vendor_remarks')}
-                                onChange={(e) => setItemField(item, 'vendor_remarks', e.target.value)}
+                                onChange={(e) => setTextForSelected(item, 'vendor_remarks', e.target.value)}
                                 className="h-8 text-xs text-center" />
                             </td>
                           </>
@@ -940,7 +955,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableScrollSync>
           )}
 
           <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3 rounded-b-xl">

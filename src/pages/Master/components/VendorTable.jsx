@@ -33,7 +33,7 @@ const VendorTable = ({ vendors, totalItems, loading, onEdit, searchTerm, current
   return (
     <DataTable
       headers={[
-        'Name', 'Location', 'Phone', 'Email', 'GST No.', 'Actions'
+        'Name', 'Location', 'Phone', 'Email', 'GST No.', ...(userCanEdit ? ['Actions'] : [])
       ]}
       data={vendors}
       currentPage={currentPage}
@@ -49,16 +49,14 @@ const VendorTable = ({ vendors, totalItems, loading, onEdit, searchTerm, current
           <td className="px-4 py-3 text-center text-slate-600">{v.phone_number || '—'}</td>
           <td className="px-4 py-3 text-center text-slate-600">{v.email || '—'}</td>
           <td className="px-4 py-3 text-center text-slate-600">{v.gst_number || '—'}</td>
-          <td className="px-4 py-3 text-center">
-            {userCanEdit ? (
+          {userCanEdit && (
+            <td className="px-4 py-3 text-center">
               <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(v)}
                 className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
                 <Edit2 size={15} />
               </Button>
-            ) : (
-              <span className="text-slate-300 text-xs">—</span>
-            )}
-          </td>
+            </td>
+          )}
         </tr>
       )}
       renderCard={(v, index) => (

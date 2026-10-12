@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   CheckCircle, Square, CheckSquare, Save, Lock, AlertTriangle, ChevronLeft, ChevronRight, Trash2,
-  LayoutGrid, LayoutList, Calendar, MapPin, User, Package, Clock, RotateCw, Check, Ban, Search
+  LayoutGrid, LayoutList, Calendar, MapPin, User, Package, Clock, RotateCw, Check, Ban, Search, X
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAllDispatchPlans, completeDispatchWithStockOut, batchUpdateInformAfterDispatch, deleteDispatchPlansBulk } from '../../../services/salesService';
@@ -9,7 +9,6 @@ import { getAllProductStock } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
-import FilterMenu from '@/components/FilterMenu';
 import { DatePicker } from '@/components/ui/date-picker';
 import { format } from 'date-fns';
 
@@ -572,52 +571,66 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
           ))}
         </div>
 
-        <div className="relative w-full sm:w-64 shrink-0">
+        <div className="relative w-full sm:w-56 min-w-[170px] shrink-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
-          <Input type="text" placeholder="Search dispatch plans..." className="pl-9 h-9"
+          <Input type="text" placeholder="Search dispatch plans..." className="pl-9 h-9 text-xs w-full bg-white shadow-sm border-slate-200"
             value={searchTerm} onChange={(e) => onSearchChange?.(e.target.value)} />
         </div>
 
-        <FilterMenu
-          activeCount={([orderFilter, productFilter, customerFilter, godownFilter]).filter(Boolean).length}
-          onClear={() => { setOrderFilter(''); setProductFilter(''); setCustomerFilter(''); setGodownFilter(''); }}
-        >
-          <Dropdown
-            value={orderFilter}
-            onValueChange={setOrderFilter}
-            options={[{ value: '', label: 'All Orders' }, ...filterOptions.orders.map(o => ({ value: o, label: o }))]}
-            placeholder="All Orders"
-            searchPlaceholder="Search orders..."
-            className="h-9 w-full text-xs"
-          />
+        <Dropdown
+          value={orderFilter}
+          onValueChange={setOrderFilter}
+          options={[{ value: '', label: 'All Orders' }, ...filterOptions.orders.map(o => ({ value: o, label: o }))]}
+          placeholder="All Orders"
+          searchPlaceholder="Search orders..."
+          className="h-9 min-w-[120px] max-w-[150px] text-xs shrink-0"
+        />
 
-          <Dropdown
-            value={productFilter}
-            onValueChange={setProductFilter}
-            options={[{ value: '', label: 'All Products' }, ...filterOptions.products.map(p => ({ value: p, label: p }))]}
-            placeholder="All Products"
-            searchPlaceholder="Search products..."
-            className="h-9 w-full text-xs"
-          />
+        <Dropdown
+          value={productFilter}
+          onValueChange={setProductFilter}
+          options={[{ value: '', label: 'All Products' }, ...filterOptions.products.map(p => ({ value: p, label: p }))]}
+          placeholder="All Products"
+          searchPlaceholder="Search products..."
+          className="h-9 min-w-[130px] max-w-[160px] text-xs shrink-0"
+        />
 
-          <Dropdown
-            value={customerFilter}
-            onValueChange={setCustomerFilter}
-            options={[{ value: '', label: 'All Customers' }, ...filterOptions.customers.map(c => ({ value: c, label: c }))]}
-            placeholder="All Customers"
-            searchPlaceholder="Search customers..."
-            className="h-9 w-full text-xs"
-          />
+        <Dropdown
+          value={customerFilter}
+          onValueChange={setCustomerFilter}
+          options={[{ value: '', label: 'All Customers' }, ...filterOptions.customers.map(c => ({ value: c, label: c }))]}
+          placeholder="All Customers"
+          searchPlaceholder="Search customers..."
+          className="h-9 min-w-[130px] max-w-[160px] text-xs shrink-0"
+        />
 
-          <Dropdown
-            value={godownFilter}
-            onValueChange={setGodownFilter}
-            options={[{ value: '', label: 'All Godowns' }, ...filterOptions.godowns.map(g => ({ value: g, label: g }))]}
-            placeholder="All Godowns"
-            searchPlaceholder="Search godowns..."
-            className="h-9 w-full text-xs"
-          />
-        </FilterMenu>
+        <Dropdown
+          value={godownFilter}
+          onValueChange={setGodownFilter}
+          options={[{ value: '', label: 'All Godowns' }, ...filterOptions.godowns.map(g => ({ value: g, label: g }))]}
+          placeholder="All Godowns"
+          searchPlaceholder="Search godowns..."
+          className="h-9 min-w-[120px] max-w-[150px] text-xs shrink-0"
+        />
+
+        {(orderFilter || productFilter || customerFilter || godownFilter || searchTerm) && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setOrderFilter('');
+              setProductFilter('');
+              setCustomerFilter('');
+              setGodownFilter('');
+              onSearchChange?.('');
+            }}
+            className="h-9 px-2.5 text-xs border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm shrink-0 gap-1"
+            title="Clear all filters"
+          >
+            <X size={13} />
+            Clear
+          </Button>
+        )}
 
         <Button onClick={handleSave} disabled={checkedRows.size === 0 || isSaving}
           className="gap-2 px-4 font-medium h-9 w-full sm:w-auto text-xs sm:ml-auto shrink-0">

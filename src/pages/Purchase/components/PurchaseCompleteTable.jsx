@@ -7,8 +7,8 @@ import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalTitle } from '@/components/ui/modal';
-import FilterMenu from '@/components/FilterMenu';
 import { canEditOrDelete } from '../../../lib/permissions';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const LIFT_STATUS_STYLE = {
   'In Transit': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: Timer, label: 'In Transit' },
@@ -46,7 +46,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
   const [productFilter, setProductFilter] = useState('');
   const [transporterFilter, setTransporterFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
+  const [pageSize, setPageSize] = useState(100);
   const [selectedItem, setSelectedItem] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
@@ -498,57 +498,59 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
       {/* Filter Toolbar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
         <div className="flex flex-wrap items-center gap-3 flex-1">
-          <div className="relative w-full md:w-64">
+          <div className="relative w-full sm:w-60 lg:w-64 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
             <Input
               type="text"
               placeholder="Search indent no., vendor, product..."
-              className="pl-9 h-9 text-xs"
+              className="pl-9 h-9 text-xs w-full bg-white shadow-sm border-slate-200"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
 
-          <FilterMenu
-            activeCount={[dateFilter, productFilter, transporterFilter].filter(Boolean).length}
-            onClear={() => { setDateFilter(''); setProductFilter(''); setTransporterFilter(''); }}
+          {/* Calendar Filter for Indent Date */}
+          <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 shrink-0">
+            <span className="whitespace-nowrap font-medium text-slate-500">Date:</span>
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={e => setDateFilter(e.target.value)}
+              className="h-7 text-xs bg-transparent min-w-0 focus:outline-none text-slate-700 cursor-pointer"
+            />
+          </div>
+
+          <select
+            value={productFilter}
+            onChange={e => setProductFilter(e.target.value)}
+            className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[130px] max-w-[170px]"
           >
-            {/* Calendar Filter for Indent Date */}
-            <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 w-full">
-              <span className="whitespace-nowrap font-medium text-slate-500">Date:</span>
-              <input
-                type="date"
-                value={dateFilter}
-                onChange={e => setDateFilter(e.target.value)}
-                className="h-7 text-xs bg-transparent flex-1 min-w-0 focus:outline-none text-slate-700 cursor-pointer"
-              />
-            </div>
+            <option value="">Product Name (-- All --)</option>
+            {productOptions.map(p => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
 
-            <select
-              value={productFilter}
-              onChange={e => setProductFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-            >
-              <option value="">Product Name (-- All --)</option>
-              {productOptions.map(p => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-
-            <select
-              value={transporterFilter}
-              onChange={e => setTransporterFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-            >
-              <option value="">Transporter Name (-- All --)</option>
-              {transporterOptions.map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </FilterMenu>
+          <select
+            value={transporterFilter}
+            onChange={e => setTransporterFilter(e.target.value)}
+            className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[130px] max-w-[170px]"
+          >
+            <option value="">Transporter Name (-- All --)</option>
+            {transporterOptions.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
 
           {(searchTerm || dateFilter || productFilter || transporterFilter) && (
-            <Button variant="outline" size="sm" onClick={clearFilters} className="h-9 text-xs border-slate-200 hover:bg-slate-50">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearFilters}
+              className="h-9 px-2.5 text-xs border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm shrink-0 gap-1"
+              title="Clear all filters"
+            >
+              <X size={13} />
               Clear
             </Button>
           )}
@@ -612,6 +614,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
               <span className="text-primary font-semibold">({selectedItems.size} selected)</span>
             )}
           </div>
+          {canDelete && (
           <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -621,15 +624,17 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
             />
             <span>Select All</span>
           </label>
+          )}
         </div>
 
         {viewMode === 'card' ? (
           renderCards()
         ) : (
-          <div className="overflow-x-auto custom-scrollbar">
+          <TableScrollSync>
             <table className="w-full text-xs">
               <thead className="bg-blue-50 border-b border-slate-200">
                 <tr>
+                  {canDelete && (
                   <th className="w-16 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">
                     <div className="flex items-center justify-center gap-1">
                       <Input
@@ -642,10 +647,11 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                       <span>Action</span>
                     </div>
                   </th>
+                  )}
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                  <th className="sticky left-0 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
@@ -661,7 +667,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
               <tbody className="divide-y divide-slate-100">
                 {filteredItems.length === 0 && (
                   <tr>
-                    <td colSpan="15" className="p-12 text-center text-slate-400">
+                    <td colSpan={canDelete ? 15 : 14} className="p-12 text-center text-slate-400">
                       <BadgeCheck size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No purchase indent items found.</p>
                     </td>
@@ -673,7 +679,8 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                     <tr key={item.item_id}
                       onClick={() => hasLifts && setSelectedItem(item)}
                       title={hasLifts ? 'Click to view all lifts for this item' : undefined}
-                      className={`hover:bg-slate-50/60 transition-colors ${hasLifts ? 'cursor-pointer' : ''}`}>
+                      className={`group hover:bg-slate-50/60 transition-colors ${hasLifts ? 'cursor-pointer' : ''}`}>
+                      {canDelete && (
                       <td className="px-2 py-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1">
                           <input
@@ -698,6 +705,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                           )}
                         </div>
                       </td>
+                      )}
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {item.indent_date ? format(new Date(item.indent_date), 'dd/MM/yyyy') : '—'}
                       </td>
@@ -707,7 +715,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                       <td className="px-3 py-3 text-center whitespace-nowrap">
                         <IndentTypeBadge processType={item.indent_type === 'Direct' ? 'direct' : 'process'} />
                       </td>
-                      <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
+                      <td className="sticky left-0 z-[4] bg-white group-hover:bg-slate-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
                         {item.product_name}
                         <span className="text-slate-500 ml-1">({item.unit || '—'})</span>
                       </td>
@@ -762,7 +770,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                 })}
               </tbody>
             </table>
-          </div>
+          </TableScrollSync>
         )}
 
         <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3">

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Phone, MessageSquare, Pencil } from 'lucide-react';
+import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Phone, MessageSquare, Pencil, X } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import {
@@ -8,7 +8,7 @@ import {
   createDelivery,
   cancelIndentItem,
   getPackagingSize,
-  deleteIndentItem,
+  deletePendingDeliveryRemainder,
   deleteDelivery,
   updateItemsExpectedDispatchDate,
   updatePendingDeliveryRowInfo,
@@ -18,10 +18,10 @@ import { sendPurchaseDeliveredWhatsapp } from '../../../services/whatsappService
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
-import { roundQty } from '@/lib/qty';
-import FilterMenu from '@/components/FilterMenu';
+import { roundQty, formatQty } from '@/lib/qty';
 import EditDeliveryIndentModal from './EditDeliveryIndentModal';
 import { canEditOrDelete } from '../../../lib/permissions';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -55,6 +55,9 @@ const IndentTypeBadge = ({ processType }) => (
 
 const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], products = [], vendors = [] }) => {
   const canModify = canEditOrDelete(user);
+  // Product Name pins right after the pinned checkbox (3rem) + Action (5rem)
+  // columns — or just the checkbox when Action is hidden for read-only users.
+  const productLeft = canModify ? 'left-32' : 'left-12';
   const [activeSubTab, setActiveSubTab] = useState('pending'); // 'pending' | 'history'
   const [items, setItems] = useState([]);
   const [historyItems, setHistoryItems] = useState([]);
@@ -64,7 +67,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   const [productFilter, setProductFilter] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
+  const [pageSize, setPageSize] = useState(100);
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [rowEdits, setRowEdits] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -446,6 +449,14 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
         continue;
       }
 
+      // Actual Date starts empty (or, for a partly dispatched indent, the
+      // previous lift's date) — it must be picked, never silently "today".
+      const actualDate = edit.actual_date !== undefined ? edit.actual_date : (item.last_actual_date || '');
+      if (!actualDate) {
+        toast.error(`Please select Actual Date for indent ${item.purchase_indents?.indent_number}`);
+        continue;
+      }
+
       try {
         // Any indent / item columns edited on this row are saved first, so
         // the lift is created against the corrected data.
@@ -453,7 +464,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
         await createDelivery({
           item_id: item.item_id,
           indent_id: item.purchase_indents?.indent_id,
-          delivery_date: edit.actual_date || format(new Date(), 'yyyy-MM-dd'),
+          delivery_date: actualDate,
           group_id: item.group_id || product?.group_id || item.purchase_indents?.group_id || null,
           expected_delivery_date: item.planning_date || null,
           expected_dispatch_date: item.expected_dispatch_date || null,
@@ -571,10 +582,14 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
     }
     const pName = item.products?.name || 'this product';
     const iNum = item.purchase_indents?.indent_number || '';
-    if (!window.confirm(`Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`)) return;
+    const partlyDispatched = Number(item.allocated_qty || 0) > 0;
+    const confirmMsg = partlyDispatched
+      ? `Delete the pending ${formatQty(item.remaining_alloc_qty)} of "${pName}"${iNum ? ` (indent "${iNum}")` : ''}? Lifts already dispatched (${formatQty(item.allocated_qty)}) are kept.`
+      : `Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`;
+    if (!window.confirm(confirmMsg)) return;
     try {
-      await deleteIndentItem(item.item_id);
-      toast.success('Item deleted');
+      const res = await deletePendingDeliveryRemainder(item.item_id);
+      toast.success(res.deleted === 'remainder' ? 'Pending qty deleted — dispatched lifts kept' : 'Item deleted');
       setItems(prev => prev.filter(i => i.item_id !== item.item_id));
       setSelectedItems(prev => {
         const next = new Set(prev);
@@ -631,14 +646,14 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
     if (toDeleteIds.length === 0) return;
 
     if (activeSubTab === 'pending') {
-      if (!window.confirm(`Are you sure you want to permanently delete ${toDeleteIds.length} selected pending item(s)? This cannot be undone.`)) {
+      if (!window.confirm(`Delete ${toDeleteIds.length} selected pending item(s)? For partly dispatched indents only the pending qty is deleted — lifts already dispatched are kept. This cannot be undone.`)) {
         return;
       }
       setDeletingSelected(true);
       let success = 0;
       for (const id of toDeleteIds) {
         try {
-          await deleteIndentItem(id);
+          await deletePendingDeliveryRemainder(id);
           success++;
         } catch (err) {
           console.error('Failed to delete pending item', id, err);
@@ -951,8 +966,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Actual Date</label>
                       <DatePicker
                         showActions
-                        value={getRowVal(item.item_id, 'actual_date', format(new Date(), 'yyyy-MM-dd'))}
+                        value={getRowVal(item.item_id, 'actual_date', item.last_actual_date || '')}
                         onChange={e => setFieldForSelected(item.item_id, 'actual_date', e.target.value)}
+                        placeholder="Select date"
                         className="h-8 text-xs bg-white"
                       />
                     </div>
@@ -1043,7 +1059,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         type="text"
                         placeholder="Remarks..."
                         value={remarksVal}
-                        onChange={e => setRowVal(item.item_id, 'remarks', e.target.value)}
+                        onChange={e => setFieldForSelected(item.item_id, 'remarks', e.target.value)}
                         className="h-8 text-xs bg-white"
                       />
                     </div>
@@ -1332,70 +1348,72 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
           </button>
         </div>
 
-        <div className="relative w-full sm:flex-1 sm:min-w-[160px]">
+        <div className="relative w-full sm:w-60 lg:w-64 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
           <Input
             type="text"
             placeholder="Search indent no., product, vendor..."
-            className="pl-9 h-9 text-xs w-full"
+            className="pl-9 h-9 text-xs w-full bg-white shadow-sm border-slate-200"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
 
-        <FilterMenu
-          activeCount={[indentFilter, productFilter, vendorFilter].filter(Boolean).length}
-          onClear={() => { setIndentFilter(''); setProductFilter(''); setVendorFilter(''); }}
+        <select
+          value={indentFilter}
+          onChange={e => setIndentFilter(e.target.value)}
+          className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[120px] max-w-[160px]"
         >
+          <option value="">-- All Indents --</option>
+          {indentOptions.map(num => (
+            <option key={num} value={num}>{num}</option>
+          ))}
+        </select>
+
+        <select
+          value={productFilter}
+          onChange={e => setProductFilter(e.target.value)}
+          className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[130px] max-w-[170px]"
+        >
+          <option value="">-- All Products --</option>
+          {productOptions.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+
+        {activeSubTab === 'pending' ? (
           <select
-            value={indentFilter}
-            onChange={e => setIndentFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+            value={vendorFilter}
+            onChange={e => setVendorFilter(e.target.value)}
+            className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[130px] max-w-[170px]"
           >
-            <option value="">-- All Indents --</option>
-            {indentOptions.map(num => (
-              <option key={num} value={num}>{num}</option>
+            <option value="">-- All Vendors --</option>
+            {vendorOptions.map(v => (
+              <option key={v.id} value={v.id}>{v.name}</option>
             ))}
           </select>
-
+        ) : (
           <select
-            value={productFilter}
-            onChange={e => setProductFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+            value={vendorFilter}
+            onChange={e => setVendorFilter(e.target.value)}
+            className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[130px] max-w-[170px]"
           >
-            <option value="">-- All Products --</option>
-            {productOptions.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+            <option value="">-- All Transporters --</option>
+            {transporters.map(t => (
+              <option key={t.transporter_id} value={t.name}>{t.name}</option>
             ))}
           </select>
-
-          {activeSubTab === 'pending' ? (
-            <select
-              value={vendorFilter}
-              onChange={e => setVendorFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-            >
-              <option value="">-- All Vendors --</option>
-              {vendorOptions.map(v => (
-                <option key={v.id} value={v.id}>{v.name}</option>
-              ))}
-            </select>
-          ) : (
-            <select
-              value={vendorFilter}
-              onChange={e => setVendorFilter(e.target.value)}
-              className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-            >
-              <option value="">-- All Transporters --</option>
-              {transporters.map(t => (
-                <option key={t.transporter_id} value={t.name}>{t.name}</option>
-              ))}
-            </select>
-          )}
-        </FilterMenu>
+        )}
 
         {(searchTerm || indentFilter || productFilter || vendorFilter) && (
-          <Button variant="outline" size="sm" onClick={clearFilters} className="h-9 text-xs border-slate-200 hover:bg-slate-50 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={clearFilters}
+            className="h-9 px-2.5 text-xs border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm shrink-0 gap-1"
+            title="Clear all filters"
+          >
+            <X size={13} />
             Clear
           </Button>
         )}
@@ -1494,7 +1512,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
         {activeSubTab === 'pending' ? (
           viewMode === 'card' ? renderPendingCards() : (
             /* PENDING TABLE */
-            <div className="overflow-x-auto custom-scrollbar">
+            <TableScrollSync>
               <table className="w-full text-xs">
                 <thead className="bg-blue-50 border-b border-slate-200">
                   <tr>
@@ -1503,13 +1521,15 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                       </div>
                     </th>
-                    <th className="sticky left-12 z-20 bg-blue-50 w-20 min-w-20 px-2 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
-                      Action
-                    </th>
+                    {canModify && (
+                      <th className="sticky left-12 z-20 bg-blue-50 w-20 min-w-20 px-2 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
+                        Action
+                      </th>
+                    )}
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                    <th className={`sticky ${productLeft} z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap`}>Product Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
@@ -1531,7 +1551,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                 <tbody className="divide-y divide-slate-100">
                   {currentList.length === 0 && (
                     <tr>
-                      <td colSpan="22" className="p-12 text-center text-slate-400">
+                      <td colSpan={canModify ? 22 : 21} className="p-12 text-center text-slate-400">
                         <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                         <p className="text-sm font-medium">No approved deliveries available.</p>
                       </td>
@@ -1568,8 +1588,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                             />
                           </div>
                         </td>
-                        <td className={`sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
-                          {canModify ? (
+                        {canModify && (
+                          <td className={`sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                             <div className="flex items-center justify-center gap-1">
                               {!isSelected && (
                                 <Button
@@ -1594,10 +1614,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                                 <Trash2 size={13} />
                               </Button>
                             </div>
-                          ) : (
-                            <span className="text-slate-300 text-xs">—</span>
-                          )}
-                        </td>
+                          </td>
+                        )}
                         <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                           {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
                         </td>
@@ -1607,7 +1625,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         <td className="px-3 py-3 text-center font-medium text-slate-700 whitespace-nowrap">
                           {vendorName}
                         </td>
-                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                        <td className={`sticky ${productLeft} z-[4] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-3 py-3 text-center whitespace-nowrap ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                           <span className="text-slate-800 font-medium">{product?.name || '—'}</span>
                           <span className="text-slate-500 ml-1">({product?.unit || '—'})</span>
                         </td>
@@ -1643,8 +1661,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         <td className="px-3 py-3 text-center">
                           <DatePicker
                             showActions
-                            value={getRowVal(item.item_id, 'actual_date', format(new Date(), 'yyyy-MM-dd'))}
+                            value={getRowVal(item.item_id, 'actual_date', item.last_actual_date || '')}
                             onChange={e => setFieldForSelected(item.item_id, 'actual_date', e.target.value)}
+                            placeholder="Select date"
                             className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"
                           />
                         </td>
@@ -1723,7 +1742,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                             type="text"
                             placeholder="Remarks..."
                             value={getRowVal(item.item_id, 'remarks')}
-                            onChange={e => setRowVal(item.item_id, 'remarks', e.target.value)}
+                            onChange={e => setFieldForSelected(item.item_id, 'remarks', e.target.value)}
                             className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[130px]"
                           />
                         </td>
@@ -1732,12 +1751,12 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableScrollSync>
           )
         ) : (
           viewMode === 'card' ? renderHistoryCards() : (
             /* HISTORY TABLE */
-            <div className="overflow-x-auto custom-scrollbar">
+            <TableScrollSync>
               <table className="w-full text-xs">
                 <thead className="bg-blue-50 border-b border-slate-200">
                   <tr>
@@ -1746,14 +1765,16 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                       </div>
                     </th>
-                    <th className="sticky left-12 z-20 bg-blue-50 w-20 min-w-20 px-2 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
-                      Action
-                    </th>
+                    {canModify && (
+                      <th className="sticky left-12 z-20 bg-blue-50 w-20 min-w-20 px-2 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
+                        Action
+                      </th>
+                    )}
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                    <th className={`sticky ${productLeft} z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap`}>Product Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in BAG</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in KG</th>
@@ -1770,7 +1791,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                 <tbody className="divide-y divide-slate-100">
                   {currentList.length === 0 && (
                     <tr>
-                      <td colSpan="18" className="p-12 text-center text-slate-400">
+                      <td colSpan={canModify ? 18 : 17} className="p-12 text-center text-slate-400">
                         <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                         <p className="text-sm font-medium">No delivery history found.</p>
                       </td>
@@ -1794,8 +1815,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                             />
                           </div>
                         </td>
-                        <td className="sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center whitespace-nowrap bg-white group-hover:bg-slate-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
-                          {canModify ? (
+                        {canModify && (
+                          <td className="sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center whitespace-nowrap bg-white group-hover:bg-slate-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
                             <div className="flex items-center justify-center gap-1">
                               <Button
                                 variant="ghost"
@@ -1808,10 +1829,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                                 <Trash2 size={13} />
                               </Button>
                             </div>
-                          ) : (
-                            <span className="text-slate-300 text-xs">—</span>
-                          )}
-                        </td>
+                          </td>
+                        )}
                         <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                           {del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}
                         </td>
@@ -1824,7 +1843,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
                           {vendorName}
                         </td>
-                        <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
+                        <td className={`sticky ${productLeft} z-[4] bg-white group-hover:bg-slate-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap`}>
                           {prod.name || '—'}
                           <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
                         </td>
@@ -1866,7 +1885,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableScrollSync>
           )
         )}
 

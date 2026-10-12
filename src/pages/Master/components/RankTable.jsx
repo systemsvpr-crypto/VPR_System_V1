@@ -34,7 +34,7 @@ const RankTable = ({ ranks, totalItems, loading, onEdit, onDelete, searchTerm, c
   return (
     <DataTable
       headers={[
-        'Rank', 'Created Date', 'Actions'
+        'Rank', 'Created Date', ...(userCanEdit ? ['Actions'] : [])
       ]}
       data={ranks}
       currentPage={currentPage}
@@ -47,8 +47,8 @@ const RankTable = ({ ranks, totalItems, loading, onEdit, onDelete, searchTerm, c
         <tr key={r.rank_id} className="hover:bg-slate-50 transition-colors group text-xs">
           <td className="px-4 py-3 text-center font-medium text-slate-800">{r.rank_name}</td>
           <td className="px-4 py-3 text-center text-slate-400">{r.created_at ? format(new Date(r.created_at), 'dd/MM/yyyy') : '—'}</td>
-          <td className="px-4 py-3 text-center">
-            {userCanEdit ? (
+          {userCanEdit && (
+            <td className="px-4 py-3 text-center">
               <div className="flex items-center justify-center gap-1">
                 <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(r)}
                   className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
@@ -59,10 +59,8 @@ const RankTable = ({ ranks, totalItems, loading, onEdit, onDelete, searchTerm, c
                   <Trash2 size={15} />
                 </Button>
               </div>
-            ) : (
-              <span className="text-slate-300 text-xs">—</span>
-            )}
-          </td>
+            </td>
+          )}
         </tr>
       )}
       renderCard={(r, index) => (

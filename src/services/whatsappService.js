@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { chunkNumberedProductList } from '../lib/whatsappFormat';
 
 const sendWhatsappTemplate = async ({ phone, template, language, parameters }) => {
   if (!phone) return;
@@ -74,6 +75,31 @@ export const sendDispatchConfirmationWhatsapp = async ({ phone, customerName, or
       String(totalQty ?? ''),
     ],
   });
+};
+
+// Vendor Approval → purchase order confirmation to the vendor.
+// Template "vendor_approval": Namaste {{1}}, … {{2}} … Expected Dispatch Date: {{3}}
+// `productEntries` are un-numbered entry strings; they're numbered and joined
+// into one line here. A long list is split over several messages (numbering
+// continues) so each stays within Meta's 1024-character body limit.
+// Returns the number of messages sent.
+export const sendVendorApprovalWhatsapp = async ({ phone, vendorName, productEntries, dispatchDate }) => {
+  if (!phone) return 0;
+  const parts = chunkNumberedProductList(productEntries);
+  if (parts.length === 0) return 0;
+  for (const productDetails of parts) {
+    await sendWhatsappTemplate({
+      phone,
+      template: 'vendor_approval',
+      language: 'en',
+      parameters: [
+        sanitizeParam(vendorName || 'Sir'), // {{1}}
+        sanitizeParam(productDetails),      // {{2}} — already single-line
+        sanitizeParam(dispatchDate || '-'), // {{3}}
+      ],
+    });
+  }
+  return parts.length;
 };
 
 export const PREDEFINED_INDENT_PHONE_NUMBER = '918982185175';

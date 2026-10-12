@@ -58,7 +58,7 @@ const CustomerTable = ({
   return (
     <DataTable
       headers={[
-        'Name', 'Rank', 'Location', 'Phone', 'Email', 'GST No.', 'CRM Follow Up', 'Actions'
+        'Name', 'Rank', 'Location', 'Phone', 'Email', 'GST No.', 'CRM Follow Up', ...(userCanEdit ? ['Actions'] : [])
       ]}
       data={customers}
       currentPage={currentPage}
@@ -86,16 +86,14 @@ const CustomerTable = ({
             <td className="px-4 py-3 text-center text-slate-600">{c.email || '—'}</td>
             <td className="px-4 py-3 text-center text-slate-600">{c.gst_number || '—'}</td>
             <td className="px-4 py-3 text-center text-slate-600 max-w-[200px] truncate">{c.crm_follow_up || '—'}</td>
-            <td className="px-4 py-3 text-center">
-              {userCanEdit ? (
+            {userCanEdit && (
+              <td className="px-4 py-3 text-center">
                 <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(c)}
                   className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
                   <Edit2 size={15} />
                 </Button>
-              ) : (
-                <span className="text-slate-300 text-xs">—</span>
-              )}
-            </td>
+              </td>
+            )}
           </tr>
         );
       }}

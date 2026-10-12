@@ -33,7 +33,7 @@ const TransporterTable = ({ transporters, totalItems, loading, onEdit, searchTer
   return (
     <DataTable
       headers={[
-        'Name', 'Vehicle Number', 'Driver Phone', 'Actions'
+        'Name', 'Vehicle Number', 'Driver Phone', ...(userCanEdit ? ['Actions'] : [])
       ]}
       data={transporters}
       currentPage={currentPage}
@@ -47,16 +47,14 @@ const TransporterTable = ({ transporters, totalItems, loading, onEdit, searchTer
           <td className="px-4 py-3 text-center font-medium text-slate-800">{t.name}</td>
           <td className="px-4 py-3 text-center text-slate-600">{t.vehicle_number || '—'}</td>
           <td className="px-4 py-3 text-center text-slate-600">{t.driver_phone_number || '—'}</td>
-          <td className="px-4 py-3 text-center">
-            {userCanEdit ? (
+          {userCanEdit && (
+            <td className="px-4 py-3 text-center">
               <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(t)}
                 className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
                 <Edit2 size={15} />
               </Button>
-            ) : (
-              <span className="text-slate-300 text-xs">—</span>
-            )}
-          </td>
+            </td>
+          )}
         </tr>
       )}
       renderCard={(t, index) => (

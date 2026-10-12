@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Save, ShoppingCart, Clock, History, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList } from 'lucide-react';
+import { Search, Save, ShoppingCart, Clock, History, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, X } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAllIndentItemsForVendorSelection, updateVendorSelection, getPackagingSize, deleteIndentItem } from '../../../services/purchaseService';
@@ -8,8 +8,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
-import FilterMenu from '@/components/FilterMenu';
 import { canEditOrDelete } from '../../../lib/permissions';
+import TableScrollSync from '@/components/TableScrollSync';
+import { sendVendorApprovalWhatsapp } from '../../../services/whatsappService';
+import { toWhatsappSafeName, formatWaNumber, stripGroupPrefix } from '@/lib/whatsappFormat';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -42,7 +44,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
   const [productFilter, setProductFilter] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
+  const [pageSize, setPageSize] = useState(100);
   const [savingAll, setSavingAll] = useState(false);
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [subTab, setSubTab] = useState('pending'); // 'pending' | 'history'
@@ -240,6 +242,20 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
     }));
   };
 
+  // Free-text fields (Remarks): typing on a checked row writes the same text
+  // into every checked row, on every keystroke. An unchecked row edits only itself.
+  const setTextForSelected = (itemId, field, value) => {
+    if (!selectedItems.has(itemId)) {
+      setEditValue(itemId, field, value);
+      return;
+    }
+    setEdits(prev => {
+      const next = { ...prev };
+      selectedItems.forEach(id => { next[id] = { ...next[id], [field]: value }; });
+      return next;
+    });
+  };
+
   const resetRow = (itemId) => {
     setEdits(prev => {
       const next = { ...prev };
@@ -293,6 +309,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
       return;
     }
     const toSave = selectedIds;
+    const approvedRows = [];
     setSavingAll(true);
     // Only a row that actually saves drops out of selection — one that fails
     // (e.g. a save error) stays checked with its edits untouched, so the user
@@ -306,6 +323,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
         const payload = buildSavePayload(item, edit);
         await updateVendorSelection(itemId, payload);
         savedIds.add(itemId);
+        if (payload.approval_status === 'Approved') approvedRows.push({ item, payload });
         setItems(prev => prev.map(i => (i.item_id !== itemId ? i : { ...i, ...payload })));
         resetRow(itemId);
       } catch (err) {
@@ -315,6 +333,84 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
     setSavingAll(false);
     setSelectedItems(prev => { const next = new Set(prev); savedIds.forEach(id => next.delete(id)); return next; });
     if (savedIds.size > 0) toast.success(`${savedIds.size} item${savedIds.size !== 1 ? 's' : ''} saved successfully`);
+    if (approvedRows.length > 0) await notifyApprovedVendors(approvedRows);
+  };
+
+  // One "vendor_approval" WhatsApp per vendor + expected date, listing that
+  // vendor's newly approved items grouped by product group. A send failure
+  // never undoes the approval — it's only reported.
+  const notifyApprovedVendors = async (rows) => {
+    const byVendorDate = new Map();
+    rows.forEach(r => {
+      const key = `${r.payload.vendor_id || ''}|${r.payload.planning_date || ''}`;
+      if (!byVendorDate.has(key)) byVendorDate.set(key, []);
+      byVendorDate.get(key).push(r);
+    });
+
+    for (const group of byVendorDate.values()) {
+      const { vendor_id: vendorId, planning_date: planDate } = group[0].payload;
+      const vendor = vendors.find(v => String(v.vendor_id) === String(vendorId));
+      const vendorName = vendor?.name || 'vendor';
+      if (!vendor?.phone_number) {
+        toast.error(`WhatsApp not sent to ${vendorName}: no phone number in Master > Vendors.`);
+        continue;
+      }
+      try {
+        await sendVendorApprovalWhatsapp({
+          phone: vendor.phone_number,
+          vendorName: vendor.name,
+          productEntries: buildApprovalEntries(group),
+          dispatchDate: planDate ? format(new Date(planDate), 'dd-MM-yyyy') : '-',
+        });
+        toast.success(`WhatsApp sent to ${vendorName}`);
+      } catch (err) {
+        console.error('Vendor approval WhatsApp failed:', err);
+        toast.error(`WhatsApp to ${vendorName} failed: ${err.message || 'unknown error'}`);
+      }
+    }
+  };
+
+  // One entry per product group: the first item's full name, later items
+  // without the repeated group prefix. Bags always come before the rate.
+  // Single product:  "test amit 12×12 (40 Kg) - Bags: 45 | ₹46 | KG: 1800"
+  // Several products: each with its own bags then rate, followed by the
+  // group totals:
+  // "Tuleshwar Developer 7×7 (32 Kg) - 25 Bags - ₹46 | 6×11 (68 Kg) - 45 Bags - ₹25 | Total Bags: 70 | KG: 3860"
+  const buildApprovalEntries = (rows) => {
+    const byGroup = new Map();
+    rows.forEach(r => {
+      const gName = getGroupNameFromItem(r.item, groups);
+      const key = gName && gName !== '—' ? gName : (r.item.products?.name || 'Product');
+      if (!byGroup.has(key)) byGroup.set(key, []);
+      byGroup.get(key).push(r);
+    });
+
+    return [...byGroup.entries()].map(([gName, groupRows]) => {
+      const safeGroup = toWhatsappSafeName(gName);
+      let bags = 0;
+      let kg = 0;
+      const lines = groupRows.map(({ item, payload }, idx) => {
+        const name = toWhatsappSafeName(item.products?.name || 'Product');
+        const label = idx > 0 ? stripGroupPrefix(name, safeGroup) : name;
+        const pkgSize = getPackagingSize(item.products);
+        const unitQty = Number(payload.approve_unit_qty) || 0;
+        const itemBags = convertApproveQty(unitQty, payload.approve_unit, 'bag', pkgSize);
+        bags += itemBags;
+        kg += convertApproveQty(unitQty, payload.approve_unit, 'kg', pkgSize);
+        return { label, itemBags, rate: Number(payload.rate) || 0 };
+      });
+
+      if (lines.length === 1) {
+        const { label, itemBags, rate } = lines[0];
+        const ratePart = rate > 0 ? ` | ₹${formatWaNumber(rate)}` : '';
+        return `${label} - Bags: ${formatWaNumber(itemBags)}${ratePart} | KG: ${formatWaNumber(kg)}`;
+      }
+
+      const parts = lines.map(({ label, itemBags, rate }) => (
+        `${label} - ${formatWaNumber(itemBags)} Bags${rate > 0 ? ` - ₹${formatWaNumber(rate)}` : ''}`
+      ));
+      return `${parts.join(' | ')} | Total Bags: ${formatWaNumber(bags)} | KG: ${formatWaNumber(kg)}`;
+    });
   };
 
   const handleDeleteRow = async (item) => {
@@ -410,53 +506,54 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
           </button>
         </div>
 
-        <div className="relative w-full sm:flex-1 sm:min-w-[160px]">
+        <div className="relative w-full sm:w-60 lg:w-64 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
-          <Input type="text" placeholder="Search indent no., product, vendor..." className="pl-9 h-9 text-xs w-full"
+          <Input type="text" placeholder="Search indent no., product, vendor..." className="pl-9 h-9 text-xs w-full bg-white shadow-sm border-slate-200"
             value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
 
-        <FilterMenu
-          activeCount={[indentFilter, productFilter, vendorFilter].filter(Boolean).length}
-          onClear={() => { setIndentFilter(''); setProductFilter(''); setVendorFilter(''); }}
+        <select
+          value={indentFilter}
+          onChange={e => setIndentFilter(e.target.value)}
+          className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[120px] max-w-[160px]"
         >
-          <select
-            value={indentFilter}
-            onChange={e => setIndentFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-          >
-            <option value="">-- All Indents --</option>
-            {indentOptions.map(num => (
-              <option key={num} value={num}>{num}</option>
-            ))}
-          </select>
+          <option value="">-- All Indents --</option>
+          {indentOptions.map(num => (
+            <option key={num} value={num}>{num}</option>
+          ))}
+        </select>
 
-          <select
-            value={productFilter}
-            onChange={e => setProductFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-          >
-            <option value="">-- All Products --</option>
-            {productOptions.map(p => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
+        <select
+          value={productFilter}
+          onChange={e => setProductFilter(e.target.value)}
+          className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[130px] max-w-[170px]"
+        >
+          <option value="">-- All Products --</option>
+          {productOptions.map(p => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
 
-          <select
-            value={vendorFilter}
-            onChange={e => setVendorFilter(e.target.value)}
-            className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-          >
-            <option value="">-- All Vendors --</option>
-            {indentVendorOptions.map(v => (
-              <option key={v} value={v}>{v}</option>
-            ))}
-          </select>
-        </FilterMenu>
+        <select
+          value={vendorFilter}
+          onChange={e => setVendorFilter(e.target.value)}
+          className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[130px] max-w-[170px]"
+        >
+          <option value="">-- All Vendors --</option>
+          {indentVendorOptions.map(v => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
 
         {(searchTerm || indentFilter || productFilter || vendorFilter) && (
-          <Button variant="outline" size="sm" onClick={() => { setSearchTerm(''); setIndentFilter(''); setProductFilter(''); setVendorFilter(''); }}
-            className="h-9 text-xs border-slate-200 hover:bg-slate-50 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setSearchTerm(''); setIndentFilter(''); setProductFilter(''); setVendorFilter(''); }}
+            className="h-9 px-2.5 text-xs border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm shrink-0 gap-1"
+            title="Clear all filters"
+          >
+            <X size={13} />
             Clear
           </Button>
         )}
@@ -801,7 +898,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                                   placeholder="Remarks..."
                                   disabled={subTab === 'history'}
                                   value={getValue(item, 'approval_remarks')}
-                                  onChange={(e) => setEditValue(item.item_id, 'approval_remarks', e.target.value)}
+                                  onChange={(e) => setTextForSelected(item.item_id, 'approval_remarks', e.target.value)}
                                   className="h-7 text-xs bg-white"
                                 />
                               </div>
@@ -815,7 +912,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto custom-scrollbar">
+            <TableScrollSync>
               <table className="w-full text-sm">
                 <thead className="bg-blue-50 border-b border-slate-200">
                   <tr>
@@ -828,12 +925,12 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                           className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                           title="Select all"
                         />
-                        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Action</span>
+                        {canDelete && <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Action</span>}
                       </div>
                     </th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
+                    <th className="sticky left-0 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approve Unit</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty</th>
@@ -872,7 +969,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                     const selected = selectedItems.has(item.item_id);
 
                     return (
-                      <tr key={item.item_id} className={`hover:bg-slate-50 transition-colors ${hasDecision ? 'bg-green-50/30' : ''} ${selected ? 'bg-primary/5' : ''}`}>
+                      <tr key={item.item_id} className={`group hover:bg-slate-50 transition-colors ${hasDecision ? 'bg-green-50/30' : ''} ${selected ? 'bg-primary/5' : ''}`}>
                         <td className="px-2 py-3 text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1.5">
                             <input
@@ -901,7 +998,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                         <td className="px-3 py-3 text-center text-slate-500 whitespace-nowrap text-xs">
                           {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
                         </td>
-                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                        <td className={`sticky left-0 z-[4] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-3 py-3 text-center whitespace-nowrap ${selected ? 'bg-sky-50' : hasDecision ? 'bg-green-50 group-hover:bg-slate-50' : 'bg-white group-hover:bg-slate-50'}`}>
                           <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>{' '}
                           <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
                         </td>
@@ -956,7 +1053,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                           <Input type="text" placeholder="Remarks"
                             disabled={subTab === 'history'}
                             value={getValue(item, 'approval_remarks')}
-                            onChange={(e) => setEditValue(item.item_id, 'approval_remarks', e.target.value)}
+                            onChange={(e) => setTextForSelected(item.item_id, 'approval_remarks', e.target.value)}
                             className="h-8 text-xs text-center" />
                         </td>
                       </tr>
@@ -964,7 +1061,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableScrollSync>
           )}
 
           <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3">

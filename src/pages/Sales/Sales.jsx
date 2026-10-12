@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, ClipboardList, Sparkles, Bell, CheckCircle, Mail, Truck, Download, Upload, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Search, ShoppingCart, Plus, ClipboardList, Sparkles, Bell, CheckCircle, Mail, Truck, Download, Upload, ChevronLeft, ChevronRight, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllOrders, deleteOrder, deleteOrdersBulk } from '../../services/salesService';
@@ -14,7 +14,6 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { TabSwitcher } from '@/components/StandardButtons';
 import OrderTable from './components/OrderTable';
-import FilterMenu from '@/components/FilterMenu';
 import OrderModal from './components/OrderModal';
 import BulkOrderProductsModal from './components/BulkOrderProductsModal';
 import DispatchPlanningTable from './components/DispatchPlanningTable';
@@ -270,42 +269,52 @@ const Sales = () => {
       {activeTab === 'orders' && (
         <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2.5 shrink-0">
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <div className="relative w-44 sm:w-52 lg:w-60 shrink-0">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={15} />
                 <Input
                   type="text"
                   placeholder="Search orders..."
-                  className="pl-8 h-9 text-xs w-full"
+                  className="pl-8 h-9 text-xs w-full bg-white shadow-sm border-slate-200"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <FilterMenu
-                activeCount={[godownFilter, typeFilter].filter(Boolean).length}
-                onClear={() => { setGodownFilter(''); setTypeFilter(''); }}
+
+              <select
+                value={godownFilter}
+                onChange={e => setGodownFilter(e.target.value)}
+                className="h-9 px-2.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[120px] max-w-[160px]"
               >
-                <select
-                  value={godownFilter}
-                  onChange={e => setGodownFilter(e.target.value)}
-                  className="h-9 px-2.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+                <option value="">All Godowns</option>
+                {ownGodowns.map(g => (
+                  <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
+                ))}
+              </select>
+
+              <select
+                value={typeFilter}
+                onChange={e => setTypeFilter(e.target.value)}
+                className="h-9 px-2.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[100px] max-w-[140px]"
+              >
+                <option value="">All Types</option>
+                <option value="order_process">Process</option>
+                <option value="direct">Direct</option>
+                <option value="skip_delivered">Skip</option>
+              </select>
+
+              {(godownFilter || typeFilter || searchTerm) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setGodownFilter(''); setTypeFilter(''); setSearchTerm(''); }}
+                  className="h-9 px-2.5 text-xs border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm shrink-0 gap-1"
+                  title="Clear all filters"
                 >
-                  <option value="">All Godowns</option>
-                  {ownGodowns.map(g => (
-                    <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
-                  ))}
-                </select>
-                <select
-                  value={typeFilter}
-                  onChange={e => setTypeFilter(e.target.value)}
-                  className="h-9 px-2.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-                >
-                  <option value="">All Types</option>
-                  <option value="order_process">Process</option>
-                  <option value="direct">Direct</option>
-                  <option value="skip_delivered">Skip</option>
-                </select>
-              </FilterMenu>
+                  <X size={13} />
+                  Clear
+                </Button>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0 ml-auto">
               {!loading && filteredOrders.length > 0 && (

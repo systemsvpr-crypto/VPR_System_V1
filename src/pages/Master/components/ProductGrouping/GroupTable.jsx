@@ -62,7 +62,7 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, searchTerm,
     <DataTable
       headers={[
         { label: '', className: 'w-10' },
-        'Group Name', 'Products', 'Actions'
+        'Group Name', 'Products', ...(userCanEdit ? ['Actions'] : [])
       ]}
       data={rows}
       currentPage={currentPage}
@@ -86,8 +86,8 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, searchTerm,
                   {g.allProducts?.length || 0}
                 </span>
               </td>
-              <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
-                {userCanEdit ? (
+              {userCanEdit && (
+                <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
                   <div className="flex items-center justify-center gap-1">
                     <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(g)}
                       className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
@@ -98,14 +98,12 @@ const GroupTable = ({ groups, totalItems, loading, onEdit, onDelete, searchTerm,
                       <Trash2 size={15} />
                     </Button>
                   </div>
-                ) : (
-                  <span className="text-slate-300 text-xs">—</span>
-                )}
-              </td>
+                </td>
+              )}
             </tr>
             {isExpanded && (
               <tr>
-                <td colSpan={4} className="px-0 py-0">
+                <td colSpan={userCanEdit ? 4 : 3} className="px-0 py-0">
                   <div className="bg-slate-50 border-t border-slate-100">
                     {g.allProducts && g.allProducts.length > 0 ? (
                       <table className="w-full text-xs">

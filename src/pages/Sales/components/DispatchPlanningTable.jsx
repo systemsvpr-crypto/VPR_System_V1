@@ -3,7 +3,7 @@ import {
   ClipboardList, Package, Truck, Search, Trash2, Ban,
   AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Zap,
-  LayoutGrid, LayoutList, Calendar, MapPin, User, Check, Clock, RotateCw, Warehouse,
+  LayoutGrid, LayoutList, Calendar, MapPin, User, Check, Clock, RotateCw, Warehouse, X
 } from 'lucide-react';
 import { format, differenceInCalendarDays } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -16,7 +16,6 @@ import { getAllProductStock } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
-import FilterMenu from '@/components/FilterMenu';
 import { DatePicker } from '@/components/ui/date-picker';
 import DataTable from '@/components/DataTable';
 import { sanitizeQtyInput } from '@/lib/qty';
@@ -1201,92 +1200,112 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
           ))}
         </div>
 
-        <div className="relative w-full sm:w-48 shrink-0">
+        <div className="relative w-full sm:w-52 min-w-[170px] shrink-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16} />
-          <Input type="text" placeholder="Search items..." className="pl-9 h-9"
+          <Input type="text" placeholder="Search items..." className="pl-9 h-9 text-xs w-full bg-white shadow-sm border-slate-200"
             value={searchTerm} onChange={(e) => onSearchChange?.(e.target.value)} />
         </div>
 
-        <FilterMenu
-          activeCount={(isPendingView ? [productFilter, pendingCustomerFilter, stockStatusFilter] : [historyOrderFilter, historyGodownFilter, historyCustomerFilter, historyProductFilter]).filter(Boolean).length}
-          onClear={() => { setProductFilter(''); setPendingCustomerFilter(''); setStockStatusFilter(''); setHistoryOrderFilter(''); setHistoryGodownFilter(''); setHistoryCustomerFilter(''); setHistoryProductFilter(''); }}
-        >
-          {isPendingView && (
-            <>
-              <Dropdown
-                value={productFilter}
-                onValueChange={setProductFilter}
-                options={[{ value: '', label: 'All Products' }, ...productOptions.map(([id, name]) => ({ value: String(id), label: name }))]}
-                placeholder="All Products"
-                searchPlaceholder="Search products..."
-                className="h-9 w-full text-xs"
-              />
+        {isPendingView && (
+          <>
+            <Dropdown
+              value={productFilter}
+              onValueChange={setProductFilter}
+              options={[{ value: '', label: 'All Products' }, ...productOptions.map(([id, name]) => ({ value: String(id), label: name }))]}
+              placeholder="All Products"
+              searchPlaceholder="Search products..."
+              className="h-9 min-w-[130px] max-w-[160px] text-xs shrink-0"
+            />
 
-              <Dropdown
-                value={pendingCustomerFilter}
-                onValueChange={setPendingCustomerFilter}
-                options={[{ value: '', label: 'All Customers' }, ...pendingCustomerOptions.map(name => ({ value: name, label: name }))]}
-                placeholder="All Customers"
-                searchPlaceholder="Search customers..."
-                className="h-9 w-full text-xs"
-              />
+            <Dropdown
+              value={pendingCustomerFilter}
+              onValueChange={setPendingCustomerFilter}
+              options={[{ value: '', label: 'All Customers' }, ...pendingCustomerOptions.map(name => ({ value: name, label: name }))]}
+              placeholder="All Customers"
+              searchPlaceholder="Search customers..."
+              className="h-9 min-w-[130px] max-w-[160px] text-xs shrink-0"
+            />
 
-              <Dropdown
-                value={stockStatusFilter}
-                onValueChange={setStockStatusFilter}
-                options={[
-                  { value: '', label: 'All Stock Status' },
-                  { value: 'ready', label: 'Ready to Dispatch' },
-                  { value: 'partial', label: 'Partial Stock' },
-                  { value: 'waiting', label: 'Stock Shortage' }
-                ]}
-                placeholder="All Stock Status"
-                searchPlaceholder="Search status..."
-                className="h-9 w-full text-xs"
-              />
-            </>
-          )}
+            <Dropdown
+              value={stockStatusFilter}
+              onValueChange={setStockStatusFilter}
+              options={[
+                { value: '', label: 'All Stock Status' },
+                { value: 'ready', label: 'Ready to Dispatch' },
+                { value: 'partial', label: 'Partial Stock' },
+                { value: 'waiting', label: 'Stock Shortage' }
+              ]}
+              placeholder="All Stock Status"
+              searchPlaceholder="Search status..."
+              className="h-9 min-w-[130px] max-w-[160px] text-xs shrink-0"
+            />
+          </>
+        )}
 
-          {!isPendingView && (
-            <>
-              <Dropdown
-                value={historyOrderFilter}
-                onValueChange={setHistoryOrderFilter}
-                options={[{ value: '', label: 'All Orders' }, ...historyFilterOptions.orders.map(o => ({ value: o, label: o }))]}
-                placeholder="All Orders"
-                searchPlaceholder="Search orders..."
-                className="h-9 w-full text-xs"
-              />
+        {!isPendingView && (
+          <>
+            <Dropdown
+              value={historyOrderFilter}
+              onValueChange={setHistoryOrderFilter}
+              options={[{ value: '', label: 'All Orders' }, ...historyFilterOptions.orders.map(o => ({ value: o, label: o }))]}
+              placeholder="All Orders"
+              searchPlaceholder="Search orders..."
+              className="h-9 min-w-[120px] max-w-[150px] text-xs shrink-0"
+            />
 
-              <Dropdown
-                value={historyGodownFilter}
-                onValueChange={setHistoryGodownFilter}
-                options={[{ value: '', label: 'All Godowns' }, ...historyFilterOptions.godowns.map(g => ({ value: g, label: g }))]}
-                placeholder="All Godowns"
-                searchPlaceholder="Search godowns..."
-                className="h-9 w-full text-xs"
-              />
-              
-              <Dropdown
-                value={historyCustomerFilter}
-                onValueChange={setHistoryCustomerFilter}
-                options={[{ value: '', label: 'All Customers' }, ...historyFilterOptions.customers.map(c => ({ value: c, label: c }))]}
-                placeholder="All Customers"
-                searchPlaceholder="Search customers..."
-                className="h-9 w-full text-xs"
-              />
+            <Dropdown
+              value={historyGodownFilter}
+              onValueChange={setHistoryGodownFilter}
+              options={[{ value: '', label: 'All Godowns' }, ...historyFilterOptions.godowns.map(g => ({ value: g, label: g }))]}
+              placeholder="All Godowns"
+              searchPlaceholder="Search godowns..."
+              className="h-9 min-w-[120px] max-w-[150px] text-xs shrink-0"
+            />
+            
+            <Dropdown
+              value={historyCustomerFilter}
+              onValueChange={setHistoryCustomerFilter}
+              options={[{ value: '', label: 'All Customers' }, ...historyFilterOptions.customers.map(c => ({ value: c, label: c }))]}
+              placeholder="All Customers"
+              searchPlaceholder="Search customers..."
+              className="h-9 min-w-[130px] max-w-[160px] text-xs shrink-0"
+            />
 
-              <Dropdown
-                value={historyProductFilter}
-                onValueChange={setHistoryProductFilter}
-                options={[{ value: '', label: 'All Products' }, ...historyFilterOptions.products.map(p => ({ value: p, label: p }))]}
-                placeholder="All Products"
-                searchPlaceholder="Search products..."
-                className="h-9 w-full text-xs"
-              />
-            </>
-          )}
-        </FilterMenu>
+            <Dropdown
+              value={historyProductFilter}
+              onValueChange={setHistoryProductFilter}
+              options={[{ value: '', label: 'All Products' }, ...historyFilterOptions.products.map(p => ({ value: p, label: p }))]}
+              placeholder="All Products"
+              searchPlaceholder="Search products..."
+              className="h-9 min-w-[130px] max-w-[160px] text-xs shrink-0"
+            />
+          </>
+        )}
+
+        {((isPendingView ? (productFilter || pendingCustomerFilter || stockStatusFilter) : (historyOrderFilter || historyGodownFilter || historyCustomerFilter || historyProductFilter)) || searchTerm) && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (isPendingView) {
+                setProductFilter('');
+                setPendingCustomerFilter('');
+                setStockStatusFilter('');
+              } else {
+                setHistoryOrderFilter('');
+                setHistoryGodownFilter('');
+                setHistoryCustomerFilter('');
+                setHistoryProductFilter('');
+              }
+              onSearchChange?.('');
+            }}
+            className="h-9 px-2.5 text-xs border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm shrink-0 gap-1"
+            title="Clear all filters"
+          >
+            <X size={13} />
+            Clear
+          </Button>
+        )}
 
         <Button size="sm" onClick={() => setDirectModalOpen(true)} className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0">
           <Zap size={14} /> Direct

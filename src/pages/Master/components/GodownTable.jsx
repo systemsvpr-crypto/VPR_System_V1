@@ -37,7 +37,7 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTer
   return (
     <DataTable
       headers={[
-        'Name', 'Godown Type', 'Assigned Products', 'Status', 'Actions'
+        'Name', 'Godown Type', 'Assigned Products', 'Status', ...(userCanEdit ? ['Actions'] : [])
       ]}
       data={godowns}
       currentPage={currentPage}
@@ -63,8 +63,8 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTer
               : <span className="text-red-500 bg-red-50 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium">Inactive</span>
             }
           </td>
-          <td className="px-4 py-3 text-center">
-            {userCanEdit ? (
+          {userCanEdit && (
+            <td className="px-4 py-3 text-center">
               <div className="flex items-center justify-center gap-2">
                 <button onClick={() => onEdit(g)} className="text-slate-400 hover:text-primary transition-colors" title="Edit Godown">
                   <Edit2 size={15} />
@@ -76,10 +76,8 @@ const GodownTable = ({ godowns, totalItems, loading, onToggle, onEdit, searchTer
                   <Trash2 size={16} />
                 </button>
               </div>
-            ) : (
-              <span className="text-slate-300 text-xs">—</span>
-            )}
-          </td>
+            </td>
+          )}
         </tr>
       )}
       renderCard={(g, index) => (

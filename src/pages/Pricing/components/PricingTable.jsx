@@ -98,9 +98,9 @@ const PricingTableRow = ({
           : 'hover:bg-slate-50/80 group'
       }`}
     >
-      {/* 1. Checkbox Column */}
+      {/* 1. Checkbox Column (only for users who can edit rates) */}
+      {userCanEdit && (
       <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
-        {userCanEdit ? (
           <input
             type="checkbox"
             checked={isSelected}
@@ -108,10 +108,8 @@ const PricingTableRow = ({
             className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer accent-primary mx-auto block"
             title={isSelected ? 'Deselect row' : 'Select row to edit rates'}
           />
-        ) : (
-          <span className="text-slate-300 text-xs">—</span>
-        )}
       </td>
+      )}
 
       {/* 2. Product Name */}
       <td className="px-4 py-3 text-center font-medium text-slate-800">
@@ -413,8 +411,8 @@ const PricingTable = ({
   }
 
   const tableHeaders = [
-    {
-      label: userCanEdit ? (
+    ...(userCanEdit ? [{
+      label: (
         <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
           <input
             type="checkbox"
@@ -427,9 +425,9 @@ const PricingTable = ({
             title={allPageSelected ? 'Deselect all on this page' : 'Select all on this page'}
           />
         </div>
-      ) : '',
+      ),
       className: 'w-14 text-center',
-    },
+    }] : []),
     'Product Name',
     'Last Purchase Rate',
     'Current Purchase Rate',

@@ -501,6 +501,32 @@ export const deleteIndent = async (indent_id) => {
 // under the indent. If this was the indent's last remaining item, the indent
 // header is now an empty shell with nothing left under it — remove that too
 // so it doesn't linger in the list.
+// Delivery tab → Pending delete. An item with no lifts yet is deleted
+// outright (deleteIndentItem). A partly dispatched item only loses its
+// undispatched remainder: its working qty is cut down to what's already on
+// lifts, so it drops out of Pending while every existing lift (and its stock)
+// stays as it is. indent_qty keeps the originally requested figure.
+export const deletePendingDeliveryRemainder = async (item_id) => {
+  const { data: lifts, error: liftErr } = await supabase
+    .from('purchase_deliveries')
+    .select('received_quantity')
+    .eq('item_id', item_id);
+  if (liftErr) throw liftErr;
+
+  if (!lifts || lifts.length === 0) {
+    await deleteIndentItem(item_id);
+    return { deleted: 'item' };
+  }
+
+  const liftedQty = roundQty(lifts.reduce((s, d) => s + (Number(d.received_quantity) || 0), 0));
+  const { error } = await supabase
+    .from('purchase_indent_items')
+    .update({ quantity: liftedQty })
+    .eq('item_id', item_id);
+  if (error) throw error;
+  return { deleted: 'remainder', lifted_qty: liftedQty, lift_count: lifts.length };
+};
+
 export const deleteIndentItem = async (item_id) => {
   const { data: itemRow, error: itemFetchErr } = await supabase
     .from('purchase_indent_items')
@@ -772,7 +798,7 @@ export const getApprovedItemsForDelivery = async () => {
   const [allDeliveries, vendorsRes] = await Promise.all([
     itemIds.length > 0
       ? fetchAllRowsInChunks(itemIds, (chunk) =>
-          supabase.from('purchase_deliveries').select('item_id, received_quantity, status').in('item_id', chunk))
+          supabase.from('purchase_deliveries').select('item_id, received_quantity, status, delivery_date, created_at').in('item_id', chunk))
       : [],
     vendorIds.length > 0
       ? supabase.from('vendors').select('vendor_id, name').in('vendor_id', vendorIds)
@@ -793,10 +819,15 @@ export const getApprovedItemsForDelivery = async () => {
 
   const allocatedMap = {};
   const statusMap = {};
+  // Actual Date of the most recently created lift — a partly dispatched
+  // item's remaining qty is prefilled with it in the Delivery tab.
+  const lastLiftMap = {};
   allocatedSums.forEach(d => {
     allocatedMap[d.item_id] = (allocatedMap[d.item_id] || 0) + Number(d.received_quantity);
     if (!statusMap[d.item_id]) statusMap[d.item_id] = [];
     statusMap[d.item_id].push(d.status);
+    const last = lastLiftMap[d.item_id];
+    if (d.delivery_date && (!last || String(d.created_at) > String(last.created_at))) lastLiftMap[d.item_id] = d;
   });
 
   return (items || [])
@@ -827,6 +858,7 @@ export const getApprovedItemsForDelivery = async () => {
         allocated_qty,
         remaining_qty: Math.max(0, remaining_qty),
         remaining_alloc_qty,
+        last_actual_date: lastLiftMap[item.item_id]?.delivery_date ? String(lastLiftMap[item.item_id].delivery_date).slice(0, 10) : '',
         hasInTransitLifts,
         hasInTransportGodownLifts,
         hasArrivedLifts,
@@ -1531,7 +1563,41 @@ export const getAawakDeliveries = async (statusFilter = null) => {
     return query;
   };
 
-  return fetchAllRows(buildQuery);
+  const rows = await fetchAllRows(buildQuery);
+
+  // A partially received lift and its remainder lifts form one family
+  // (parent_delivery_id → the original lift). Every lift carries the family's
+  // total received so far, and remainders carry the original's lift number.
+  // Splitting shares the original dispatch out between the parts, so summing
+  // the family gives back the lift's original Qty (KG) / Qty (Bags) / total.
+  const familyReceived = {};
+  const familyTotal = {};
+  const liftNumberById = {};
+  const addTo = (map, key, val) => {
+    if (val == null) return;
+    map[key] = roundQty((map[key] || 0) + (Number(val) || 0));
+  };
+  rows.forEach(d => {
+    liftNumberById[d.delivery_id] = d.lifting_number;
+    const rootId = d.parent_delivery_id || d.delivery_id;
+    if (!familyTotal[rootId]) familyTotal[rootId] = {};
+    addTo(familyTotal[rootId], 'qty', d.received_quantity);
+    addTo(familyTotal[rootId], 'kg', d.dispatch_qty_kg);
+    addTo(familyTotal[rootId], 'bag', d.dispatch_qty_bag);
+    if (d.status && d.status !== 'In Transit') addTo(familyReceived, rootId, d.received_quantity);
+  });
+  return rows.map(d => {
+    const rootId = d.parent_delivery_id || d.delivery_id;
+    const total = familyTotal[rootId] || {};
+    return {
+      ...d,
+      family_received_qty: familyReceived[rootId] || 0,
+      family_total_qty: total.qty ?? null,
+      family_dispatch_qty_kg: total.kg ?? null,
+      family_dispatch_qty_bag: total.bag ?? null,
+      parent_lifting_number: d.parent_delivery_id ? (liftNumberById[d.parent_delivery_id] || null) : null,
+    };
+  });
 };
 
 export const getInTransitAawakDeliveries = async () => {
@@ -1779,7 +1845,7 @@ export const revertLiftToPending = async ({ delivery_id, user_id }) => {
   return updatedDelivery;
 };
 
-export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, driver_phone_number, vehicle_number, remarks, status, received_quantity, recv_unit, recv_unit_qty, user_id, transporter_id, expected_delivery_date, receiving_date }) => {
+const applyAawakLiftUpdate = async ({ delivery_id, godown_id, lr_number, driver_phone_number, vehicle_number, remarks, status, received_quantity, recv_unit, recv_unit_qty, user_id, transporter_id, expected_delivery_date, receiving_date }) => {
   const { data: existing, error: fetchErr } = await supabase
     .from('purchase_deliveries')
     .select(`
@@ -2045,6 +2111,150 @@ export const updateAawakLift = async ({ delivery_id, godown_id, lr_number, drive
   return data;
 };
 
+// Bag + kg dispatch figures for a quantity in the product's master unit,
+// converted via packaging size — same pair createDelivery stores.
+const dispatchQtyPair = (masterQty, masterUnit, pkgSize) => {
+  const qty = roundQty(masterQty);
+  if (masterUnit === 'kg') {
+    return { dispatch_qty_kg: qty, dispatch_qty_bag: pkgSize > 0 ? roundQty(qty / pkgSize) : null };
+  }
+  return { dispatch_qty_bag: qty, dispatch_qty_kg: pkgSize > 0 ? roundQty(qty * pkgSize) : null };
+};
+
+// Remainder lifts are numbered off the original lift: LIFT-0286 → LIFT-0286-1,
+// LIFT-0286-2, ... (a remainder of a remainder is still numbered off the root).
+const nextRemainderLiftingNumber = async (rootLiftingNumber) => {
+  const { data, error } = await supabase
+    .from('purchase_deliveries')
+    .select('lifting_number')
+    .like('lifting_number', `${rootLiftingNumber}-%`);
+  if (error) throw error;
+  const suffixRe = new RegExp(`^${rootLiftingNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-(\\d+)$`);
+  const maxSuffix = (data || []).reduce((max, d) => {
+    const m = String(d.lifting_number || '').match(suffixRe);
+    return m ? Math.max(max, parseInt(m[1], 10)) : max;
+  }, 0);
+  return `${rootLiftingNumber}-${maxSuffix + 1}`;
+};
+
+// Partial receipt from Aawak Pending: the lift moves on with what was
+// received, and whatever is still due stays In Transit as a new remainder
+// lift linked to the original via parent_delivery_id. Both lifts together
+// still add up to what was dispatched, so Delivery-tab allocation and
+// in-transit stock keep counting correctly.
+//
+// Only lifts leaving "In Transit" are split; a lower qty on a lift already
+// AT TPT GDN is refused — partial receipt is a Pending-only operation.
+export const updateAawakLift = async (params) => {
+  const { delivery_id, status, received_quantity, user_id, godown_id, transporter_id, lr_number, driver_phone_number, vehicle_number, remarks } = params;
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from('purchase_deliveries')
+    .select(`
+      delivery_id, status, item_id, indent_id, delivery_date, lifting_number, received_quantity, parent_delivery_id,
+      transporter_id, lr_number, vehicle_number, driver_phone_number, remarks, group_id,
+      expected_delivery_date, expected_dispatch_date, packaging_size, dispatch_unit,
+      purchase_indent_items(approved_godown_id, group_id, products(name, unit, mux, group_id))
+    `)
+    .eq('delivery_id', delivery_id)
+    .single();
+  if (fetchErr) throw new Error('Delivery not found.');
+
+  const oldStatus = existing.status;
+  const targetStatus = status !== undefined ? (status === 'AT TPT GDN' ? 'In Transport Godown' : status) : oldStatus;
+  const pendingQty = Number(existing.received_quantity) || 0;
+  const recvQty = received_quantity !== undefined && received_quantity !== null && received_quantity !== ''
+    ? Number(received_quantity)
+    : pendingQty;
+
+  if (oldStatus === 'In Transport Godown' && roundQty(recvQty) < roundQty(pendingQty)) {
+    throw new Error(`Partial receipt is only allowed from Pending — this lift has ${pendingQty} at the transporter godown.`);
+  }
+
+  const isLeavingTransit = oldStatus === 'In Transit'
+    && ['Arrived', 'Received', 'In Transport Godown'].includes(targetStatus);
+  const remainderQty = roundQty(pendingQty - recvQty);
+  if (!isLeavingTransit || recvQty <= 0 || remainderQty <= 0) {
+    return applyAawakLiftUpdate(params);
+  }
+
+  const item = existing.purchase_indent_items;
+  const product = item?.products;
+  const masterUnit = (product?.unit || '').toLowerCase() === 'kg' ? 'kg' : 'bag';
+  const pkgSize = Number(existing.packaging_size) > 0 ? Number(existing.packaging_size) : getPackagingSize(product);
+
+  const rootId = existing.parent_delivery_id || existing.delivery_id;
+  let rootLiftingNumber = existing.lifting_number;
+  if (existing.parent_delivery_id) {
+    const { data: root } = await supabase
+      .from('purchase_deliveries')
+      .select('lifting_number')
+      .eq('delivery_id', existing.parent_delivery_id)
+      .maybeSingle();
+    if (root?.lifting_number) rootLiftingNumber = root.lifting_number;
+  }
+  const remainderLiftingNumber = await nextRemainderLiftingNumber(rootLiftingNumber);
+  const resolvedGroupId = existing.group_id || item?.group_id || product?.group_id || null;
+
+  // 1. Remainder lift — stays In Transit, no stock entry (nothing has arrived).
+  const { data: remainder, error: insErr } = await supabase
+    .from('purchase_deliveries')
+    .insert([{
+      item_id: existing.item_id,
+      indent_id: existing.indent_id,
+      parent_delivery_id: rootId,
+      delivery_date: existing.delivery_date,
+      group_id: resolvedGroupId,
+      expected_delivery_date: existing.expected_delivery_date || null,
+      expected_dispatch_date: existing.expected_dispatch_date || null,
+      received_quantity: remainderQty,
+      transporter_id: (transporter_id !== undefined ? transporter_id : existing.transporter_id) || null,
+      lr_number: (lr_number !== undefined ? lr_number : existing.lr_number) || null,
+      vehicle_number: (vehicle_number !== undefined ? vehicle_number : existing.vehicle_number) || null,
+      driver_phone_number: (driver_phone_number !== undefined ? driver_phone_number : existing.driver_phone_number) || null,
+      remarks: (remarks !== undefined ? remarks : existing.remarks) || null,
+      lifting_number: remainderLiftingNumber,
+      status: 'In Transit',
+      packaging_size: existing.packaging_size ?? null,
+      dispatch_unit: existing.dispatch_unit || null,
+      ...dispatchQtyPair(remainderQty, masterUnit, pkgSize),
+      created_by: user_id || null,
+    }])
+    .select()
+    .single();
+  if (insErr) throw insErr;
+
+  const allocGodownId = godown_id || item?.approved_godown_id || null;
+  if (allocGodownId) {
+    const { error: gdErr } = await supabase
+      .from('purchase_delivery_godowns')
+      .insert([{ delivery_id: remainder.delivery_id, godown_id: allocGodownId, qty: remainderQty, group_id: resolvedGroupId }]);
+    if (gdErr) {
+      await deleteDelivery(remainder.delivery_id).catch(() => {});
+      throw gdErr;
+    }
+  }
+
+  // 2. Move the original lift on with only the received qty. If that fails,
+  // drop the remainder so the lift is left exactly as it was.
+  let result;
+  try {
+    result = await applyAawakLiftUpdate({ ...params, received_quantity: recvQty });
+  } catch (err) {
+    await deleteDelivery(remainder.delivery_id).catch(e => console.error('Failed to roll back remainder lift', e));
+    throw err;
+  }
+
+  // 3. The original lift's dispatch figures now cover only what it carried on.
+  const { error: dispErr } = await supabase
+    .from('purchase_deliveries')
+    .update(dispatchQtyPair(recvQty, masterUnit, pkgSize))
+    .eq('delivery_id', delivery_id);
+  if (dispErr) console.error('Failed to update dispatch qty on partially received lift', dispErr);
+
+  return { ...result, remainder_lifting_number: remainderLiftingNumber, remainder_qty: remainderQty };
+};
+
 // Saves the indent-level / item-level columns edited directly on a Delivery
 // Pending row. indent_date / indent_number / process_type live on the indent
 // header, so they change for every line of that indent.
@@ -2099,7 +2309,7 @@ export const updateAawakLiftInfo = async ({
       purchase_indent_items(
         item_id, product_id, quantity,
         purchase_indents(indent_id, process_type),
-        products(product_id, name, unit, packaging_size, mux)
+        products(product_id, name, unit, mux)
       )
     `)
     .eq('delivery_id', delivery_id)
@@ -2142,6 +2352,13 @@ export const updateAawakLiftInfo = async ({
       } else if (numBag != null && pkgSize > 0) {
         newMasterQty = roundQty(numBag * pkgSize);
       }
+    }
+
+    // Only one unit edited — keep the other in step so Qty (KG) / Qty (Bags)
+    // never drift apart from each other or from the pending qty.
+    if (pkgSize > 0) {
+      if (numKg != null && dispatch_qty_bag === undefined) liftFields.dispatch_qty_bag = roundQty(numKg / pkgSize);
+      if (numBag != null && dispatch_qty_kg === undefined) liftFields.dispatch_qty_kg = roundQty(numBag * pkgSize);
     }
   }
 

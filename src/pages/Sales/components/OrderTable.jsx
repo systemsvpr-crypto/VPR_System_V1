@@ -402,13 +402,15 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Items</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Amount</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Created</th>
-                <th className="w-16 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center whitespace-nowrap">Actions</th>
+                {userCanEditOrDelete && (
+                  <th className="w-16 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center whitespace-nowrap">Actions</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {totalItems === 0 && (
                 <tr>
-                  <td colSpan={userCanEditOrDelete ? 10 : 9} className="p-12 text-center">
+                  <td colSpan={userCanEditOrDelete ? 10 : 8} className="p-12 text-center">
                     <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                       <ShoppingCart size={32} className="text-slate-300" />
                     </div>
@@ -464,8 +466,8 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
                       ₹{Number(o.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </td>
                     <td className="px-4 py-3 text-slate-400 text-xs">{format(new Date(o.created_at), 'dd/MM/yyyy')}</td>
+                    {userCanEditOrDelete && (
                     <td className="px-4 py-3 text-center flex items-center justify-center gap-1" onClick={e => e.stopPropagation()}>
-                      {userCanEditOrDelete ? (
                         <>
                           <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(o)}
                             className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
@@ -477,16 +479,14 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
                             <Trash2 size={15} />
                           </Button>
                         </>
-                      ) : (
-                        <span className="text-slate-300 text-xs">—</span>
-                      )}
                     </td>
+                    )}
                   </tr>
                 ];
                 if (isExpanded && items.length > 0) {
                   rows.push(
                     <tr key={`${o.order_id}-details`}>
-                      <td colSpan={userCanEditOrDelete ? 10 : 9} className="px-0 py-0">
+                      <td colSpan={userCanEditOrDelete ? 10 : 8} className="px-0 py-0">
                         <div className="bg-slate-50 border-t border-slate-100">
                           <table className="w-full text-sm">
                             <thead>

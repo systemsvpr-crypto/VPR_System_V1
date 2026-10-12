@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
 import EditAawakLiftModal from './EditAawakLiftModal';
 import { canEditOrDelete } from '../../../lib/permissions';
+import TableScrollSync from '@/components/TableScrollSync';
+import { roundQty, formatQty } from '../../../lib/qty';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -30,6 +32,9 @@ const IndentTypeBadge = ({ processType }) => (
 
 const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [], vendors = [], groups = [] }) => {
   const canModify = canEditOrDelete(user);
+  // Product Name pins right after the pinned checkbox (3rem) + Action (5rem)
+  // columns — or just the checkbox when Action is hidden for read-only users.
+  const productLeft = canModify ? 'left-32' : 'left-12';
   const [activeSubTab, setActiveSubTab] = useState('pending'); // 'pending' | 'transporter-godown' | 'history'
   const [deliveries, setDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +45,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   const [expDateFilter, setExpDateFilter] = useState('');
   const [godownFilter, setGodownFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
+  const [pageSize, setPageSize] = useState(100);
   const [selectedLifts, setSelectedLifts] = useState(new Set());
   const [editingRows, setEditingRows] = useState({});
   const [editingLift, setEditingLift] = useState(null);
@@ -56,6 +61,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
   const isHistory = activeSubTab === 'history';
   const isTransporterGodown = activeSubTab === 'transporter-godown';
+  const isPending = activeSubTab === 'pending';
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => { setCurrentPage(1); }, [searchTerm, dateFilter, productFilter, transporterFilter, expDateFilter, godownFilter, activeSubTab, pageSize]);
@@ -142,7 +148,11 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   const filteredDeliveries = useMemo(() => {
     const term = searchTerm.toLowerCase();
     return activeDeliveriesList.filter(d => {
-      const dYmd = d.delivery_date ? d.delivery_date.slice(0, 10) : '';
+      // History filters on Receiving Date (falling back to when the lift was
+      // marked Arrived, same as that column shows); other tabs use the lift Date.
+      const dYmd = isHistory
+        ? (d.receiving_date ? d.receiving_date.slice(0, 10) : (d.status_updated_at ? format(new Date(d.status_updated_at), 'yyyy-MM-dd') : ''))
+        : (d.delivery_date ? d.delivery_date.slice(0, 10) : '');
       const expYmd = d.expected_delivery_date ? d.expected_delivery_date.slice(0, 10) : '';
 
       const matchDate = !dateFilter || dYmd === dateFilter;
@@ -204,6 +214,20 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     }
     return del[field] || '';
   };
+
+  // Pending Qty: what is still due on an In Transit lift (its stored qty).
+  // A Recv Qty below it on Submit splits off the rest as a remainder lift.
+  const getPendingQty = (del) => Number(del.received_quantity) || 0;
+  const getPartialRemainder = (del) => {
+    if (activeSubTab !== 'pending' || getRowVal(del, 'status') === 'In Transit') return 0;
+    const recv = Number(getRowVal(del, 'received_quantity'));
+    if (!recv || recv <= 0) return 0;
+    return Math.max(0, roundQty(getPendingQty(del) - recv));
+  };
+
+  const liftSavedMessage = (del, result) => (result?.remainder_lifting_number
+    ? `${del.lifting_number || 'Lift'}: ${formatQty(Number(result.received_quantity))} received, ${formatQty(result.remainder_qty)} kept pending as ${result.remainder_lifting_number}`
+    : null);
 
   const setRowVal = (deliveryId, field, val) => {
     setEditingRows(prev => ({
@@ -323,6 +347,21 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     });
   };
 
+  // Free-text fields (Review/Remarks): typing on a checked row writes the same
+  // text into every checked row, on every keystroke (setRowValForSelection only
+  // fills the batch on the first change, which suits dropdowns, not typing).
+  const setTextForSelection = (delId, field, val) => {
+    if (!selectedLifts.has(delId)) {
+      setRowVal(delId, field, val);
+      return;
+    }
+    setEditingRows(prev => {
+      const next = { ...prev };
+      selectedLifts.forEach(id => { next[id] = { ...(next[id] || {}), [field]: val }; });
+      return next;
+    });
+  };
+
   const handleStatusChange = (delId, val) => setRowValForSelection(delId, 'status', val);
 
   const handleSubmit = async () => {
@@ -352,7 +391,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
       try {
         await saveLiftInfo(del);
-        await updateAawakLift({
+        const result = await updateAawakLift({
           delivery_id: del.delivery_id,
           user_id: user?.user_id,
           status: dbStatus !== undefined ? dbStatus : (del.status === 'AT TPT GDN' ? 'In Transport Godown' : del.status),
@@ -365,6 +404,8 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
           transporter_id: effectiveTransporterId(del),
           receiving_date: edit.receiving_date,
         });
+        const partialMsg = liftSavedMessage(del, result);
+        if (partialMsg) toast.success(partialMsg);
         successCount++;
         savedIds.add(deliveryId);
       } catch (err) {
@@ -527,7 +568,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     setSavingLiftId(deliveryId);
     try {
       await saveLiftInfo(del);
-      await updateAawakLift({
+      const result = await updateAawakLift({
         delivery_id: del.delivery_id,
         user_id: user?.user_id,
         status: dbStatus !== undefined ? dbStatus : (del.status === 'AT TPT GDN' ? 'In Transport Godown' : del.status),
@@ -540,7 +581,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         transporter_id: effectiveTransporterId(del),
         receiving_date: edit.receiving_date,
       });
-      toast.success(`${del.lifting_number || 'Lift'} updated successfully`);
+      toast.success(liftSavedMessage(del, result) || `${del.lifting_number || 'Lift'} updated successfully`);
       setEditingRows(prev => {
         const next = { ...prev };
         delete next[deliveryId];
@@ -612,9 +653,12 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
             const masterUnit = (prod.unit || '').toLowerCase();
             const isBagUnit = masterUnit.includes('bag') || (del.dispatch_qty_bag != null && Number(del.dispatch_qty_bag) > 0);
             const unitLabel = isBagUnit ? 'Bags' : (prod.unit || 'Kg');
+            // Pending shows the whole lift's original dispatch (all partial parts summed).
+            const dispBag = isPending ? del.family_dispatch_qty_bag ?? del.dispatch_qty_bag : del.dispatch_qty_bag;
+            const dispKg = isPending ? del.family_dispatch_qty_kg ?? del.dispatch_qty_kg : del.dispatch_qty_kg;
             const dispatchQty = isBagUnit
-              ? (del.dispatch_qty_bag != null ? Number(Number(del.dispatch_qty_bag).toFixed(2)) : (del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : 0))
-              : (del.dispatch_qty_kg != null ? Number(Number(del.dispatch_qty_kg).toFixed(2)) : (del.dispatch_qty_bag != null ? Number(Number(del.dispatch_qty_bag).toFixed(2)) : 0));
+              ? (dispBag != null ? Number(Number(dispBag).toFixed(2)) : (dispKg != null ? Number(Number(dispKg).toFixed(2)) : 0))
+              : (dispKg != null ? Number(Number(dispKg).toFixed(2)) : (dispBag != null ? Number(Number(dispBag).toFixed(2)) : 0));
             const recvQty = Number(getRowVal(del, 'received_quantity') || 0);
             const percentReceived = dispatchQty > 0 ? Math.min(100, Math.round((recvQty / dispatchQty) * 100)) : (recvQty > 0 ? 100 : 0);
 
@@ -666,6 +710,9 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       <div className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-tight">
                         {del.lifting_number || '—'}
                       </div>
+                      {del.parent_lifting_number && (
+                        <div className="text-[10px] font-medium text-amber-700 leading-none">Partial of {del.parent_lifting_number}</div>
+                      )}
                       <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium whitespace-nowrap leading-none">
                         <Calendar size={11} className="text-slate-400 shrink-0" />
                         <span>Exp Delivery: {del.expected_delivery_date ? format(new Date(del.expected_delivery_date), 'dd MMM yyyy') : '—'}</span>
@@ -793,6 +840,18 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <span className="ml-1 font-bold text-emerald-700">{recvQty}</span>
                       </div>
                     </div>
+                    {isPending && (
+                      <div className="flex items-center justify-between text-[10px] text-slate-500">
+                        <div>
+                          <span>Pending:</span>
+                          <span className="ml-1 font-semibold text-amber-600">{formatQty(getPendingQty(del))}</span>
+                        </div>
+                        <div>
+                          <span>Total Recv:</span>
+                          <span className="ml-1 font-semibold text-slate-800">{formatQty(del.family_received_qty)}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Right Column: Edit / Delete Actions */}
@@ -853,6 +912,11 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         placeholder="Recv Qty"
                         className="h-8 text-xs font-bold text-emerald-700 bg-white"
                       />
+                      {getPartialRemainder(del) > 0 && (
+                        <div className="mt-1 text-[10px] font-medium text-amber-700">
+                          Partial — {formatQty(getPartialRemainder(del))} {unitLabel} stays pending
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -930,7 +994,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         type="text"
                         placeholder="Remarks..."
                         value={getRowVal(del, 'remarks')}
-                        onChange={e => setRowValForSelection(del.delivery_id, 'remarks', e.target.value)}
+                        onChange={e => setTextForSelection(del.delivery_id, 'remarks', e.target.value)}
                         className="h-8 text-xs bg-white"
                       />
                     </div>
@@ -1115,7 +1179,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
         {/* Delivery Date Filter */}
         <div className="flex items-center gap-1.5 bg-white px-2.5 h-9 rounded-md border border-slate-200 text-xs text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 shrink-0">
-          <span className="whitespace-nowrap font-medium text-slate-500">Date:</span>
+          <span className="whitespace-nowrap font-medium text-slate-500">{isHistory ? 'Receiving Date:' : 'Date:'}</span>
           <input
             type="date"
             value={dateFilter}
@@ -1211,7 +1275,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         </div>
 
         {viewMode === 'card' ? renderCards() : (
-          <div className="overflow-x-auto custom-scrollbar">
+          <TableScrollSync>
             <table className="w-full text-xs">
               <thead className="bg-blue-50 border-b border-slate-200">
                 <tr>
@@ -1226,12 +1290,20 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       />
                     </div>
                   </th>
-                  <th className="sticky left-12 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[70px] w-20">Action</th>
+                  {canModify && (
+                    <th className="sticky left-12 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[70px] w-20">Action</th>
+                  )}
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lifting No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
+                  <th className={`sticky ${productLeft} z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap`}>Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (KG)</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (Bags)</th>
+                  {isPending && (
+                    <>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Recv. Qty</th>
+                    </>
+                  )}
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Transporter</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[110px]">LR No.</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Exp. Recv. Date</th>
@@ -1248,7 +1320,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
               <tbody className="divide-y divide-slate-100">
                 {filteredDeliveries.length === 0 && (
                   <tr>
-                    <td colSpan="18" className="p-12 text-center text-slate-400">
+                    <td colSpan={(isPending ? 20 : 18) - (canModify ? 0 : 1)} className="p-12 text-center text-slate-400">
                       <PackageOpen size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">
                         {activeSubTab === 'pending' ? 'No pending lifts found.' : 'No arrived lifts found.'}
@@ -1262,8 +1334,11 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                   const prod = del.purchase_indent_items?.products || {};
                   const receivingDateVal = getRowVal(del, 'receiving_date')
                     || (locked && del.status_updated_at ? format(new Date(del.status_updated_at), 'yyyy-MM-dd') : '');
-                  const qtyKgVal = del.dispatch_qty_kg != null ? String(Number(Number(del.dispatch_qty_kg).toFixed(2))) : '';
-                  const qtyBagVal = del.dispatch_qty_bag != null ? String(Number(Number(del.dispatch_qty_bag).toFixed(2))) : '';
+                  // Pending shows the whole lift's original dispatch (all partial parts summed).
+                  const dispKg = isPending ? del.family_dispatch_qty_kg ?? del.dispatch_qty_kg : del.dispatch_qty_kg;
+                  const dispBag = isPending ? del.family_dispatch_qty_bag ?? del.dispatch_qty_bag : del.dispatch_qty_bag;
+                  const qtyKgVal = dispKg != null ? String(Number(Number(dispKg).toFixed(2))) : '';
+                  const qtyBagVal = dispBag != null ? String(Number(Number(dispBag).toFixed(2))) : '';
                   const transporterName = del.transporters?.name || transporters.find(t => String(t.transporter_id) === String(del.transporter_id))?.name || '—';
                   const processTypeVal = del.purchase_indent_items?.purchase_indents?.process_type || del.process_type || '';
                   const uiStatus = getRowVal(del, 'status');
@@ -1280,8 +1355,8 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                           />
                         </div>
                       </td>
-                      <td className={`sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
-                        {canModify ? (
+                      {canModify && (
+                        <td className={`sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                           <div className="flex items-center justify-center gap-1">
                             {!isSelected && (
                               <Button
@@ -1306,17 +1381,18 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                               <Trash2 size={13} />
                             </Button>
                           </div>
-                        ) : (
-                          <span className="text-slate-300 text-xs">—</span>
-                        )}
-                      </td>
+                        </td>
+                      )}
                       <td className="px-3 py-3 text-center text-slate-800 font-semibold whitespace-nowrap">
                         {del.lifting_number || '—'}
+                        {del.parent_lifting_number && (
+                          <div className="mt-0.5 text-[10px] font-medium text-amber-700">Partial of {del.parent_lifting_number}</div>
+                        )}
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
                         {del.delivery_date ? format(new Date(del.delivery_date), 'dd/MM/yyyy') : '—'}
                       </td>
-                      <td className="px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap">
+                      <td className={`sticky ${productLeft} z-[4] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                         {prod.name || '—'}
                         <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
                       </td>
@@ -1326,6 +1402,16 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
                         {qtyBagVal || '—'}
                       </td>
+                      {isPending && (
+                        <>
+                          <td className="px-3 py-3 text-center font-semibold text-amber-600 whitespace-nowrap">
+                            {formatQty(getPendingQty(del))}
+                          </td>
+                          <td className="px-3 py-3 text-center font-semibold text-slate-700 whitespace-nowrap">
+                            {formatQty(del.family_received_qty)}
+                          </td>
+                        </>
+                      )}
                       <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
                         {transporterName}
                       </td>
@@ -1372,14 +1458,21 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         {isHistory ? (
                           getRowVal(del, 'received_quantity') || '—'
                         ) : (
-                          <Input
-                            type="number"
-                            step="any"
-                            placeholder="Recv Qty"
-                            value={getRowVal(del, 'received_quantity')}
-                            onChange={e => setRowVal(del.delivery_id, 'received_quantity', e.target.value)}
-                            className="h-8 text-xs font-bold text-emerald-700 bg-slate-50/50 border-slate-200 focus:bg-white min-w-[90px]"
-                          />
+                          <>
+                            <Input
+                              type="number"
+                              step="any"
+                              placeholder="Recv Qty"
+                              value={getRowVal(del, 'received_quantity')}
+                              onChange={e => setRowVal(del.delivery_id, 'received_quantity', e.target.value)}
+                              className="h-8 text-xs font-bold text-emerald-700 bg-slate-50/50 border-slate-200 focus:bg-white min-w-[90px]"
+                            />
+                            {getPartialRemainder(del) > 0 && (
+                              <div className="mt-1 text-[10px] font-medium text-amber-700 whitespace-nowrap">
+                                Partial — {formatQty(getPartialRemainder(del))} stays pending
+                              </div>
+                            )}
+                          </>
                         )}
                       </td>
                       <td className="px-3 py-3 text-center">
@@ -1408,7 +1501,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                             type="text"
                             placeholder="Review..."
                             value={getRowVal(del, 'remarks')}
-                            onChange={e => setRowVal(del.delivery_id, 'remarks', e.target.value)}
+                            onChange={e => setTextForSelection(del.delivery_id, 'remarks', e.target.value)}
                             className="h-8 text-xs bg-slate-50/50 border-slate-200 focus:bg-white min-w-[130px]"
                           />
                         )}
@@ -1462,7 +1555,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                 })}
               </tbody>
             </table>
-          </div>
+          </TableScrollSync>
         )}
 
         <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3">

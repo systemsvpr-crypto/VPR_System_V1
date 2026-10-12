@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Dropdown } from '@/components/ui/dropdown';
 import { sanitizeQtyInput } from '@/lib/qty';
 import { canEditOrDelete } from '../../../lib/permissions';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -30,7 +31,7 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
+  const [pageSize, setPageSize] = useState(100);
   const [expandedIndents, setExpandedIndents] = useState(new Set());
   const [approvingId, setApprovingId] = useState(null);
   const [approvingAll, setApprovingAll] = useState(false);
@@ -654,7 +655,7 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto custom-scrollbar">
+          <TableScrollSync>
             <table className="w-full text-sm">
               <thead className="bg-blue-50 border-b border-slate-200">
                 <tr>
@@ -670,7 +671,9 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                         className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                     )}
                   </th>
-                  <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
+                  {canDelete && (
+                    <th className="w-14 text-center px-2 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
+                  )}
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Indent No.</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Indent Type</th>
@@ -683,7 +686,7 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
               <tbody className="divide-y divide-slate-100">
                 {filteredIndents.length === 0 && (
                   <tr>
-                    <td colSpan="10" className="p-12 text-center">
+                    <td colSpan={canDelete ? 10 : 9} className="p-12 text-center">
                       <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                         <ShoppingCart size={32} className="text-slate-300" />
                       </div>
@@ -716,18 +719,20 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                             className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                         )}
                       </td>
-                      <td className="px-2 py-3 text-center" onClick={e => e.stopPropagation()}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          type="button"
-                          title="Delete Indent"
-                          onClick={() => handleDeleteIndent(indent)}
-                          className="p-1.5 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </td>
+                      {canDelete && (
+                        <td className="px-2 py-3 text-center" onClick={e => e.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            type="button"
+                            title="Delete Indent"
+                            onClick={() => handleDeleteIndent(indent)}
+                            className="p-1.5 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        </td>
+                      )}
                       <td className="px-3 py-3 font-medium text-slate-800">{indent.indent_number || '—'}</td>
                       <td className="px-3 py-3 text-slate-500 text-xs">
                         {indent.indent_date ? format(new Date(indent.indent_date), 'dd/MM/yyyy') : '—'}
@@ -750,7 +755,7 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                   if (isExpanded && items.length > 0) {
                     rows.push(
                       <tr key={`${indent.indent_id}-details`}>
-                        <td colSpan={10} className="px-0 py-0">
+                        <td colSpan={canDelete ? 10 : 9} className="px-0 py-0">
                           <div className="bg-slate-50 border-t border-slate-100">
                             <table className="w-full text-sm">
                               <thead>
@@ -890,7 +895,7 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableScrollSync>
         )}
 
         <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3">

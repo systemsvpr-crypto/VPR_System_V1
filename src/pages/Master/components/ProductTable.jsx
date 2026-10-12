@@ -12,7 +12,7 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
   return (
     <DataTable
       headers={[
-        'Product Name', 'Unit', 'Size', 'Brand', 'Category', 'Mux', 'Grouping', 'Stock', 'Created Date', 'Actions'
+        'Product Name', 'Unit', 'Size', 'Brand', 'Category', 'Mux', 'Grouping', 'Stock', 'Created Date', ...(userCanEdit ? ['Actions'] : [])
       ]}
       data={products}
       currentPage={currentPage}
@@ -44,16 +44,14 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
             </div>
           </td>
           <td className="px-4 py-3 text-center text-slate-400 text-xs">{format(new Date(p.created_at), 'dd/MM/yyyy')}</td>
-          <td className="px-4 py-3 text-center">
-            {userCanEdit ? (
+          {userCanEdit && (
+            <td className="px-4 py-3 text-center">
               <Button variant="ghost" size="icon" type="button" onClick={() => onEdit(p)}
                 className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all">
                 <Edit2 size={15} />
               </Button>
-            ) : (
-              <span className="text-slate-300 text-xs">—</span>
-            )}
-          </td>
+            </td>
+          )}
         </tr>
       )}
       renderCard={(p, index) => (

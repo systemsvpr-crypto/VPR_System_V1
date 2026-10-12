@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, FileText, Users, CheckCircle, BadgeCheck, Truck, Zap, Download, Upload, Timer, MapPin, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, ShoppingCart, Plus, FileText, Users, CheckCircle, BadgeCheck, Truck, Zap, Download, Upload, Timer, MapPin, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllIndents, deleteIndent, deleteIndentItem } from '../../services/purchaseService';
@@ -18,7 +18,6 @@ import VendorApprovalTable from './components/VendorApprovalTable';
 import DeliveryTable from './components/DeliveryTable';
 import AawakDetailsTable from './components/AawakDetailsTable';
 import PurchaseCompleteTable from './components/PurchaseCompleteTable';
-import FilterMenu from '@/components/FilterMenu';
 import { canEditOrDelete } from '../../lib/permissions';
 
 // "Vendor Approval" (VendorSelectionTable) is planning — picking vendor,
@@ -54,7 +53,7 @@ const Purchase = () => {
   const [editingIndent, setEditingIndent] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
+  const [pageSize, setPageSize] = useState(100);
   const [godownFilter, setGodownFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   // Bumped every time loadData() finishes — tells IndentPendingHistoryTable
@@ -246,30 +245,37 @@ const Purchase = () => {
                 godowns={godowns}
                 toolbarExtra={
                   <>
-                    <FilterMenu
-                      activeCount={[godownFilter, typeFilter].filter(Boolean).length}
-                      onClear={() => { setGodownFilter(''); setTypeFilter(''); }}
+                    <select
+                      value={godownFilter}
+                      onChange={e => setGodownFilter(e.target.value)}
+                      className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[120px] max-w-[160px]"
                     >
-                      <select
-                        value={godownFilter}
-                        onChange={e => setGodownFilter(e.target.value)}
-                        className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
+                      <option value="">All Godowns</option>
+                      {ownGodowns.map(g => (
+                        <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={typeFilter}
+                      onChange={e => setTypeFilter(e.target.value)}
+                      className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[100px] max-w-[140px]"
+                    >
+                      <option value="">All Types</option>
+                      <option value="direct">Direct</option>
+                      <option value="process">Process</option>
+                    </select>
+                    {(godownFilter || typeFilter) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { setGodownFilter(''); setTypeFilter(''); }}
+                        className="h-9 px-2.5 text-xs border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm shrink-0 gap-1"
+                        title="Clear filters"
                       >
-                        <option value="">All Godowns</option>
-                        {ownGodowns.map(g => (
-                          <option key={g.godown_id} value={String(g.godown_id)}>{g.name}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={typeFilter}
-                        onChange={e => setTypeFilter(e.target.value)}
-                        className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 w-full"
-                      >
-                        <option value="">All Types</option>
-                        <option value="direct">Direct</option>
-                        <option value="process">Process</option>
-                      </select>
-                    </FilterMenu>
+                        <X size={13} />
+                        Clear
+                      </Button>
+                    )}
                     {filteredIndents.length > 0 && (
                       <Button variant="outline" onClick={() => exportIndentsCSV(filteredIndents)} className="gap-2 px-4 font-medium text-xs h-9 text-slate-600 border-slate-200 hover:bg-slate-50 shrink-0">
                         <Download size={16} /><span>Export</span>
