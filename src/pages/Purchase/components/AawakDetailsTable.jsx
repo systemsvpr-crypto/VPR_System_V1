@@ -134,15 +134,20 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     [ownGodowns],
   );
 
+  const ownGodownIds = useMemo(() => new Set(ownGodowns.map(g => String(g.godown_id))), [ownGodowns]);
+
+  // Only an id the dropdown actually offers counts as chosen — anything else
+  // (a transporter's godown while "AT TPT GDN", an inactive godown, nothing
+  // at all) falls through to the next candidate and finally to 'Godown'.
   const resolveGodownId = (del) => {
+    const isOption = (id) => id && ownGodownIds.has(String(id));
     const editGodown = editingRows[del.delivery_id]?.godown_id;
-    if (editGodown !== undefined) return editGodown;
+    if (isOption(editGodown)) return editGodown;
     const currentAlloc = del.purchase_delivery_godowns?.[0]?.godown_id;
-    // While "AT TPT GDN," the allocation points at the transporter's own
-    // godown — not a valid destination pick — so fall back to the godown
-    // approved for this indent line.
-    if (currentAlloc && currentAlloc !== del.transporter_id) return currentAlloc;
-    return del.purchase_indent_items?.approved_godown_id || defaultGodownId || '';
+    if (currentAlloc !== del.transporter_id && isOption(currentAlloc)) return currentAlloc;
+    const approved = del.purchase_indent_items?.approved_godown_id;
+    if (isOption(approved)) return approved;
+    return defaultGodownId || '';
   };
 
   const filteredDeliveries = useMemo(() => {
@@ -186,7 +191,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
 
       return matchDate && matchProduct && matchTransporter && matchExpDate && matchGodown && matchSearch;
     });
-  }, [activeDeliveriesList, dateFilter, productFilter, transporterFilter, expDateFilter, godownFilter, searchTerm, groups, editingRows, defaultGodownId]);
+  }, [activeDeliveriesList, dateFilter, productFilter, transporterFilter, expDateFilter, godownFilter, searchTerm, groups, editingRows, defaultGodownId, ownGodownIds]);
 
   const totalPages = Math.max(1, Math.ceil(filteredDeliveries.length / pageSize));
   const currentDeliveries = useMemo(() => {

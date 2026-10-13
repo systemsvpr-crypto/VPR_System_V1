@@ -640,7 +640,7 @@ Sales.jsx (Inform After Dispatch tab)
     ↓
 salesService.batchUpdateInformAfterDispatch(planIds, 'Informed')
     ↓
-notifyDispatchConfirmation() per plan → WhatsApp "dispatch_confirmation" template
+notifyDispatchConfirmations() → one WhatsApp "dispatch_confirmation" per customer + dispatch date
 
 Sales.jsx (Skip Delivered tab) — orders explicitly created with process_type='skip_delivered',
     bypassing normal dispatch planning; getSkipDeliveredItems() filters items whose (quantity −

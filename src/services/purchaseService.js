@@ -506,25 +506,114 @@ export const deleteIndent = async (indent_id) => {
 // undispatched remainder: its working qty is cut down to what's already on
 // lifts, so it drops out of Pending while every existing lift (and its stock)
 // stays as it is. indent_qty keeps the originally requested figure.
-export const deletePendingDeliveryRemainder = async (item_id) => {
+// Every such delete is first saved to purchase_delivery_deletions — a full
+// copy of the item, its indent, product and vendor — and the delete only goes
+// ahead once that save succeeds, so deleted data is never lost. Delivery
+// History lists these rows as Deleted.
+export const deletePendingDeliveryRemainder = async (item_id, user = null) => {
   const { data: lifts, error: liftErr } = await supabase
     .from('purchase_deliveries')
     .select('received_quantity')
     .eq('item_id', item_id);
   if (liftErr) throw liftErr;
 
+  const snapshot = await buildDeliveryDeletionSnapshot(item_id, user);
+
   if (!lifts || lifts.length === 0) {
-    await deleteIndentItem(item_id);
+    const logId = await logDeliveryDeletion(snapshot, { deleted_qty: snapshot.item_qty, delete_type: 'item' });
+    try {
+      await deleteIndentItem(item_id);
+    } catch (err) {
+      await removeDeliveryDeletionLog(logId);
+      throw err;
+    }
     return { deleted: 'item' };
   }
 
   const liftedQty = roundQty(lifts.reduce((s, d) => s + (Number(d.received_quantity) || 0), 0));
+  const logId = await logDeliveryDeletion(snapshot, {
+    deleted_qty: roundQty(Math.max(0, snapshot.item_qty - liftedQty)),
+    delete_type: 'remainder',
+  });
   const { error } = await supabase
     .from('purchase_indent_items')
     .update({ quantity: liftedQty })
     .eq('item_id', item_id);
-  if (error) throw error;
+  if (error) {
+    await removeDeliveryDeletionLog(logId);
+    throw error;
+  }
   return { deleted: 'remainder', lifted_qty: liftedQty, lift_count: lifts.length };
+};
+
+const buildDeliveryDeletionSnapshot = async (item_id, user) => {
+  const { data: item, error } = await supabase
+    .from('purchase_indent_items')
+    .select('*, products:product_id(*), purchase_indents(*)')
+    .eq('item_id', item_id)
+    .single();
+  if (error) throw error;
+
+  let vendor = null;
+  const vendorId = item.approved_vendor_id || item.vendor_id;
+  if (vendorId) {
+    const { data, error: vendorErr } = await supabase.from('vendors').select('*').eq('vendor_id', vendorId).maybeSingle();
+    if (vendorErr) throw vendorErr;
+    vendor = data || null;
+  }
+  const { products: productData, purchase_indents: indentData, ...itemData } = item;
+
+  return {
+    item_qty: Number(item.quantity) || 0,
+    row: {
+      item_id: item.item_id,
+      indent_id: item.indent_id,
+      indent_number: indentData?.indent_number || null,
+      indent_date: indentData?.indent_date || null,
+      process_type: indentData?.process_type || null,
+      product_id: item.product_id,
+      product_name: productData?.name || null,
+      product_unit: productData?.unit || null,
+      group_id: productData?.group_id || null,
+      vendor_name: vendor?.name || null,
+      rate: Number(item.approved_rate ?? item.rate) || 0,
+      deleted_by: user?.user_id || null,
+      deleted_by_name: user?.full_name || user?.Name || null,
+      item_data: itemData,
+      indent_data: indentData || null,
+      product_data: productData || null,
+      vendor_data: vendor,
+    },
+  };
+};
+
+const logDeliveryDeletion = async (snapshot, { deleted_qty, delete_type }) => {
+  const { data, error } = await supabase
+    .from('purchase_delivery_deletions')
+    .insert({ ...snapshot.row, deleted_qty: Number(deleted_qty) || 0, delete_type })
+    .select('deletion_id')
+    .single();
+  if (error) throw new Error(`Could not save a copy of the deleted item, so nothing was deleted: ${error.message}`);
+  return data.deletion_id;
+};
+
+// Undoes the saved copy when the delete itself then fails, so History never
+// shows a Deleted row for an item that's still there.
+const removeDeliveryDeletionLog = async (deletion_id) => {
+  const { error } = await supabase.from('purchase_delivery_deletions').delete().eq('deletion_id', deletion_id);
+  if (error) console.error('Failed to remove deletion log after a failed delete:', error);
+};
+
+export const getDeliveryDeletions = async () => {
+  const { data, error } = await supabase
+    .from('purchase_delivery_deletions')
+    .select('*')
+    .order('deleted_at', { ascending: false });
+  if (error) {
+    console.error('Failed to load delivery deletions:', error);
+    return [];
+  }
+  return data || [];
 };
 
 export const deleteIndentItem = async (item_id) => {

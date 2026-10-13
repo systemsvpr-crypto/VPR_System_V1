@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Phone, MessageSquare, Pencil, X } from 'lucide-react';
+import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Phone, MessageSquare, Pencil, X, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import {
@@ -10,6 +10,7 @@ import {
   getPackagingSize,
   deletePendingDeliveryRemainder,
   deleteDelivery,
+  getDeliveryDeletions,
   updateItemsExpectedDispatchDate,
   updatePendingDeliveryRowInfo,
 } from '../../../services/purchaseService';
@@ -20,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
 import { roundQty, formatQty } from '@/lib/qty';
 import EditDeliveryIndentModal from './EditDeliveryIndentModal';
+import DeletedIndentDetailsModal from './DeletedIndentDetailsModal';
 import { canEditOrDelete } from '../../../lib/permissions';
 import TableScrollSync from '@/components/TableScrollSync';
 
@@ -53,6 +55,31 @@ const IndentTypeBadge = ({ processType }) => (
   )
 );
 
+// A purchase_delivery_deletions log row, shaped like a lift row so the
+// History filters/search read it the same way. `_deleted` rows render as
+// read-only "Deleted" entries (no checkbox, no delete action).
+const toDeletedHistoryRow = (d) => ({
+  _deleted: true,
+  _record: d,
+  delivery_id: `deleted-${d.deletion_id}`,
+  status: 'Deleted',
+  created_at: d.deleted_at,
+  delivery_date: d.deleted_at,
+  deleted_qty: Number(d.deleted_qty) || 0,
+  delete_type: d.delete_type,
+  deleted_by_name: d.deleted_by_name,
+  group_id: d.group_id,
+  purchase_indent_items: {
+    item_id: d.item_id,
+    product_id: d.product_id,
+    rate: d.rate,
+    group_id: d.group_id,
+    products: { name: d.product_name, unit: d.product_unit, group_id: d.group_id },
+    item_vendor: { name: d.vendor_name },
+    purchase_indents: { indent_id: d.indent_id, indent_number: d.indent_number, indent_date: d.indent_date, process_type: d.process_type },
+  },
+});
+
 const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], products = [], vendors = [] }) => {
   const canModify = canEditOrDelete(user);
   // Product Name pins right after the pinned checkbox (3rem) + Action (5rem)
@@ -73,6 +100,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   const [submitting, setSubmitting] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [viewingDeleted, setViewingDeleted] = useState(null);
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('purchase_view_mode') || 'card');
 
   const handleViewModeChange = (mode) => {
@@ -93,14 +121,18 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   const loadData = async () => {
     setLoading(true);
     try {
-      const [approvedData, historyData] = await Promise.all([
+      const [approvedData, historyData, deletionData] = await Promise.all([
         getApprovedItemsForDelivery(),
         getAawakDeliveries(),
+        getDeliveryDeletions(),
       ]);
       setItems(approvedData.filter(i =>
         i.planning_status !== 'Cancelled' && Number(i.remaining_alloc_qty ?? i.remaining_qty ?? 0) > 0
       ));
-      setHistoryItems(historyData || []);
+      // Deleted pending items are listed alongside the lifts, newest first.
+      const merged = [...(historyData || []), ...deletionData.map(toDeletedHistoryRow)];
+      merged.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+      setHistoryItems(merged);
     } catch (err) {
       console.error(err);
       toast.error('Failed to load delivery data');
@@ -333,6 +365,8 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   };
 
   const currentIdField = activeSubTab === 'pending' ? 'item_id' : 'delivery_id';
+  // Deleted-log rows in History are read-only — never selectable.
+  const selectableItems = currentPageItems.filter(i => !i._deleted);
 
   const toggleSelect = (id) => {
     setSelectedItems(prev => {
@@ -344,7 +378,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   };
 
   const toggleSelectAll = () => {
-    const ids = currentPageItems.map(i => i[currentIdField]);
+    const ids = selectableItems.map(i => i[currentIdField]);
     if (ids.length > 0 && ids.every(id => selectedItems.has(id))) {
       setSelectedItems(prev => {
         const next = new Set(prev);
@@ -360,7 +394,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
     }
   };
 
-  const allSelected = currentPageItems.length > 0 && currentPageItems.every(i => selectedItems.has(i[currentIdField]));
+  const allSelected = selectableItems.length > 0 && selectableItems.every(i => selectedItems.has(i[currentIdField]));
 
   const handleSubmitDeliveries = async () => {
     const toSubmitIds = [...selectedItems];
@@ -588,7 +622,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
       : `Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`;
     if (!window.confirm(confirmMsg)) return;
     try {
-      const res = await deletePendingDeliveryRemainder(item.item_id);
+      const res = await deletePendingDeliveryRemainder(item.item_id, user);
       toast.success(res.deleted === 'remainder' ? 'Pending qty deleted — dispatched lifts kept' : 'Item deleted');
       setItems(prev => prev.filter(i => i.item_id !== item.item_id));
       setSelectedItems(prev => {
@@ -653,7 +687,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
       let success = 0;
       for (const id of toDeleteIds) {
         try {
-          await deletePendingDeliveryRemainder(id);
+          await deletePendingDeliveryRemainder(id, user);
           success++;
         } catch (err) {
           console.error('Failed to delete pending item', id, err);
@@ -700,6 +734,13 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   };
 
   const renderStatusBadge = (status) => {
+    if (status === 'Deleted') {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-100">
+          Deleted
+        </span>
+      );
+    }
     if (status === 'In Transit') {
       return (
         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-100">
@@ -1102,6 +1143,64 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
             const prod = del.purchase_indent_items?.products || {};
             const indent = del.purchase_indent_items?.purchase_indents || {};
             const vendorName = del.purchase_indent_items?.approved_vendor?.name || del.purchase_indent_items?.item_vendor?.name || '';
+
+            if (del._deleted) {
+              return (
+                <div key={del.delivery_id} className="bg-red-50/30 rounded-xl border border-red-100 border-l-4 border-l-red-500 shadow-2xs overflow-hidden">
+                  <div className="py-2.5 px-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+                    <div className="flex flex-col gap-1 shrink-0 min-w-[155px] pl-6">
+                      <div>{renderStatusBadge('Deleted')}</div>
+                      <div className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-tight">{indent.indent_number || '—'}</div>
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium whitespace-nowrap leading-none">
+                        <Calendar size={11} className="text-slate-400 shrink-0" />
+                        <span>Deleted: {del.created_at ? format(new Date(del.created_at), 'dd MMM yyyy, hh:mm a') : '—'}</span>
+                      </div>
+                    </div>
+                    <div className="hidden xl:block w-px self-stretch bg-slate-200/70 my-0.5" />
+                    <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={prod.name}>{prod.name || '—'}</span>
+                        {indent.process_type && <IndentTypeBadge processType={indent.process_type} />}
+                      </div>
+                      <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px]">
+                        <div className="flex items-center gap-1 text-slate-600">
+                          <User size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-slate-400">Vendor:</span>
+                          <span className="font-medium text-slate-700 truncate max-w-[130px]" title={vendorName}>{vendorName || '—'}</span>
+                        </div>
+                        {del.deleted_by_name && (
+                          <div className="flex items-center gap-1 text-slate-600">
+                            <User size={12} className="text-slate-400 shrink-0" />
+                            <span className="text-slate-400">Deleted by:</span>
+                            <span className="font-medium text-slate-700">{del.deleted_by_name}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="py-1.5 px-3 rounded-lg border bg-red-50/60 border-red-200/70 flex flex-col gap-1 min-w-[190px] sm:min-w-[210px] shrink-0">
+                      <span className="font-bold text-red-700 text-xs">
+                        {formatQty(del.deleted_qty)} {prod.unit || ''} deleted
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        {del.delete_type === 'remainder' ? 'Pending remainder deleted — dispatched lifts kept' : 'Whole item deleted'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-end xl:justify-center shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        type="button"
+                        title="View deleted indent"
+                        onClick={() => setViewingDeleted(del._record)}
+                        className="p-1 h-7 w-7 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-lg shrink-0"
+                      >
+                        <Eye size={14} />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
             const transporterName = del.transporters?.name || '';
             const godownName = del.purchase_delivery_godowns?.[0]?.godowns?.name || del.purchase_indent_items?.approved_godown?.name || '—';
 
@@ -1803,6 +1902,54 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                     const indentNum = del.purchase_indent_items?.purchase_indents?.indent_number || '—';
                     const vendorName = del.purchase_indent_items?.approved_vendor?.name || del.purchase_indent_items?.item_vendor?.name || '—';
 
+                    if (del._deleted) {
+                      const deletedNote = `${formatQty(del.deleted_qty)} ${prod.unit || ''} deleted${del.delete_type === 'remainder' ? ' (pending remainder)' : ''}${del.deleted_by_name ? ` by ${del.deleted_by_name}` : ''}`;
+                      return (
+                        <tr key={del.delivery_id} className="group bg-red-50/40 hover:bg-red-50/70 transition-colors">
+                          <td className="sticky left-0 z-[5] w-12 min-w-12 px-2 py-3 bg-red-50 group-hover:bg-red-50" />
+                          {canModify && (
+                            <td className="sticky left-12 z-[5] w-20 min-w-20 px-2 py-3 text-center bg-red-50 group-hover:bg-red-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                type="button"
+                                title="View deleted indent"
+                                onClick={() => setViewingDeleted(del._record)}
+                                className="p-1 h-6 w-6 text-slate-500 hover:text-primary hover:bg-primary/10 rounded"
+                              >
+                                <Eye size={14} />
+                              </Button>
+                            </td>
+                          )}
+                          <td className="px-3 py-3 text-center whitespace-nowrap text-slate-500 text-xs">
+                            {del.created_at ? format(new Date(del.created_at), 'dd/MM/yyyy') : '—'}
+                          </td>
+                          <td className="px-3 py-3 text-center text-slate-400 whitespace-nowrap">—</td>
+                          <td className="px-3 py-3 text-center font-semibold text-slate-700 whitespace-nowrap">{indentNum}</td>
+                          <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">{vendorName}</td>
+                          <td className={`sticky ${productLeft} z-[4] bg-red-50 group-hover:bg-red-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap`}>
+                            {prod.name || '—'}
+                            <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
+                          </td>
+                          <td className="px-3 py-3 text-center text-slate-400">—</td>
+                          <td className="px-3 py-3 text-center text-slate-400">—</td>
+                          <td className="px-3 py-3 text-center text-slate-400">—</td>
+                          <td className="px-3 py-3 text-center text-slate-400">—</td>
+                          <td className="px-3 py-3 text-center text-slate-400">—</td>
+                          <td className="px-3 py-3 text-center text-slate-400">—</td>
+                          <td className="px-3 py-3 text-center text-slate-400">—</td>
+                          <td className="px-3 py-3 text-center text-slate-400">—</td>
+                          <td className="px-3 py-3 text-center whitespace-nowrap">{renderStatusBadge('Deleted')}</td>
+                          <td className="px-3 py-3 text-center">
+                            <IndentTypeBadge processType={del.purchase_indent_items?.purchase_indents?.process_type} />
+                          </td>
+                          <td className="px-3 py-3 text-center text-red-700 font-medium max-w-[240px] truncate" title={deletedNote}>
+                            {deletedNote}
+                          </td>
+                        </tr>
+                      );
+                    }
+
                     return (
                       <tr key={del.delivery_id} className="group hover:bg-slate-50/60 transition-colors">
                         <td className="sticky left-0 z-[5] w-12 min-w-12 px-2 py-3 text-center whitespace-nowrap bg-white group-hover:bg-slate-50">
@@ -1927,6 +2074,13 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
           </div>
         </div>
       </div>
+
+      <DeletedIndentDetailsModal
+        record={viewingDeleted}
+        onClose={() => setViewingDeleted(null)}
+        godowns={godowns}
+        vendors={vendors}
+      />
 
       <EditDeliveryIndentModal
         isOpen={!!editingItem}

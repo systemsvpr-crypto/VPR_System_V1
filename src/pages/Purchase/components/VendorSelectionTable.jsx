@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Save, ShoppingCart, Clock, History, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, X } from 'lucide-react';
+import { Search, Save, ShoppingCart, Clock, History, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, X, MessageCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { getAllIndentItemsForVendorSelection, updateVendorSelection, getPackagingSize, deleteIndentItem } from '../../../services/purchaseService';
@@ -50,6 +50,9 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
   const [subTab, setSubTab] = useState('pending'); // 'pending' | 'history'
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('purchase_view_mode') || 'card');
   const [deletingSelected, setDeletingSelected] = useState(false);
+  // Whether approving items sends the vendor_approval WhatsApp — remembered
+  // per browser, on by default.
+  const [whatsappEnabled, setWhatsappEnabled] = useState(() => localStorage.getItem('vendor_approval_whatsapp') !== 'off');
 
   const [edits, setEdits] = useState({});
   const [expandedPlanIds, setExpandedPlanIds] = useState(new Set());
@@ -333,7 +336,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
     setSavingAll(false);
     setSelectedItems(prev => { const next = new Set(prev); savedIds.forEach(id => next.delete(id)); return next; });
     if (savedIds.size > 0) toast.success(`${savedIds.size} item${savedIds.size !== 1 ? 's' : ''} saved successfully`);
-    if (approvedRows.length > 0) await notifyApprovedVendors(approvedRows);
+    if (approvedRows.length > 0 && whatsappEnabled) await notifyApprovedVendors(approvedRows);
   };
 
   // One "vendor_approval" WhatsApp per vendor + expected date, listing that
@@ -593,6 +596,23 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
             Delete Selected ({selectedCount})
           </Button>
         )}
+
+        <button
+          type="button"
+          onClick={() => {
+            const next = !whatsappEnabled;
+            setWhatsappEnabled(next);
+            localStorage.setItem('vendor_approval_whatsapp', next ? 'on' : 'off');
+          }}
+          className={`h-9 px-2.5 rounded-md border text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all shrink-0 ${whatsappEnabled
+            ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+            : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+            }`}
+          title={whatsappEnabled ? 'WhatsApp to vendor on approval: ON (click to disable)' : 'WhatsApp to vendor on approval: OFF (click to enable)'}
+        >
+          <MessageCircle size={14} />
+          WhatsApp {whatsappEnabled ? 'On' : 'Off'}
+        </button>
 
         <Button size="sm" onClick={saveAllSelected} disabled={savingAll || selectedCount === 0}
           className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0">

@@ -3,6 +3,8 @@ import { voidTransaction as stockVoidTransaction } from './stockService';
 import { sendOrderConfirmationWhatsapp, sendDispatchConfirmationWhatsapp } from './whatsappService';
 import { getPackagingSize } from './purchaseService';
 import { roundQty } from '../lib/qty';
+import { getGroupNameFromItem } from './productGroupingService';
+import { toWhatsappSafeName, stripGroupPrefix, formatWaNumber } from '../lib/whatsappFormat';
 
 // Bag <-> Kg conversion for dispatch planning. `product.unit` is the
 // master unit ('bag' or 'kg'); `product.mux` (e.g. "32 Kg") gives the
@@ -859,21 +861,13 @@ export const batchUpdateInformAfterDispatch = async (planIds, inform_after_dispa
     .select();
   if (error) throw error;
 
-  // Real WhatsApp sends, one per plan — awaited (not fire-and-forget) so
-  // callers can see and surface which notifications actually went out,
-  // instead of the "Informed" flag silently disagreeing with what the
-  // customer actually received.
+  // Real WhatsApp sends — awaited (not fire-and-forget) so callers can see
+  // and surface which notifications actually went out, instead of the
+  // "Informed" flag silently disagreeing with what the customer actually
+  // received. One result per plan.
   let notifyResults = [];
   if (inform_after_dispatch === 'Informed') {
-    notifyResults = await Promise.all(planIds.map(async (plan_id) => {
-      try {
-        const result = await notifyDispatchConfirmation(plan_id);
-        return { plan_id, ...result };
-      } catch (err) {
-        console.error('WhatsApp dispatch confirmation failed:', err.message);
-        return { plan_id, sent: false, reason: err.message };
-      }
-    }));
+    notifyResults = await notifyDispatchConfirmations(planIds);
   }
 
   return { plans: data, notifyResults };
@@ -1123,39 +1117,114 @@ export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown
   return { transaction: existingTxn, plan_id };
 };
 
-const notifyDispatchConfirmation = async (plan_id) => {
-  const { data: plan } = await supabase
+// One "dispatch_confirmation" WhatsApp per customer + dispatch date, listing
+// every product dispatched to them that day grouped by product group.
+// Returns one { plan_id, sent, reason? } per plan.
+const notifyDispatchConfirmations = async (planIds) => {
+  const { data: plans, error } = await supabase
     .from('dispatch_plans')
     .select(`
-      quantity, dispatch_date,
+      plan_id, quantity, dispatch_date,
       sales_order_items!inner(
-        products:product_id(name, unit),
-        sales_orders!inner(order_number, customers:customer_id(name, phone_number))
+        products:product_id(name, unit, mux, brand_name, category, group_id, product_groups:group_id(group_name)),
+        sales_orders!inner(customer_id, customers:customer_id(name, phone_number))
       )
     `)
-    .eq('plan_id', plan_id)
-    .single();
+    .in('plan_id', planIds);
+  if (error) {
+    console.error('WhatsApp dispatch confirmation failed:', error.message);
+    return planIds.map(plan_id => ({ plan_id, sent: false, reason: error.message }));
+  }
 
-  const order = plan?.sales_order_items?.sales_orders;
-  const customer = order?.customers;
-  if (!customer?.phone_number) return { sent: false, reason: 'no_phone' };
-
-  const product = plan.sales_order_items.products;
-  const unit = product?.unit || '';
-  const productDetails = `${product?.name || 'Item'} x ${Number(plan.quantity)}${unit ? ' ' + unit : ''}`;
-  const formattedDate = plan.dispatch_date
-    ? new Date(plan.dispatch_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    : '-';
-
-  await sendDispatchConfirmationWhatsapp({
-    phone: customer.phone_number,
-    customerName: customer.name,
-    orderNumber: order.order_number,
-    productDetails,
-    dispatchDate: formattedDate,
-    totalQty: Number(plan.quantity),
+  const byCustomerDate = new Map();
+  (plans || []).forEach(plan => {
+    const order = plan.sales_order_items?.sales_orders;
+    const key = `${order?.customer_id || ''}|${plan.dispatch_date || ''}`;
+    if (!byCustomerDate.has(key)) byCustomerDate.set(key, []);
+    byCustomerDate.get(key).push(plan);
   });
-  return { sent: true };
+
+  const results = [];
+  const found = new Set((plans || []).map(p => p.plan_id));
+  planIds.filter(id => !found.has(id)).forEach(plan_id => results.push({ plan_id, sent: false, reason: 'Dispatch plan not found' }));
+
+  for (const group of byCustomerDate.values()) {
+    const customer = group[0].sales_order_items?.sales_orders?.customers;
+    const markAll = (result) => group.forEach(p => results.push({ plan_id: p.plan_id, ...result }));
+    if (!customer?.phone_number) { markAll({ sent: false, reason: 'no_phone' }); continue; }
+    try {
+      const { entries, totalLabel } = buildDispatchEntries(group);
+      const dispatchDate = group[0].dispatch_date;
+      await sendDispatchConfirmationWhatsapp({
+        phone: customer.phone_number,
+        date: formatLongDate(new Date()),
+        customerName: customer.name,
+        lotQty: totalLabel,
+        dispatchDate: dispatchDate ? formatLongDate(new Date(dispatchDate)) : '-',
+        productEntries: entries,
+        totalQty: totalLabel,
+      });
+      markAll({ sent: true });
+    } catch (err) {
+      console.error('WhatsApp dispatch confirmation failed:', err.message);
+      markAll({ sent: false, reason: err.message });
+    }
+  }
+  return results;
+};
+
+// "30 September 2026"
+const formatLongDate = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+// Plan quantity is in the product's master unit; Bag/Kg products are shown in
+// bags (Kg converted via the product's Pkg/Bag size), anything else in its own
+// unit. One entry per product group — the first product with its full name,
+// later ones without the repeated group prefix:
+// Single product:   "test amit 12×12 (40 Kg) - Bags: 45"
+// Several products: "Tuleshwar Developer 6×11 (68 Kg) - 78 Bags | 7×7 (32 Kg) - 45 Bags"
+const buildDispatchEntries = (plans) => {
+  const totals = new Map(); // unit label → qty
+  const addTotal = (unit, qty) => totals.set(unit, (totals.get(unit) || 0) + qty);
+
+  const byGroup = new Map();
+  plans.forEach(plan => {
+    const item = plan.sales_order_items;
+    const gName = getGroupNameFromItem(item);
+    const key = gName && gName !== '—' ? gName : (item?.products?.name || 'Product');
+    if (!byGroup.has(key)) byGroup.set(key, []);
+    byGroup.get(key).push(plan);
+  });
+
+  const entries = [...byGroup.entries()].map(([gName, groupPlans]) => {
+    const safeGroup = toWhatsappSafeName(gName);
+    const lines = groupPlans.map((plan, idx) => {
+      const product = plan.sales_order_items?.products || {};
+      const name = toWhatsappSafeName(product.name || 'Product');
+      const label = idx > 0 ? stripGroupPrefix(name, safeGroup) : name;
+      const unit = String(product.unit || '').toLowerCase();
+      const qty = Number(plan.quantity) || 0;
+      let amount = qty;
+      let unitLabel = product.unit || '';
+      if (unit === 'bag' || unit === 'kg') {
+        const pkg = getPackagingSize(product);
+        amount = unit === 'kg' && pkg > 0 ? qty / pkg : qty;
+        unitLabel = 'Bags';
+      }
+      addTotal(unitLabel.toLowerCase(), amount);
+      return { label, amount, unitLabel };
+    });
+
+    if (lines.length === 1) {
+      const { label, amount, unitLabel } = lines[0];
+      return `${label} - ${unitLabel}: ${formatWaNumber(amount)}`;
+    }
+    return lines.map(({ label, amount, unitLabel }) => `${label} - ${formatWaNumber(amount)} ${unitLabel}`).join(' | ');
+  });
+
+  const totalLabel = [...totals.entries()]
+    .map(([unit, qty]) => `${formatWaNumber(qty)}${unit ? ` ${unit}` : ''}`)
+    .join(' + ');
+  return { entries, totalLabel };
 };
 
 export const isOrderLocked = async (order_id) => {

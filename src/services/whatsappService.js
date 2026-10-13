@@ -62,19 +62,34 @@ export const sendPurchaseDeliveredWhatsapp = async ({ transporterName, lrNumber,
   });
 };
 
-export const sendDispatchConfirmationWhatsapp = async ({ phone, customerName, orderNumber, productDetails, dispatchDate, totalQty }) => {
-  await sendWhatsappTemplate({
-    phone,
-    template: 'dispatch_confirmation',
-    language: 'en_US',
-    parameters: [
-      customerName || 'Customer',
-      orderNumber || '-',
-      productDetails || '-',
-      dispatchDate || '-',
-      String(totalQty ?? ''),
-    ],
-  });
+// Sales dispatch → confirmation to the customer.
+// Template "dispatch_confirmation":
+//   Date: {{1}} / Namaste, {{2}} / Your {{3}} lot was dispatched on {{4}}.
+//   Order Details - {{5}} / Total Quantity: {{6}}
+// `productEntries` are un-numbered entry strings, numbered and joined into
+// one line here; a long list is split over several messages (numbering
+// continues) to stay within Meta's 1024-character body limit.
+// Returns the number of messages sent.
+export const sendDispatchConfirmationWhatsapp = async ({ phone, date, customerName, lotQty, dispatchDate, productEntries, totalQty }) => {
+  if (!phone) return 0;
+  const parts = chunkNumberedProductList(productEntries, { heading: '' });
+  if (parts.length === 0) return 0;
+  for (const orderDetails of parts) {
+    await sendWhatsappTemplate({
+      phone,
+      template: 'dispatch_confirmation',
+      language: 'en_US',
+      parameters: [
+        sanitizeParam(date || '-'),                  // {{1}}
+        sanitizeParam(customerName || 'Customer'),  // {{2}}
+        sanitizeParam(lotQty || '-'),               // {{3}}
+        sanitizeParam(dispatchDate || '-'),         // {{4}}
+        sanitizeParam(orderDetails),                // {{5}} — already single-line
+        sanitizeParam(totalQty || '-'),             // {{6}}
+      ],
+    });
+  }
+  return parts.length;
 };
 
 // Vendor Approval → purchase order confirmation to the vendor.
