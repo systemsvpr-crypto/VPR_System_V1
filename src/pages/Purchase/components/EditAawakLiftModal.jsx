@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import { format } from 'date-fns';
 import { Truck, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { updateAawakLiftInfo, getPackagingSize } from '../../../services/purchaseService';
+import { updateAawakLiftInfo, updateAawakLift, getPackagingSize } from '../../../services/purchaseService';
 import { roundQty } from '@/lib/qty';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
@@ -9,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { canEditOrDelete } from '../../../lib/permissions';
 
-const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products = [], transporters = [], user, onSuccess }) => {
+const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products = [], transporters = [], godowns = [], user, onSuccess }) => {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     lifting_number: '',
@@ -21,6 +22,10 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
     process_type: 'direct',
     lr_number: '',
     expected_delivery_date: '',
+    receiving_date: '',
+    received_quantity: '',
+    godown_id: '',
+    status: 'Arrived',
     driver_phone_number: '',
     vehicle_number: '',
     remarks: '',
@@ -33,6 +38,8 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
     delivery?.status === 'AT TPT GDN' ||
     delivery?.status === 'Arrived' ||
     delivery?.status === 'Received';
+
+  const isHistory = activeSubTab === 'history' || delivery?.status === 'Arrived' || delivery?.status === 'Received';
 
   const canEditTransporter = delivery?.status === 'In Transit' || activeSubTab === 'pending';
 
@@ -52,6 +59,40 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
         if (match) transpId = match.transporter_id;
       }
 
+      const ownGodownIds = new Set(godowns.map(g => String(g.godown_id)));
+      const isKnownOwn = (id) => id && ownGodownIds.has(String(id));
+      const currentAlloc = delivery.purchase_delivery_godowns?.[0]?.godown_id;
+      const approved = delivery.purchase_indent_items?.approved_godown_id;
+      const defaultGodownId = godowns.find(g => g.name?.trim().toLowerCase() === 'godown')?.godown_id || godowns[0]?.godown_id || '';
+
+      const existingGodownId = isKnownOwn(currentAlloc)
+        ? currentAlloc
+        : (isKnownOwn(approved)
+            ? approved
+            : (isKnownOwn(delivery.godown_id)
+                ? delivery.godown_id
+                : defaultGodownId));
+
+      const initialStatus =
+        (delivery.status === 'AT TPT GDN' || delivery.status === 'In Transport Godown')
+          ? 'In Transport Godown'
+          : (delivery.status || (activeSubTab === 'transporter-godown' ? 'In Transport Godown' : 'Arrived'));
+
+      const masterUnit = (prod.unit || '').toLowerCase();
+      const defaultRecvQty = masterUnit === 'kg'
+        ? (delivery.dispatch_qty_kg != null ? String(delivery.dispatch_qty_kg) : '')
+        : (delivery.dispatch_qty_bag != null ? String(delivery.dispatch_qty_bag) : '');
+
+      const initialRecvQty = delivery.received_quantity != null && Number(delivery.received_quantity) > 0
+        ? String(delivery.received_quantity)
+        : defaultRecvQty;
+
+      const initialRecvDate = delivery.receiving_date
+        ? delivery.receiving_date.slice(0, 10)
+        : (delivery.expected_delivery_date
+            ? delivery.expected_delivery_date.slice(0, 10)
+            : (delivery.delivery_date ? delivery.delivery_date.slice(0, 10) : ''));
+
       setForm({
         lifting_number: delivery.lifting_number || '',
         delivery_date: delivery.delivery_date ? delivery.delivery_date.slice(0, 10) : '',
@@ -62,12 +103,16 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
         process_type: indent.process_type || delivery.process_type || 'direct',
         lr_number: delivery.lr_number || '',
         expected_delivery_date: delivery.expected_delivery_date ? delivery.expected_delivery_date.slice(0, 10) : '',
+        receiving_date: initialRecvDate,
+        received_quantity: initialRecvQty,
+        godown_id: existingGodownId ? String(existingGodownId) : '',
+        status: initialStatus,
         driver_phone_number: delivery.driver_phone_number || '',
         vehicle_number: delivery.vehicle_number || '',
         remarks: delivery.remarks || '',
       });
     }
-  }, [delivery, isOpen, products, transporters]);
+  }, [delivery, isOpen, products, transporters, godowns]);
 
   const currentProduct = products.find(p => String(p.product_id) === String(form.product_id)) || delivery?.purchase_indent_items?.products || {};
   const packagingSize = getPackagingSize(currentProduct);
@@ -127,6 +172,25 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
       return;
     }
 
+    if (form.status === 'Arrived') {
+      if (!form.godown_id) {
+        toast.error('Select a destination godown before saving as Arrived');
+        return;
+      }
+      if (form.received_quantity !== '' && Number(form.received_quantity) <= 0) {
+        toast.error('Received quantity must be greater than zero');
+        return;
+      }
+    }
+
+    if (form.receiving_date) {
+      const today = new Date().toISOString().slice(0, 10);
+      if (form.receiving_date > today) {
+        toast.error('Receiving date cannot be a future date');
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       const payload = {
@@ -140,17 +204,36 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
         driver_phone_number: form.driver_phone_number,
         vehicle_number: form.vehicle_number,
         remarks: form.remarks,
+        lr_number: form.lr_number,
       };
 
-      // In Pending section, LR Number and Transporter can also be updated
-      if (!isTransporterGodownOrHistory) {
-        payload.lr_number = form.lr_number;
-      }
       if (canEditTransporter) {
         payload.transporter_id = form.transporter_id || null;
       }
 
       await updateAawakLiftInfo(payload);
+
+      // Synchronize intake fields (receiving_date, received_quantity, godown_id, status) with stock ledger
+      const dbStatus = form.status === 'AT TPT GDN' ? 'In Transport Godown' : form.status;
+      const recvQty = form.received_quantity !== '' && form.received_quantity != null
+        ? Number(form.received_quantity)
+        : (delivery.received_quantity != null ? Number(delivery.received_quantity) : undefined);
+
+      await updateAawakLift({
+        delivery_id: delivery.delivery_id,
+        user_id: user?.user_id,
+        status: dbStatus,
+        lr_number: form.lr_number,
+        driver_phone_number: form.driver_phone_number,
+        vehicle_number: form.vehicle_number,
+        remarks: form.remarks,
+        godown_id: form.godown_id || null,
+        received_quantity: recvQty,
+        receiving_date: form.receiving_date || null,
+        expected_delivery_date: form.expected_delivery_date || null,
+        transporter_id: form.transporter_id || null,
+      });
+
       toast.success('Lift details updated successfully');
       if (onSuccess) onSuccess();
       onClose();
@@ -174,7 +257,6 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
               <h2 className="text-base font-bold text-slate-800">Edit Lift Details</h2>
               <p className="text-xs text-slate-500">
                 {delivery?.lifting_number ? `Lifting #${delivery.lifting_number}` : 'Update delivery lift particulars'}
-                {isTransporterGodownOrHistory ? ' (Locked fields for stock consistency)' : ''}
               </p>
             </div>
           </div>
@@ -197,16 +279,17 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
                 />
               </div>
 
-              {/* Delivery Date */}
+              {/* Dispatch Date (Read-only) */}
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
                   Dispatch Date
                 </label>
-                <DatePicker
-                  showActions
-                  value={form.delivery_date}
-                  onChange={e => handleChange('delivery_date', e.target.value)}
-                  className="h-9 text-xs"
+                <Input
+                  type="text"
+                  readOnly
+                  disabled
+                  value={form.delivery_date ? format(new Date(form.delivery_date), 'dd/MM/yyyy') : '—'}
+                  className="h-9 text-xs bg-slate-100 text-slate-500 cursor-not-allowed select-none"
                 />
               </div>
 
@@ -259,51 +342,48 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
                 </select>
               </div>
 
-              {/* Dispatch Qty KG */}
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Dispatch Qty (KG)
-                </label>
-                <Input
-                  type="number"
-                  step="any"
-                  min="0"
-                  placeholder="0.00"
-                  value={form.dispatch_qty_kg}
-                  onChange={e => handleDispatchKgChange(e.target.value)}
-                  className="h-9 text-xs"
-                />
-              </div>
+              {/* Dispatch Qty KG & Bags (Hidden in History & Transporter Godown sections) */}
+              {!isTransporterGodownOrHistory && (
+                <>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1">
+                      Dispatch Qty (KG)
+                    </label>
+                    <Input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={form.dispatch_qty_kg || '—'}
+                      className="h-9 text-xs bg-slate-100 text-slate-500 cursor-not-allowed select-none"
+                    />
+                  </div>
 
-              {/* Dispatch Qty Bag */}
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Dispatch Qty (Bags) {packagingSize ? `(${packagingSize} kg/bag)` : ''}
-                </label>
-                <Input
-                  type="number"
-                  step="any"
-                  min="0"
-                  placeholder="0.00"
-                  value={form.dispatch_qty_bag}
-                  onChange={e => handleDispatchBagChange(e.target.value)}
-                  className="h-9 text-xs"
-                />
-              </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1">
+                      Dispatch Qty (Bags) {packagingSize ? `(${packagingSize} kg/bag)` : ''}
+                    </label>
+                    <Input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={form.dispatch_qty_bag || '—'}
+                      className="h-9 text-xs bg-slate-100 text-slate-500 cursor-not-allowed select-none"
+                    />
+                  </div>
+                </>
+              )}
 
-              {/* LR Number (Read-only in Transporter Godown & History, editable in Pending) */}
+              {/* LR Number */}
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  LR Number {isTransporterGodownOrHistory && '(Read-only)'}
+                  LR Number
                 </label>
                 <Input
                   type="text"
                   placeholder="LR No."
-                  readOnly={isTransporterGodownOrHistory}
-                  disabled={isTransporterGodownOrHistory}
                   value={form.lr_number}
                   onChange={e => handleChange('lr_number', e.target.value)}
-                  className={`h-9 text-xs ${isTransporterGodownOrHistory ? 'bg-slate-100 text-slate-500 cursor-not-allowed select-none' : ''}`}
+                  className="h-9 text-xs"
                 />
               </div>
 
@@ -318,6 +398,75 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
                   onChange={e => handleChange('expected_delivery_date', e.target.value)}
                   className="h-9 text-xs"
                 />
+              </div>
+
+              {/* Receiving Date */}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Receiving Date
+                </label>
+                <DatePicker
+                  showActions
+                  value={form.receiving_date}
+                  onChange={e => handleChange('receiving_date', e.target.value)}
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              {/* Received Qty */}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Received Qty {currentProduct?.unit ? `(${currentProduct.unit})` : ''}
+                </label>
+                <Input
+                  type="number"
+                  step="any"
+                  min="0"
+                  placeholder="0.00"
+                  value={form.received_quantity}
+                  onChange={e => handleChange('received_quantity', e.target.value)}
+                  className="h-9 text-xs font-bold text-emerald-700"
+                />
+              </div>
+
+              {/* Godown Name */}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Godown Name
+                </label>
+                <select
+                  value={form.godown_id}
+                  onChange={e => handleChange('godown_id', e.target.value)}
+                  className="w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="">Select godown...</option>
+                  {godowns.map(g => (
+                    <option key={g.godown_id} value={String(g.godown_id)}>
+                      {g.name}
+                    </option>
+                  ))}
+                  {form.godown_id && !godowns.some(g => String(g.godown_id) === String(form.godown_id)) && (
+                    <option value={form.godown_id}>
+                      {delivery?.purchase_delivery_godowns?.[0]?.godowns?.name || 'Selected Godown'}
+                    </option>
+                  )}
+                </select>
+              </div>
+
+              {/* Status */}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Status
+                </label>
+                <select
+                  value={form.status}
+                  onChange={e => handleChange('status', e.target.value)}
+                  className="w-full h-9 text-xs font-semibold px-2.5 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="Arrived">Arrived</option>
+                  <option value="In Transport Godown">AT TPT GDN</option>
+                  <option value="In Transit">In Transit (Move to Pending)</option>
+                </select>
               </div>
 
               {/* Indent Type (Read-only) */}

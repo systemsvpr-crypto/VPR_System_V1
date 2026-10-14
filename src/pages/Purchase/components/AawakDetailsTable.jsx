@@ -1609,6 +1609,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         activeSubTab={activeSubTab}
         products={products}
         transporters={transporters}
+        godowns={ownGodowns}
         user={user}
         onSuccess={loadData}
       />
