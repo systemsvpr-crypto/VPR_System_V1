@@ -4,7 +4,7 @@ import { sendOrderConfirmationWhatsapp, sendDispatchConfirmationWhatsapp } from 
 import { getPackagingSize } from './purchaseService';
 import { roundQty } from '../lib/qty';
 import { getGroupNameFromItem } from './productGroupingService';
-import { toWhatsappSafeName, stripGroupPrefix, formatWaNumber } from '../lib/whatsappFormat';
+import { toWhatsappSafeName, stripGroupPrefix, formatWaNumber, numberLabel } from '../lib/whatsappFormat';
 
 // Bag <-> Kg conversion for dispatch planning. `product.unit` is the
 // master unit ('bag' or 'kg'); `product.mux` (e.g. "32 Kg") gives the
@@ -281,16 +281,51 @@ export const createDirectOrder = async ({ order_date, order_number, customer_id,
 };
 
 const formatOrderReceivedDate = (dateStr) => {
-  if (!dateStr) return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  if (!dateStr) return new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   try {
     if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
-      const [year, month, day] = dateStr.slice(0, 10).split('-');
-      return `${day}/${month}/${year}`;
+      const [year, month, day] = dateStr.slice(0, 10).split('-').map(Number);
+      return new Date(year, month - 1, day).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     }
-    return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? String(dateStr) : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   } catch {
     return String(dateStr);
   }
+};
+
+const formatSize = (s) => (s || '').replace(/\s*[\*×x]\s*/gi, ' × ').trim();
+
+const formatUnitPlural = (unit, qty) => {
+  const u = (unit || '').trim().toLowerCase();
+  if (u === 'bag' || u === 'bags') return Number(qty) === 1 ? 'bag' : 'bags';
+  return unit || '';
+};
+
+const buildOrderItemEntry = (item, p, index) => {
+  const brandAndCat = [p?.brand_name, p?.category].map(v => (v || '').trim()).filter(Boolean).join(' ');
+  let size = formatSize(p?.product_type);
+  let title = brandAndCat;
+
+  if (!title) {
+    let name = toWhatsappSafeName(p?.name || 'Item');
+    const sizeMatch = name.match(/(\d+(\.\d+)?\s*[×\*x]\s*\d+(\.\d+)?)/i);
+    if (!size && sizeMatch) {
+      size = formatSize(sizeMatch[1]);
+      name = name.replace(sizeMatch[0], '').replace(/\(\s*\d+\s*kg\s*\)/gi, '').trim();
+    }
+    title = name;
+  }
+
+  const price = item.unit_price != null && Number(item.unit_price) > 0
+    ? ` — ₹${formatWaNumber(item.unit_price)}/-`
+    : '';
+
+  const qty = item.sales_qty != null ? Number(item.sales_qty) : Number(item.quantity);
+  const unitLabel = formatUnitPlural(item.Selected_Unit || p?.unit || '', qty);
+  const sizePart = size ? `   ${size}` : '';
+
+  return `${numberLabel(index)} ${title}${price}${sizePart} — ${formatWaNumber(qty)}${unitLabel ? ' ' + unitLabel : ''}`;
 };
 
 const notifyOrderConfirmation = async (customer_id, items, order_date) => {
@@ -304,20 +339,19 @@ const notifyOrderConfirmation = async (customer_id, items, order_date) => {
   const productIds = [...new Set(items.map(i => i.product_id))];
   const { data: productRows } = await supabase
     .from('products')
-    .select('product_id, name, unit')
+    .select('product_id, name, unit, brand_name, category, product_type, mux')
     .in('product_id', productIds);
   const prodMap = {};
   (productRows || []).forEach(p => { prodMap[p.product_id] = p; });
 
   const itemDetails = items
-    .map(i => {
-      const p = prodMap[i.product_id];
-      const unit = (i.Selected_Unit || p?.unit || '').trim();
-      const qty = i.sales_qty != null ? Number(i.sales_qty) : Number(i.quantity);
-      return `${p?.name || 'Item'} x ${qty}${unit ? ' ' + unit : ''}`;
-    })
-    .join(', ');
-  const totalQty = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+    .map((item, index) => buildOrderItemEntry(item, prodMap[item.product_id], index))
+    .join(' • ');
+
+  const totalQtyNum = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+  const distinctUnits = [...new Set(items.map(i => (i.Selected_Unit || prodMap[i.product_id]?.unit || '').trim()).filter(Boolean))];
+  const totalUnitLabel = distinctUnits.length === 1 ? formatUnitPlural(distinctUnits[0], totalQtyNum) : '';
+  const totalQty = totalUnitLabel ? `${formatWaNumber(totalQtyNum)} ${totalUnitLabel}` : String(formatWaNumber(totalQtyNum));
   const formattedOrderDate = formatOrderReceivedDate(order_date);
 
   await sendOrderConfirmationWhatsapp({

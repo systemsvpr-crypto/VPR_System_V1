@@ -13,16 +13,23 @@ const sendWhatsappTemplate = async ({ phone, template, language, parameters }) =
   }
 };
 
+// Order Confirmation template:
+//   Date: {{1}}
+//   Namaste, {{2}}
+//   Your order has been received.
+//   Order Details - {{3}}
+//   Total Quantity: {{4}}
+//   Thank you
 export const sendOrderConfirmationWhatsapp = async ({ phone, customerName, itemDetails, totalQty, orderDate }) => {
   await sendWhatsappTemplate({
     phone,
     template: 'order_confirmation',
     language: 'en',
     parameters: [
-      sanitizeParam(customerName || 'Customer'), // {{1}}
-      sanitizeParam(itemDetails || '-', false),   // {{2}}
-      sanitizeParam(String(totalQty ?? '0')),    // {{3}}
-      sanitizeParam(orderDate || '-'),           // {{4}}
+      sanitizeParam(orderDate || '-'),           // {{1}}
+      sanitizeParam(customerName || 'Customer'), // {{2}}
+      sanitizeParam(itemDetails || '-', false),  // {{3}}
+      sanitizeParam(String(totalQty ?? '0')),    // {{4}}
     ],
   });
 };
@@ -39,7 +46,7 @@ const sanitizeParam = (str, allowLineBreaks = false) => {
   }
   return s
     .replace(/\t/g, ' ')
-    .replace(/[ ]{2,}/g, ' ') // Collapse multiple ASCII spaces (Meta rejects 4+ consecutive spaces)
+    .replace(/[ ]{4,}/g, '   ') // Collapse 4+ consecutive ASCII spaces (Meta rejects 4+ consecutive spaces)
     .trim() || '-';
 };
 
