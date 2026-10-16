@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { batchUpdateInformBeforeDispatch } from '../../../services/salesService';
 import { Button } from '@/components/ui/button';
 import Pagination from '@/components/ui/pagination';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -109,7 +110,7 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
           {isNotifying ? 'Notifying...' : 'Confirm Notify'}
         </Button>
       </div>
-      <div className="overflow-x-auto custom-scrollbar">
+      <TableScrollSync>
         <table className="w-full text-sm whitespace-nowrap">
           <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
             <tr>
@@ -209,7 +210,7 @@ const InformBeforeDispatchTable = ({ orders, godowns, searchTerm, loading, infor
             })}
           </tbody>
         </table>
-      </div>
+      </TableScrollSync>
       {filteredItems.length > 0 && (
         <Pagination currentPage={currentPage} totalPages={totalPages}
           totalItems={filteredItems.length}

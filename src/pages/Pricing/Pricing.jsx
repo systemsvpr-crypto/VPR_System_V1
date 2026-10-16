@@ -75,7 +75,8 @@ const Pricing = () => {
         }),
         getAllPricingGroups(),
       ]);
-      setRanks(ranksData || []);
+      // Only active ranks get a rate column in Pricing.
+      setRanks((ranksData || []).filter((r) => r.is_active !== false));
       setGroups(groupsData || []);
     } catch (err) {
       console.error('Failed to load pricing groups:', err);

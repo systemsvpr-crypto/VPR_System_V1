@@ -13,6 +13,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { format } from 'date-fns';
 
 import { canEditOrDelete } from '../../../lib/permissions';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -692,7 +693,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
         {viewMode === 'card' && renderCards()}
 
         {viewMode === 'table' && (
-          <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+          <TableScrollSync className="flex-1 min-h-0" scrollClassName="overflow-y-auto flex-1 min-h-0">
             <table className="w-full text-xs relative">
             <thead className="sticky top-0 z-10 shadow-sm">
               <tr className="bg-blue-50 border-b border-slate-200">
@@ -810,7 +811,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
               )}
             </tbody>
           </table>
-        </div>
+        </TableScrollSync>
       )}
         
         <div className="px-4 py-2.5 border-t border-royal-600/25 bg-blue-50 flex items-center justify-between gap-4 rounded-b-xl shrink-0">

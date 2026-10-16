@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { getSkipDeliveredItems } from '../../../services/salesService';
 import Pagination from '@/components/ui/pagination';
 import SkipDeliverModal from './SkipDeliverModal';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -375,7 +376,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
 
   /* ─── Render Table View ─────────────────────────────────── */
   const renderTable = () => (
-    <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+    <TableScrollSync className="flex-1 min-h-0" scrollClassName="overflow-y-auto flex-1 min-h-0">
       <table className="w-full text-xs">
         <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
           <tr>
@@ -433,7 +434,7 @@ const SkipDeliveredTable = ({ searchTerm, skipFilter, onSave, products, godowns,
           )}
         </tbody>
       </table>
-    </div>
+    </TableScrollSync>
   );
 
   return (

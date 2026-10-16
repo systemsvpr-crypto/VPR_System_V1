@@ -34,7 +34,7 @@ const RankTable = ({ ranks, totalItems, loading, onEdit, onDelete, searchTerm, c
   return (
     <DataTable
       headers={[
-        'Rank', 'Created Date', ...(userCanEdit ? ['Actions'] : [])
+        'Rank', 'Status', 'Created Date', ...(userCanEdit ? ['Actions'] : [])
       ]}
       data={ranks}
       currentPage={currentPage}
@@ -46,6 +46,7 @@ const RankTable = ({ ranks, totalItems, loading, onEdit, onDelete, searchTerm, c
       renderRow={(r, index) => (
         <tr key={r.rank_id} className="hover:bg-slate-50 transition-colors group text-xs">
           <td className="px-4 py-3 text-center font-medium text-slate-800">{r.rank_name}</td>
+          <td className="px-4 py-3 text-center"><span className={r.is_active !== false ? 'inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200' : 'inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold border bg-slate-100 text-slate-500 border-slate-200'}>{r.is_active !== false ? 'Active' : 'Inactive'}</span></td>
           <td className="px-4 py-3 text-center text-slate-400">{r.created_at ? format(new Date(r.created_at), 'dd/MM/yyyy') : '—'}</td>
           {userCanEdit && (
             <td className="px-4 py-3 text-center">
@@ -68,6 +69,7 @@ const RankTable = ({ ranks, totalItems, loading, onEdit, onDelete, searchTerm, c
           <div className="flex justify-between items-start">
             <div>
               <h4 className="font-semibold text-slate-800">{r.rank_name}</h4>
+              <div className="mt-1"><span className={r.is_active !== false ? 'inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200' : 'inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold border bg-slate-100 text-slate-500 border-slate-200'}>{r.is_active !== false ? 'Active' : 'Inactive'}</span></div>
               <p className="text-xs text-slate-500 mt-0.5">
                 {r.created_at ? format(new Date(r.created_at), 'dd/MM/yyyy') : '—'}
               </p>

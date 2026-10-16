@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import useAuthStore from '../../../store/authStore';
 import { canEditOrDelete } from '@/lib/permissions';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm, selectedIds, onToggleSelect, onToggleSelectAll }) => {
   const { user } = useAuthStore();
@@ -382,7 +383,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
       {viewMode === 'card' ? (
         renderCards()
       ) : (
-        <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0 flex flex-col">
+        <TableScrollSync className="flex-1 min-h-0" scrollClassName="overflow-y-auto flex-1 min-h-0 flex flex-col">
           <table className="w-full text-sm relative">
             <thead className="sticky top-0 z-10 shadow-sm">
               <tr className="bg-blue-50 border-b border-slate-200">
@@ -591,7 +592,7 @@ const OrderTable = ({ orders, totalItems, loading, onEdit, onDelete, searchTerm,
               })}
             </tbody>
           </table>
-        </div>
+        </TableScrollSync>
       )}
     </div>
   );

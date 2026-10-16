@@ -8,6 +8,7 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } 
 
 const RankModal = ({ isOpen, onClose, onSuccess, editingRank }) => {
   const [rankName, setRankName] = useState('');
+  const [isActive, setIsActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   const isEditing = !!editingRank;
@@ -15,8 +16,10 @@ const RankModal = ({ isOpen, onClose, onSuccess, editingRank }) => {
   useEffect(() => {
     if (!isOpen) {
       setRankName('');
+      setIsActive(true);
     } else if (editingRank) {
       setRankName(editingRank.rank_name || '');
+      setIsActive(editingRank.is_active !== false);
     }
   }, [isOpen, editingRank]);
 
@@ -26,10 +29,10 @@ const RankModal = ({ isOpen, onClose, onSuccess, editingRank }) => {
     setSubmitting(true);
     try {
       if (isEditing) {
-        await updateRank(editingRank.rank_id, rankName.trim());
+        await updateRank(editingRank.rank_id, rankName.trim(), isActive);
         toast.success('Rank updated successfully');
       } else {
-        await createRank(rankName.trim());
+        await createRank(rankName.trim(), isActive);
         toast.success('Rank created successfully');
       }
       onClose();
@@ -52,6 +55,18 @@ const RankModal = ({ isOpen, onClose, onSuccess, editingRank }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Rank Name <span className="text-red-500">*</span></label>
               <Input value={rankName} onChange={(e) => setRankName(e.target.value)} placeholder="Enter rank name" autoFocus />
+            </div>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
+              <select
+                value={isActive ? 'active' : 'inactive'}
+                onChange={(e) => setIsActive(e.target.value === 'active')}
+                className="w-full h-10 rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <p className="text-xs text-slate-400 mt-1">Only active ranks appear as a rate column in Pricing.</p>
             </div>
           </ModalBody>
           <ModalFooter>

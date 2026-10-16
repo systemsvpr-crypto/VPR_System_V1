@@ -3,6 +3,7 @@ import { Truck, Package, Search, BarChart3, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAawakDeliveries } from '../../../services/purchaseService';
 import { Input } from '@/components/ui/input';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const naturalCompare = (a, b) => {
   const numsA = String(a).match(/\d+(\.\d+)?/g)?.map(Number) || [];
@@ -139,7 +140,7 @@ const TransportGodownStock = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <TableScrollSync>
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
@@ -165,7 +166,7 @@ const TransportGodownStock = () => {
               </tr>
             </tbody>
           </table>
-        </div>
+        </TableScrollSync>
       </div>
 
       {/* Product-wise Breakdown Table Section (by Transporter) */}
@@ -188,7 +189,7 @@ const TransportGodownStock = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <TableScrollSync>
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
@@ -272,7 +273,7 @@ const TransportGodownStock = () => {
               </tfoot>
             )}
           </table>
-        </div>
+        </TableScrollSync>
       </div>
     </div>
   );

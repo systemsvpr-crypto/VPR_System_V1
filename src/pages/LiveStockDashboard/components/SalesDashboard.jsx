@@ -25,6 +25,7 @@ import { resolveCustomerTier } from '../../../lib/pricingCategoryHelper';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
+import TableScrollSync from '@/components/TableScrollSync';
 
 /**
  * Format date in DD-MMM-YY (e.g. "20-Aug-26") matching user's Excel screenshot
@@ -658,7 +659,7 @@ const SalesDashboard = () => {
             </div>
 
             {/* Table */}
-            <div className="overflow-x-auto custom-scrollbar">
+            <TableScrollSync>
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80 font-semibold text-slate-600">
@@ -742,7 +743,7 @@ const SalesDashboard = () => {
                   )}
                 </tbody>
               </table>
-            </div>
+            </TableScrollSync>
 
             {/* Table Footer */}
             <div className="px-3.5 py-2 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between text-[11px] text-slate-500">
@@ -783,7 +784,7 @@ const SalesDashboard = () => {
               </div>
 
               {/* Ranks & Rates Table */}
-              <div className="overflow-x-auto custom-scrollbar">
+              <TableScrollSync>
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/80 font-semibold text-slate-600">
@@ -842,7 +843,7 @@ const SalesDashboard = () => {
                     )}
                   </tbody>
                 </table>
-              </div>
+              </TableScrollSync>
             </div>
 
             {/* ─── 2. Pending Orders Table ─────────────────────────────────── */}
@@ -857,7 +858,7 @@ const SalesDashboard = () => {
                 </span>
               </div>
 
-              <div className="overflow-x-auto custom-scrollbar">
+              <TableScrollSync>
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/80 font-semibold text-slate-600">
@@ -907,7 +908,7 @@ const SalesDashboard = () => {
                     )}
                   </tbody>
                 </table>
-              </div>
+              </TableScrollSync>
 
               {/* Pending Orders Footer */}
               <div className="px-3.5 py-2 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between text-[11px] text-slate-500">

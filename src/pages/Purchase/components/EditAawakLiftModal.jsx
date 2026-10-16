@@ -383,7 +383,8 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
                   placeholder="LR No."
                   value={form.lr_number}
                   onChange={e => handleChange('lr_number', e.target.value)}
-                  className="h-9 text-xs"
+                  disabled={isHistory}
+                  className={`h-9 text-xs ${isHistory ? 'cursor-not-allowed bg-slate-100 text-slate-500' : ''}`}
                 />
               </div>
 
@@ -393,10 +394,11 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
                   Expected Recv Date
                 </label>
                 <DatePicker
-                  showActions
+                  showActions={!isHistory}
                   value={form.expected_delivery_date}
                   onChange={e => handleChange('expected_delivery_date', e.target.value)}
-                  className="h-9 text-xs"
+                  disabled={isHistory}
+                  className={`h-9 text-xs ${isHistory ? 'cursor-not-allowed bg-slate-100 text-slate-500' : ''}`}
                 />
               </div>
 
@@ -494,7 +496,8 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
                   placeholder="Vehicle No."
                   value={form.vehicle_number}
                   onChange={e => handleChange('vehicle_number', e.target.value)}
-                  className="h-9 text-xs"
+                  disabled={isHistory}
+                  className={`h-9 text-xs ${isHistory ? 'cursor-not-allowed bg-slate-100 text-slate-500' : ''}`}
                 />
               </div>
 
@@ -508,7 +511,8 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
                   placeholder="Driver Phone"
                   value={form.driver_phone_number}
                   onChange={e => handleChange('driver_phone_number', e.target.value)}
-                  className="h-9 text-xs"
+                  disabled={isHistory}
+                  className={`h-9 text-xs ${isHistory ? 'cursor-not-allowed bg-slate-100 text-slate-500' : ''}`}
                 />
               </div>
 
@@ -522,7 +526,8 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
                   placeholder="Enter remarks..."
                   value={form.remarks}
                   onChange={e => handleChange('remarks', e.target.value)}
-                  className="h-9 text-xs"
+                  disabled={isHistory}
+                  className={`h-9 text-xs ${isHistory ? 'cursor-not-allowed bg-slate-100 text-slate-500' : ''}`}
                 />
               </div>
             </div>

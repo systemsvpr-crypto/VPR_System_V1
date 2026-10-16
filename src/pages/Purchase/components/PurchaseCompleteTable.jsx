@@ -227,6 +227,65 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
     }
   };
 
+  const handleExport = async () => {
+    const source = selectedItems.size > 0
+      ? filteredItems.filter(i => selectedItems.has(i.item_id))
+      : filteredItems;
+    if (source.length === 0) {
+      toast.error('No items to export');
+      return;
+    }
+    try {
+      const { default: ExcelJS } = await import('exceljs');
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Purchase Dashboard');
+      const columns = [
+        ['Indent Date', 16], ['Indent No.', 16], ['Indent Type', 14], ['Product Name', 40],
+        ['Unit', 10], ['Vendor Name', 28], ['Total Qty', 12], ['Rate', 12], ['Total Amount', 16],
+        ['Approve Qty', 14], ['Approved By', 20], ['Intransit Qty', 14], ['Transporter Qty', 16],
+        ['Received Qty', 14], ['Received Godown', 24],
+      ];
+      ws.columns = columns.map(([header, width]) => ({ header, width }));
+      source.forEach(i => {
+        ws.addRow([
+          i.indent_date ? format(new Date(i.indent_date), 'dd/MM/yyyy') : '',
+          i.indent_number || '',
+          i.indent_type || '',
+          i.product_name || '',
+          i.unit || '',
+          i.vendor_name && i.vendor_name !== '—' ? i.vendor_name : '',
+          Number(i.total_qty || 0),
+          Number(i.rate || 0),
+          Number(i.total_amount || 0),
+          i.approve_qty !== null && i.approve_qty !== undefined ? Number(i.approve_qty) : 'Pending',
+          i.approved_by_name || '',
+          Number(i.intransit_qty || 0),
+          Number(i.transporter_qty || 0),
+          Number(i.received_qty || 0),
+          i.received_godown_str && i.received_godown_str !== '—' ? i.received_godown_str : '',
+        ]);
+      });
+      const header = ws.getRow(1);
+      header.font = { bold: true };
+      header.alignment = { horizontal: 'center', vertical: 'middle' };
+      header.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E6F5' } }; });
+      ws.views = [{ state: 'frozen', ySplit: 1 }];
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `purchase_dashboard_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${source.length} item${source.length !== 1 ? 's' : ''}`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to export purchase dashboard');
+    }
+  };
+
   const renderCards = () => {
     if (filteredItems.length === 0) {
       return (
@@ -568,6 +627,17 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
               Delete Selected ({selectedItems.size})
             </Button>
           )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            className="h-9 px-3 text-xs font-medium text-slate-600 border-slate-200 hover:bg-slate-50 gap-1.5 shrink-0"
+            title={selectedItems.size > 0 ? 'Export selected items' : 'Export all filtered items'}
+          >
+            <Download size={14} />
+            Export{selectedItems.size > 0 ? ` (${selectedItems.size})` : ''}
+          </Button>
 
           <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
             <button

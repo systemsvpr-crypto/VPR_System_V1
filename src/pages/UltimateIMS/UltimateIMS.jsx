@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 import { canEditOrDelete } from '../../lib/permissions';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -544,7 +545,7 @@ const UltimateIMS = () => {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1">
-        <div className="overflow-x-auto custom-scrollbar flex-1 flex flex-col">
+        <TableScrollSync className="flex-1 min-h-0" scrollClassName="flex-1 flex flex-col">
           <table className="w-full text-xs relative">
             <thead className="sticky top-0 z-10 shadow-sm">
               <tr className="bg-blue-50 border-b border-slate-200">
@@ -718,7 +719,7 @@ const UltimateIMS = () => {
               )}
             </tbody>
           </table>
-        </div>
+        </TableScrollSync>
 
         <div className="shrink-0 px-4 py-3 border-t border-slate-100 bg-blue-50 flex flex-col sm:flex-row items-center justify-between gap-3 rounded-b-xl">
           <div className="flex items-center gap-2">

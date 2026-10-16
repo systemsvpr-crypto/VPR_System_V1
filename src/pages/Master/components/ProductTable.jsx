@@ -12,7 +12,7 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
   return (
     <DataTable
       headers={[
-        'Product Name', 'Unit', 'Size', 'Brand', 'Category', 'Mux', 'Grouping', 'Stock', 'Created Date', ...(userCanEdit ? ['Actions'] : [])
+        'Product Name', 'Unit', 'Size', 'Brand', 'Category', 'Mux', 'Grouping', 'Lead Time', 'Safety Factor', 'Stock', 'Created Date', ...(userCanEdit ? ['Actions'] : [])
       ]}
       data={products}
       currentPage={currentPage}
@@ -30,6 +30,8 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
           <td className="px-4 py-3 text-center text-slate-600">{p.category || <span className="text-slate-300">—</span>}</td>
           <td className="px-4 py-3 text-center text-slate-600">{p.mux || <span className="text-slate-300">—</span>}</td>
           <td className="px-4 py-3 text-center text-slate-600">{groupNameMap?.[p.group_id] || <span className="text-slate-300">—</span>}</td>
+          <td className="px-4 py-3 text-center text-slate-600">{p.lead_time ?? <span className="text-slate-300">—</span>}</td>
+          <td className="px-4 py-3 text-center text-slate-600">{p.safety_factor ?? <span className="text-slate-300">—</span>}</td>
           <td className="px-4 py-3 text-center">
             <div className="flex flex-wrap items-center justify-center gap-1.5">
               {stockMap?.[p.product_id]?.length > 0
@@ -83,6 +85,14 @@ const ProductTable = ({ products, totalItems, loading, onEdit, searchTerm, stock
             <div className="bg-slate-50 p-2 rounded-lg">
               <span className="text-slate-500 block mb-1">Grouping</span>
               <span className="text-slate-700">{groupNameMap?.[p.group_id] || '—'}</span>
+            </div>
+            <div className="bg-slate-50 p-2 rounded-lg">
+              <span className="text-slate-500 block mb-1">Lead Time</span>
+              <span className="text-slate-700">{p.lead_time ?? '—'}</span>
+            </div>
+            <div className="bg-slate-50 p-2 rounded-lg">
+              <span className="text-slate-500 block mb-1">Safety Factor</span>
+              <span className="text-slate-700">{p.safety_factor ?? '—'}</span>
             </div>
             <div className="bg-slate-50 p-2 rounded-lg">
               <span className="text-slate-500 block mb-1">Created</span>

@@ -1,7 +1,8 @@
 const formatNum = (n) => Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+import TableScrollSync from '@/components/TableScrollSync';
 
 const GodownSummaryTable = ({ godowns, totals }) => (
-  <div className="overflow-x-auto">
+  <TableScrollSync>
     <table className="w-full text-xs">
       <thead>
         <tr className="bg-slate-50 border-b border-slate-200">
@@ -38,7 +39,7 @@ const GodownSummaryTable = ({ godowns, totals }) => (
         </tr>
       </tbody>
     </table>
-  </div>
+  </TableScrollSync>
 );
 
 export default GodownSummaryTable;

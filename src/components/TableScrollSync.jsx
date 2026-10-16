@@ -1,87 +1,93 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 
 /**
- * TableScrollSync
- * Provides a synchronized top horizontal scrollbar for wide data tables.
- * Both top and bottom scrollbars stay in sync bidirectionally.
+ * useTopScrollSync
+ * Keeps a top horizontal scrollbar in sync with a table's scroll container.
+ * Attach `bottomRef` to the scrolling element and call `onBottomScroll` from
+ * its onScroll; render <TopScrollbar {...topProps} /> above it.
  */
-export const TableScrollSync = ({ children, className = '', hideBottomScrollbar = false }) => {
-  const topScrollRef = useRef(null);
-  const bottomScrollRef = useRef(null);
+export const useTopScrollSync = () => {
+  const topRef = useRef(null);
+  const bottomRef = useRef(null);
   const [scrollWidth, setScrollWidth] = useState(0);
   const [hasOverflow, setHasOverflow] = useState(false);
-  const isSyncingTop = useRef(false);
-  const isSyncingBottom = useRef(false);
+  const syncingFromTop = useRef(false);
+  const syncingFromBottom = useRef(false);
 
   const measure = useCallback(() => {
-    const bottomEl = bottomScrollRef.current;
-    if (bottomEl) {
-      const sw = bottomEl.scrollWidth;
-      const cw = bottomEl.clientWidth;
-      setScrollWidth(sw);
-      setHasOverflow(sw > cw + 1);
-      // Keep scroll positions aligned upon resize
-      if (topScrollRef.current) {
-        topScrollRef.current.scrollLeft = bottomEl.scrollLeft;
-      }
-    }
+    const el = bottomRef.current;
+    if (!el) return;
+    setScrollWidth(el.scrollWidth);
+    setHasOverflow(el.scrollWidth > el.clientWidth + 1);
+    if (topRef.current) topRef.current.scrollLeft = el.scrollLeft;
   }, []);
 
   useEffect(() => {
     measure();
-    const bottomEl = bottomScrollRef.current;
-    if (!bottomEl) return;
-
+    const el = bottomRef.current;
+    if (!el) return;
     const observer = new ResizeObserver(() => measure());
-    observer.observe(bottomEl);
-    if (bottomEl.firstElementChild) {
-      observer.observe(bottomEl.firstElementChild);
-    }
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
     return () => observer.disconnect();
   }, [measure]);
 
   const onTopScroll = () => {
-    if (isSyncingTop.current) {
-      isSyncingTop.current = false;
+    if (syncingFromTop.current) {
+      syncingFromTop.current = false;
       return;
     }
-    if (bottomScrollRef.current && topScrollRef.current) {
-      isSyncingBottom.current = true;
-      bottomScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    if (bottomRef.current && topRef.current) {
+      syncingFromBottom.current = true;
+      bottomRef.current.scrollLeft = topRef.current.scrollLeft;
     }
   };
 
   const onBottomScroll = () => {
-    if (isSyncingBottom.current) {
-      isSyncingBottom.current = false;
+    if (syncingFromBottom.current) {
+      syncingFromBottom.current = false;
       return;
     }
-    if (topScrollRef.current && bottomScrollRef.current) {
-      isSyncingTop.current = true;
-      topScrollRef.current.scrollLeft = bottomScrollRef.current.scrollLeft;
+    if (topRef.current && bottomRef.current) {
+      syncingFromTop.current = true;
+      topRef.current.scrollLeft = bottomRef.current.scrollLeft;
     }
   };
 
+  return { bottomRef, onBottomScroll, topProps: { topRef, onTopScroll, scrollWidth, hasOverflow } };
+};
+
+export const TopScrollbar = ({ topRef, onTopScroll, scrollWidth, hasOverflow }) => {
+  if (!hasOverflow) return null;
+  return (
+    <div
+      ref={topRef}
+      onScroll={onTopScroll}
+      className="overflow-x-auto overflow-y-hidden custom-scrollbar bg-slate-50/90 border-b border-slate-200/80 shrink-0"
+      style={{ height: '10px', minHeight: '10px' }}
+      title="Scroll table horizontally"
+    >
+      <div style={{ width: `${scrollWidth}px`, height: '1px' }} />
+    </div>
+  );
+};
+
+/**
+ * TableScrollSync
+ * Provides a synchronized top horizontal scrollbar for wide data tables.
+ * `scrollClassName` is applied to the scrolling container (e.g. to add
+ * vertical scrolling for sticky headers).
+ */
+export const TableScrollSync = ({ children, className = '', scrollClassName = '', hideBottomScrollbar = false }) => {
+  const { bottomRef, onBottomScroll, topProps } = useTopScrollSync();
+
   return (
     <div className={`flex flex-col w-full ${className}`}>
-      {/* Top Horizontal Scrollbar Track */}
-      {hasOverflow && (
-        <div
-          ref={topScrollRef}
-          onScroll={onTopScroll}
-          className="overflow-x-auto overflow-y-hidden custom-scrollbar bg-slate-50/90 border-b border-slate-200/80 shrink-0"
-          style={{ height: '10px', minHeight: '10px' }}
-          title="Scroll table horizontally"
-        >
-          <div style={{ width: `${scrollWidth}px`, height: '1px' }} />
-        </div>
-      )}
-
-      {/* Main Table Container */}
+      <TopScrollbar {...topProps} />
       <div
-        ref={bottomScrollRef}
+        ref={bottomRef}
         onScroll={onBottomScroll}
-        className={`overflow-x-auto ${hideBottomScrollbar ? 'scrollbar-hide' : 'custom-scrollbar'}`}
+        className={`overflow-x-auto ${hideBottomScrollbar ? 'scrollbar-hide' : 'custom-scrollbar'} ${scrollClassName}`}
       >
         {children}
       </div>

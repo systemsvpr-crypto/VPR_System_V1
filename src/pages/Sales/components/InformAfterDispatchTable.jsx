@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { getAllDispatchPlans, batchUpdateInformAfterDispatch } from '../../../services/salesService';
 import { Button } from '@/components/ui/button';
 import Pagination from '@/components/ui/pagination';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -347,7 +348,7 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
       {viewMode === 'card' && renderCards()}
 
       {viewMode === 'table' && (
-        <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1 min-h-0">
+        <TableScrollSync className="flex-1 min-h-0" scrollClassName="overflow-y-auto flex-1 min-h-0">
           <table className="w-full text-sm whitespace-nowrap">
           <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
             <tr>
@@ -439,7 +440,7 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
             })}
           </tbody>
         </table>
-      </div>
+      </TableScrollSync>
       )}
       {filteredPlans.length > 0 && (
         <Pagination currentPage={currentPage} totalPages={totalPages}

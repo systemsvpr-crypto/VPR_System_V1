@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import FilterMenu from '@/components/FilterMenu';
 import { Dropdown } from '@/components/ui/dropdown';
 import { DatePicker } from '@/components/ui/date-picker';
+import TableScrollSync from '@/components/TableScrollSync';
 
 const formatNum = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
@@ -572,7 +573,7 @@ const VendorDashboard = () => {
 
           {/* Indent-wise Detail Table */}
           <div className="flex flex-col">
-            <div className="overflow-x-auto">
+            <TableScrollSync>
               <table className="w-full text-xs relative">
                 <thead className="sticky top-0 z-10 shadow-sm">
                 <tr className="bg-blue-50 border-b border-slate-200">
@@ -641,7 +642,7 @@ const VendorDashboard = () => {
                 )}
               </tbody>
             </table>
-            </div>
+            </TableScrollSync>
             
             {/* Pagination Footer */}
             <div className="flex-none px-4 py-2.5 border-t border-slate-200 bg-blue-50 flex items-center justify-between gap-4">
@@ -835,7 +836,7 @@ const VendorDashboard = () => {
 
         {/* Data Table — one row per vendor; click a row to open its
             dedicated detail page with the full indent-wise breakdown. */}
-        <div className="overflow-x-auto">
+        <TableScrollSync>
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-10">
               <tr className="bg-blue-50 border-b border-slate-200">
@@ -911,7 +912,7 @@ const VendorDashboard = () => {
             </tbody>
 
           </table>
-        </div>
+        </TableScrollSync>
 
         {/* Pagination Footer */}
         <div className="shrink-0 px-4 py-2.5 border-t border-slate-200 bg-blue-50 flex items-center justify-between gap-4 rounded-b-xl">

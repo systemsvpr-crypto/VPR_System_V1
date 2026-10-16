@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { useTopScrollSync, TopScrollbar } from './TableScrollSync';
 
 // Movement (in px) the mouse must travel before a mousedown commits to a
 // horizontal pan-drag. Below this threshold it's treated as a plain click or
@@ -10,6 +11,11 @@ const isCoarsePointer = () => window.matchMedia('(pointer: coarse)').matches;
 const DragScrollTable = ({ children, className = "" }) => {
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef(null);
+  const { bottomRef, onBottomScroll, topProps } = useTopScrollSync();
+  const setContainerRef = (node) => {
+    containerRef.current = node;
+    bottomRef.current = node;
+  };
   // Mutable drag bookkeeping that mousemove needs on every event — kept out
   // of state so it doesn't trigger a re-render per pixel of movement.
   const dragRef = useRef({ armed: false, panning: false, startX: 0, scrollLeft: 0 });
@@ -58,16 +64,20 @@ const DragScrollTable = ({ children, className = "" }) => {
   };
 
   return (
-    <div
-      ref={containerRef}
-      onMouseDown={handleMouseDown}
-      onMouseLeave={endDrag}
-      onMouseUp={endDrag}
-      onMouseMove={handleMouseMove}
-      className={`overflow-x-auto overflow-y-auto min-h-0 custom-scrollbar flex-1 ${isDragging ? 'cursor-grabbing select-none' : 'cursor-grab'} ${className}`}
-      style={{ WebkitOverflowScrolling: 'touch' }}
-    >
-      {children}
+    <div className={`flex flex-col min-h-0 flex-1 ${className}`}>
+      <TopScrollbar {...topProps} />
+      <div
+        ref={setContainerRef}
+        onScroll={onBottomScroll}
+        onMouseDown={handleMouseDown}
+        onMouseLeave={endDrag}
+        onMouseUp={endDrag}
+        onMouseMove={handleMouseMove}
+        className={`overflow-x-auto overflow-y-auto min-h-0 custom-scrollbar flex-1 ${isDragging ? 'cursor-grabbing select-none' : 'cursor-grab'}`}
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        {children}
+      </div>
     </div>
   );
 };

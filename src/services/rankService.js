@@ -9,20 +9,20 @@ export const getAllRanks = async () => {
   return data || [];
 };
 
-export const createRank = async (rank_name) => {
+export const createRank = async (rank_name, is_active = true) => {
   const { data, error } = await supabase
     .from('ranks')
-    .insert([{ rank_name }])
+    .insert([{ rank_name, is_active }])
     .select()
     .single();
   if (error) throw error;
   return data;
 };
 
-export const updateRank = async (rank_id, rank_name) => {
+export const updateRank = async (rank_id, rank_name, is_active = true) => {
   const { data, error } = await supabase
     .from('ranks')
-    .update({ rank_name, updated_at: new Date().toISOString() })
+    .update({ rank_name, is_active, updated_at: new Date().toISOString() })
     .eq('rank_id', rank_id)
     .select()
     .single();
