@@ -1,0 +1,46 @@
+/* Utilities the checklist pages use that VPR's index.css doesn't define.
+   Plain CSS (not @theme tokens) so they stay scoped to class usage and
+   can't shift any existing VPR styling. */
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225);
+  border-radius: 9999px;
+}
+
+@keyframes checklist-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: checklist-fade-in 0.3s ease-out both;
+}
+
+@keyframes checklist-toast-in {
+  from { opacity: 0; transform: translateX(110%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes checklist-toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(110%); }
+}
+.animate-toast-slide-in {
+  animation: checklist-toast-in 0.4s cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+.animate-toast-slide-out {
+  animation: checklist-toast-out 0.4s ease-in both;
+}
