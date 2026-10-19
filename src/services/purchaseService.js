@@ -2232,18 +2232,22 @@ const nextRemainderLiftingNumber = async (rootLiftingNumber) => {
 // still add up to what was dispatched, so Delivery-tab allocation and
 // in-transit stock keep counting correctly.
 //
-// Only lifts leaving "In Transit" are split; a lower qty on a lift already
-// AT TPT GDN is refused — partial receipt is a Pending-only operation.
+// Partial receipt from Aawak Pending or Transporter Godown:
+// - Leaving "In Transit" (Pending): The lift moves on with received qty,
+//   and the remainder stays In Transit as a new remainder lift.
+// - Leaving "In Transport Godown": The lifted qty moves to Arrived (History)
+//   at the destination godown, and the remainder stays In Transport Godown
+//   with its stock kept at the transporter godown.
 export const updateAawakLift = async (params) => {
   const { delivery_id, status, received_quantity, user_id, godown_id, transporter_id, lr_number, driver_phone_number, vehicle_number, remarks } = params;
 
   const { data: existing, error: fetchErr } = await supabase
     .from('purchase_deliveries')
     .select(`
-      delivery_id, status, item_id, indent_id, delivery_date, lifting_number, received_quantity, parent_delivery_id,
+      delivery_id, status, item_id, indent_id, delivery_date, receiving_date, lifting_number, received_quantity, parent_delivery_id,
       transporter_id, lr_number, vehicle_number, driver_phone_number, remarks, group_id,
       expected_delivery_date, expected_dispatch_date, packaging_size, dispatch_unit,
-      purchase_indent_items(approved_godown_id, group_id, products(name, unit, mux, group_id))
+      purchase_indent_items(product_id, approved_godown_id, group_id, products(name, unit, mux, group_id))
     `)
     .eq('delivery_id', delivery_id)
     .single();
@@ -2256,14 +2260,14 @@ export const updateAawakLift = async (params) => {
     ? Number(received_quantity)
     : pendingQty;
 
-  if (oldStatus === 'In Transport Godown' && roundQty(recvQty) < roundQty(pendingQty)) {
-    throw new Error(`Partial receipt is only allowed from Pending — this lift has ${pendingQty} at the transporter godown.`);
-  }
-
-  const isLeavingTransit = oldStatus === 'In Transit'
+  const isPartialFromTransit = oldStatus === 'In Transit'
     && ['Arrived', 'Received', 'In Transport Godown'].includes(targetStatus);
+
+  const isPartialFromTransporterGodown = (oldStatus === 'In Transport Godown' || oldStatus === 'AT TPT GDN')
+    && ['Arrived', 'Received'].includes(targetStatus);
+
   const remainderQty = roundQty(pendingQty - recvQty);
-  if (!isLeavingTransit || recvQty <= 0 || remainderQty <= 0) {
+  if ((!isPartialFromTransit && !isPartialFromTransporterGodown) || recvQty <= 0 || remainderQty <= 0) {
     return applyAawakLiftUpdate(params);
   }
 
@@ -2285,7 +2289,13 @@ export const updateAawakLift = async (params) => {
   const remainderLiftingNumber = await nextRemainderLiftingNumber(rootLiftingNumber);
   const resolvedGroupId = existing.group_id || item?.group_id || product?.group_id || null;
 
-  // 1. Remainder lift — stays In Transit, no stock entry (nothing has arrived).
+  // Remainder stays in same stage:
+  // - If leaving In Transit, remainder stays 'In Transit'
+  // - If leaving Transporter Godown, remainder stays 'In Transport Godown'
+  const remainderStatus = isPartialFromTransporterGodown ? 'In Transport Godown' : 'In Transit';
+  const effectiveTransporter = (transporter_id !== undefined ? transporter_id : existing.transporter_id) || null;
+
+  // 1. Insert remainder lift record
   const { data: remainder, error: insErr } = await supabase
     .from('purchase_deliveries')
     .insert([{
@@ -2297,13 +2307,13 @@ export const updateAawakLift = async (params) => {
       expected_delivery_date: existing.expected_delivery_date || null,
       expected_dispatch_date: existing.expected_dispatch_date || null,
       received_quantity: remainderQty,
-      transporter_id: (transporter_id !== undefined ? transporter_id : existing.transporter_id) || null,
+      transporter_id: effectiveTransporter,
       lr_number: (lr_number !== undefined ? lr_number : existing.lr_number) || null,
       vehicle_number: (vehicle_number !== undefined ? vehicle_number : existing.vehicle_number) || null,
       driver_phone_number: (driver_phone_number !== undefined ? driver_phone_number : existing.driver_phone_number) || null,
       remarks: (remarks !== undefined ? remarks : existing.remarks) || null,
       lifting_number: remainderLiftingNumber,
-      status: 'In Transit',
+      status: remainderStatus,
       packaging_size: existing.packaging_size ?? null,
       dispatch_unit: existing.dispatch_unit || null,
       ...dispatchQtyPair(remainderQty, masterUnit, pkgSize),
@@ -2313,35 +2323,70 @@ export const updateAawakLift = async (params) => {
     .single();
   if (insErr) throw insErr;
 
-  const allocGodownId = godown_id || item?.approved_godown_id || null;
-  if (allocGodownId) {
+  // 2. Allocate remainder godown
+  const remGodownId = remainderStatus === 'In Transport Godown'
+    ? effectiveTransporter
+    : (godown_id || item?.approved_godown_id || null);
+
+  if (remGodownId) {
     const { error: gdErr } = await supabase
       .from('purchase_delivery_godowns')
-      .insert([{ delivery_id: remainder.delivery_id, godown_id: allocGodownId, qty: remainderQty, group_id: resolvedGroupId }]);
+      .insert([{ delivery_id: remainder.delivery_id, godown_id: remGodownId, qty: remainderQty, group_id: resolvedGroupId }]);
     if (gdErr) {
       await deleteDelivery(remainder.delivery_id).catch(() => {});
       throw gdErr;
     }
   }
 
-  // 2. Move the original lift on with only the received qty. If that fails,
-  // drop the remainder so the lift is left exactly as it was.
+  // 3. For remainder sitting at Transporter Godown, log its stock entry at transporter godown
+  if (remainderStatus === 'In Transport Godown' && effectiveTransporter) {
+    try {
+      const stockDate = String(existing.receiving_date || existing.delivery_date || getTodayLocal()).slice(0, 10);
+      const back_dated = stockDate < getTodayLocal();
+      await ensureLiftPurchaseIn({
+        product_id: item.product_id,
+        godown_id: effectiveTransporter,
+        qty: remainderQty,
+        txn_date: stockDate,
+        lifting_number: remainderLiftingNumber,
+        lr_number: lr_number !== undefined ? lr_number : existing.lr_number,
+        vehicle_number: vehicle_number !== undefined ? vehicle_number : existing.vehicle_number,
+        created_by: user_id,
+        back_dated,
+        syncDate: true,
+      });
+    } catch (stockErr) {
+      await deleteDelivery(remainder.delivery_id).catch(() => {});
+      throw stockErr;
+    }
+  }
+
+  // 4. Move the original lift on with only the received qty. If that fails,
+  // roll back the remainder lift and its transaction so data stays consistent.
   let result;
   try {
     result = await applyAawakLiftUpdate({ ...params, received_quantity: recvQty });
   } catch (err) {
+    if (remainderStatus === 'In Transport Godown' && effectiveTransporter) {
+      await voidLiftTransaction(remainderLiftingNumber, effectiveTransporter, 'PURCHASE_IN', 'Rollback partial split failure').catch(() => {});
+    }
     await deleteDelivery(remainder.delivery_id).catch(e => console.error('Failed to roll back remainder lift', e));
     throw err;
   }
 
-  // 3. The original lift's dispatch figures now cover only what it carried on.
+  // 5. The original lift's dispatch figures now cover only what it carried on.
   const { error: dispErr } = await supabase
     .from('purchase_deliveries')
     .update(dispatchQtyPair(recvQty, masterUnit, pkgSize))
     .eq('delivery_id', delivery_id);
   if (dispErr) console.error('Failed to update dispatch qty on partially received lift', dispErr);
 
-  return { ...result, remainder_lifting_number: remainderLiftingNumber, remainder_qty: remainderQty };
+  return {
+    ...result,
+    remainder_lifting_number: remainderLiftingNumber,
+    remainder_qty: remainderQty,
+    remainder_status: remainderStatus,
+  };
 };
 
 // Saves the indent-level / item-level columns edited directly on a Delivery

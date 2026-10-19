@@ -224,15 +224,22 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   // A Recv Qty below it on Submit splits off the rest as a remainder lift.
   const getPendingQty = (del) => Number(del.received_quantity) || 0;
   const getPartialRemainder = (del) => {
-    if (activeSubTab !== 'pending' || getRowVal(del, 'status') === 'In Transit') return 0;
+    const status = getRowVal(del, 'status');
+    const isPendingLift = activeSubTab === 'pending' && status !== 'In Transit';
+    const isTptLift = activeSubTab === 'transporter-godown' && (status === 'Arrived' || status === 'Received');
+    if (!isPendingLift && !isTptLift) return 0;
     const recv = Number(getRowVal(del, 'received_quantity'));
     if (!recv || recv <= 0) return 0;
     return Math.max(0, roundQty(getPendingQty(del) - recv));
   };
 
-  const liftSavedMessage = (del, result) => (result?.remainder_lifting_number
-    ? `${del.lifting_number || 'Lift'}: ${formatQty(Number(result.received_quantity))} received, ${formatQty(result.remainder_qty)} kept pending as ${result.remainder_lifting_number}`
-    : null);
+  const liftSavedMessage = (del, result) => {
+    if (!result?.remainder_lifting_number) return null;
+    const isTpt = result.remainder_status === 'In Transport Godown';
+    const actionWord = isTpt ? 'arrived' : 'received';
+    const whereWord = isTpt ? 'kept in Transporter Godown' : 'kept pending';
+    return `${del.lifting_number || 'Lift'}: ${formatQty(Number(result.received_quantity))} ${actionWord}, ${formatQty(result.remainder_qty)} ${whereWord} as ${result.remainder_lifting_number}`;
+  };
 
   const setRowVal = (deliveryId, field, val) => {
     setEditingRows(prev => ({
@@ -845,10 +852,10 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <span className="ml-1 font-bold text-emerald-700">{recvQty}</span>
                       </div>
                     </div>
-                    {isPending && (
+                    {(isPending || isTransporterGodown) && (
                       <div className="flex items-center justify-between text-[10px] text-slate-500">
                         <div>
-                          <span>Pending:</span>
+                          <span>{isTransporterGodown ? 'At Tpt Gdn:' : 'Pending:'}</span>
                           <span className="ml-1 font-semibold text-amber-600">{formatQty(getPendingQty(del))}</span>
                         </div>
                         <div>
@@ -878,7 +885,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         variant="ghost"
                         size="icon"
                         type="button"
-                        title="Delete Lift"
+                        title={(isHistory || isTransporterGodown) ? 'Move back to Pending' : 'Delete Lift'}
                         onClick={() => handleDeleteDelivery(del)}
                         className="p-1 h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
                       >
@@ -919,7 +926,9 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       />
                       {getPartialRemainder(del) > 0 && (
                         <div className="mt-1 text-[10px] font-medium text-amber-700">
-                          Partial — {formatQty(getPartialRemainder(del))} {unitLabel} stays pending
+                          {isTransporterGodown
+                            ? `Partial — ${formatQty(getPartialRemainder(del))} ${unitLabel} stays in Transporter Godown`
+                            : `Partial — ${formatQty(getPartialRemainder(del))} ${unitLabel} stays pending`}
                         </div>
                       )}
                     </div>
@@ -1303,7 +1312,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                   <th className={`sticky ${productLeft} z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap`}>Product Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (KG)</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (Bags)</th>
-                  {isPending && (
+                  {(isPending || isTransporterGodown) && (
                     <>
                       <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
                       <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Recv. Qty</th>
@@ -1325,7 +1334,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
               <tbody className="divide-y divide-slate-100">
                 {filteredDeliveries.length === 0 && (
                   <tr>
-                    <td colSpan={(isPending ? 20 : 18) - (canModify ? 0 : 1)} className="p-12 text-center text-slate-400">
+                    <td colSpan={((isPending || isTransporterGodown) ? 20 : 18) - (canModify ? 0 : 1)} className="p-12 text-center text-slate-400">
                       <PackageOpen size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">
                         {activeSubTab === 'pending' ? 'No pending lifts found.' : 'No arrived lifts found.'}
@@ -1379,7 +1388,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                               variant="ghost"
                               size="icon"
                               type="button"
-                              title={isHistory ? 'Move back to Pending' : 'Delete Lift'}
+                              title={(isHistory || isTransporterGodown) ? 'Move back to Pending' : 'Delete Lift'}
                               onClick={() => handleDeleteDelivery(del)}
                               className="p-1 h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
                             >
@@ -1407,7 +1416,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
                         {qtyBagVal || '—'}
                       </td>
-                      {isPending && (
+                      {(isPending || isTransporterGodown) && (
                         <>
                           <td className="px-3 py-3 text-center font-semibold text-amber-600 whitespace-nowrap">
                             {formatQty(getPendingQty(del))}
@@ -1474,7 +1483,9 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                             />
                             {getPartialRemainder(del) > 0 && (
                               <div className="mt-1 text-[10px] font-medium text-amber-700 whitespace-nowrap">
-                                Partial — {formatQty(getPartialRemainder(del))} stays pending
+                                {isTransporterGodown
+                                  ? `Partial — ${formatQty(getPartialRemainder(del))} stays in Transporter Godown`
+                                  : `Partial — ${formatQty(getPartialRemainder(del))} stays pending`}
                               </div>
                             )}
                           </>
