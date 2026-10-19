@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import useAuthStore from '../store/authStore';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
-import { PAGES, DEFAULT_USER_PAGES } from '../constants';
+import { PAGES, DEFAULT_USER_PAGES, PAGE_TABS } from '../constants';
 import {
   LogOut as LogOutIcon,
   X,
@@ -22,13 +22,25 @@ import {
   IndianRupee,
   ShoppingCart,
   Boxes,
+  ListChecks,
 } from 'lucide-react';
 import vprLogo from '../../assets/vpr_logo.png';
 
 const Sidebar = ({ onClose }) => {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { user } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
+  const [openDropdowns, setOpenDropdowns] = useState(() => ({
+    checklist: pathname.startsWith('/checklist'),
+  }));
+
+  // Keep the Checklist group expanded whenever one of its pages is open.
+  useEffect(() => {
+    if (pathname.startsWith('/checklist')) {
+      setOpenDropdowns(prev => (prev.checklist ? prev : { ...prev, checklist: true }));
+    }
+  }, [pathname]);
   const [isCollapsed, setIsCollapsed] = useState(() => {
     return localStorage.getItem('vpr_sidebar_collapsed') === 'true';
   });
@@ -105,22 +117,47 @@ const Sidebar = ({ onClose }) => {
     'sales': DollarSign,
     'purchase': ShoppingCart,
     'ultimate-ims': Boxes,
+    'checklist': ListChecks,
     'settings': Settings,
     'my-profile': User,
   };
 
+  const toggleDropdown = (id) => {
+    setOpenDropdowns(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // Pages whose sub-pages each get their own sidebar link (as a collapsible
+  // group) instead of in-page tabs.
+  const DROPDOWN_PAGES = ['checklist'];
+
   /* Combined Master Menu List for Permission Checking */
-  const MASTER_MENU_ITEMS = PAGES.map(page => ({
-    path: `/${page.id}`,
-    icon: iconMap[page.id] || User,
-    label: page.label,
-    id: page.id,
-  }));
+  const MASTER_MENU_ITEMS = PAGES.map(page => {
+    const base = {
+      path: `/${page.id}`,
+      icon: iconMap[page.id] || User,
+      label: page.label,
+      id: page.id,
+    };
+    if (!DROPDOWN_PAGES.includes(page.id)) return base;
+    return {
+      ...base,
+      type: 'dropdown',
+      isOpen: !!openDropdowns[page.id],
+      toggle: () => toggleDropdown(page.id),
+      items: PAGE_TABS[page.id].map(tab => ({
+        id: tab.id,
+        parentId: page.id,
+        label: tab.label,
+        path: `/${page.id}/${tab.path}`,
+      })),
+    };
+  });
+
+  const isAdminUser = user?.role === 'SUPER ADMIN' || user?.role?.toUpperCase().includes('ADMIN');
 
   // Helper: Check if user has access to a specific page ID
   const hasAccess = (pageId) => {
-    if (user?.role === 'SUPER ADMIN') return true;
-    if (user?.role?.toUpperCase().includes('ADMIN')) return true;
+    if (isAdminUser) return true;
     if (!user?.page_access || !Array.isArray(user?.page_access)) {
       return DEFAULT_USER_PAGES.includes(pageId);
     }
@@ -128,12 +165,18 @@ const Sidebar = ({ onClose }) => {
     return user.page_access.includes(pageId);
   };
 
+  // A dropdown child is a tab of its parent page (users.tab_access).
+  const hasChildAccess = (child) => {
+    if (isAdminUser) return true;
+    return hasAccess(child.parentId) && (user?.tab_access?.[child.parentId] || []).includes(child.id);
+  };
+
   // Filter the menu items
   const baseMenuItems = MASTER_MENU_ITEMS.reduce((acc, item) => {
     // Handle Dropdowns specially
     if (item.type === 'dropdown') {
       // Check if any child is accessible
-      const accessibleChildren = item.items.filter(child => hasAccess(child.id));
+      const accessibleChildren = item.items.filter(child => hasChildAccess(child));
       if (accessibleChildren.length > 0) {
         acc.push({ ...item, items: accessibleChildren });
       }
@@ -259,7 +302,9 @@ const SidebarContent = ({ menuItems, onClose, isCollapsed = false, user, handleL
     {/* Menu */}
     <nav className="flex-1 px-4 space-y-2 overflow-y-auto scrollbar-hide py-2">
       {menuItems.map((item) => {
-        if (item.type === 'dropdown') {
+        // Collapsed to icons, a group is a plain link to its page (which
+        // routes to the first sub-page the user may open).
+        if (item.type === 'dropdown' && !isCollapsed) {
           return (
             <div key={item.label} className="mb-1">
               <button

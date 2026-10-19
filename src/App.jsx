@@ -13,6 +13,7 @@ import Pricing from './pages/Pricing/Pricing';
 import StockManagement from './pages/StockManagement/StockManagement';
 import LiveStockDashboard from './pages/LiveStockDashboard/LiveStockDashboard';
 import UltimateIMS from './pages/UltimateIMS/UltimateIMS';
+import ChecklistApp from './checklist/ChecklistApp';
 import { PAGES } from './constants';
 
 function App() {
@@ -36,6 +37,7 @@ function App() {
             <Route path="sales" element={<Sales />} />
             <Route path="purchase" element={<Purchase />} />
             <Route path="ultimate-ims" element={<UltimateIMS />} />
+            <Route path="checklist/*" element={<ChecklistApp />} />
             <Route path="my-profile" element={<MyProfile />} />
           </Route>
 
