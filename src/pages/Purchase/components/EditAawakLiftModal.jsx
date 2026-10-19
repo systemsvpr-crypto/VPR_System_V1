@@ -219,7 +219,7 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
         ? Number(form.received_quantity)
         : (delivery.received_quantity != null ? Number(delivery.received_quantity) : undefined);
 
-      await updateAawakLift({
+      const result = await updateAawakLift({
         delivery_id: delivery.delivery_id,
         user_id: user?.user_id,
         status: dbStatus,
@@ -234,7 +234,14 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
         transporter_id: form.transporter_id || null,
       });
 
-      toast.success('Lift details updated successfully');
+      if (result?.remainder_lifting_number) {
+        const isTpt = result.remainder_status === 'In Transport Godown';
+        const actionWord = isTpt ? 'arrived' : 'received';
+        const whereWord = isTpt ? 'kept in Transporter Godown' : 'kept pending';
+        toast.success(`${form.lifting_number || 'Lift'}: ${roundQty(Number(result.received_quantity))} ${actionWord}, ${roundQty(result.remainder_qty)} ${whereWord} as ${result.remainder_lifting_number}`);
+      } else {
+        toast.success('Lift details updated successfully');
+      }
       if (onSuccess) onSuccess();
       onClose();
     } catch (err) {
