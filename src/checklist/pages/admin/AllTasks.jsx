@@ -15,6 +15,7 @@ import {
   Search,
   Upload,
   CheckCircle2,
+  XCircle,
   X,
   History,
   ArrowLeft,
@@ -23,7 +24,6 @@ import {
   Loader2,
   Camera,
   Users,
-  BellRing,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -36,7 +36,6 @@ import { customDropdownDetails } from "../../redux/slice/settingSlice";
 import { updateRepairData } from "../../redux/api/repairApi";
 import {
   sendTaskExtensionNotification,
-  sendUrgentTaskNotification,
 } from "../../services/whatsappService";
 import AudioPlayer from "../../components/AudioPlayer";
 import { getImageLocationMeta, compressImageFile } from "../../utils/imageLocation";
@@ -90,6 +89,100 @@ const getFileType = (url) => {
   ];
   if (imageExtensions.some((ext) => cleanUrl.endsWith(ext))) return "image";
   return "document";
+};
+
+const isTruthyYes = (val) => {
+  if (val === null || val === undefined || val === "") return false;
+  if (typeof val === "boolean") return val;
+  const str = String(val).trim().toLowerCase();
+  return str === "yes" || str === "true" || str === "1";
+};
+
+const getUserRemark = (task) => {
+  if (!task) return "";
+  // If task is in rejected state and remark holds the admin's rejection reason from legacy overwrite, return empty for new user entry
+  if (
+    task.status?.toLowerCase() === "rejected" &&
+    ((task.rejection_reason && task.remark === task.rejection_reason) ||
+      (task.admin_remark && task.remark === task.admin_remark))
+  ) {
+    return "";
+  }
+  return task.remark || task.remarks || "";
+};
+
+const renderAdminRemark = (task) => {
+  if (!task) return <span className="text-gray-400 text-xs">—</span>;
+
+  // 1. Rejection state
+  const isRejected =
+    task.status?.toLowerCase() === "rejected" ||
+    Boolean(task.rejection_reason) ||
+    Boolean(task.admin_remark);
+
+  if (isRejected && (task.status?.toLowerCase() === "rejected" || Boolean(task.rejection_reason))) {
+    const reasonText = task.rejection_reason || task.admin_remark || null;
+
+    return (
+      <div className="flex flex-col gap-1 min-w-[130px] max-w-[240px]">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-700 w-fit">
+          <XCircle className="w-3 h-3 text-red-600 shrink-0" />
+          Rejected
+        </span>
+        {reasonText && (
+          <span
+            className="text-xs text-red-600 font-medium whitespace-normal break-words leading-tight"
+            title={reasonText}
+          >
+            {reasonText}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // 2. Approved state
+  const isApproved =
+    task.admin_done === true ||
+    task.admin_done === "true" ||
+    task.status?.toLowerCase() === "approved" ||
+    ((task.status?.toLowerCase() === "done" ||
+      task.status?.toLowerCase() === "yes" ||
+      task.status?.toLowerCase() === "completed") &&
+      Boolean(task.admin_approved_by));
+
+  if (isApproved) {
+    const approvedBy = task.admin_approved_by;
+    const adminRemarkText = task.admin_remark || task.approval_remark;
+
+    return (
+      <div className="flex flex-col gap-1 min-w-[130px] max-w-[240px]">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-green-100 text-green-700 w-fit">
+          <CheckCircle2 className="w-3 h-3 text-green-600 shrink-0" />
+          {approvedBy ? `Approved by ${approvedBy}` : "Approved"}
+        </span>
+        {adminRemarkText && (
+          <span
+            className="text-xs text-green-700 font-medium whitespace-normal break-words leading-tight"
+            title={adminRemarkText}
+          >
+            {adminRemarkText}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // 3. Explicit admin remark
+  if (task.admin_remark) {
+    return (
+      <div className="text-xs text-gray-800 whitespace-normal break-words leading-tight max-w-[240px]">
+        {task.admin_remark}
+      </div>
+    );
+  }
+
+  return <span className="text-gray-400 text-xs">—</span>;
 };
 
 const AllTasks = () => {
@@ -1198,10 +1291,8 @@ const AllTasks = () => {
 
     // Validation for Mandatory Attachment
     const isAttachmentRequired =
-      selectedUpdateTask.require_attachment === true ||
-      String(selectedUpdateTask.require_attachment).toLowerCase() === "yes" ||
-      String(selectedUpdateTask.require_attachment).toLowerCase() === "true" ||
-      selectedUpdateTask.attachment === true;
+      isTruthyYes(selectedUpdateTask.require_attachment) ||
+      isTruthyYes(selectedUpdateTask.attachment);
 
     const isMarkedDone = ["completed", "done", "approved", "✅ completed"].some(
       (s) => updateForm.status.toLowerCase().includes(s),
@@ -1296,10 +1387,8 @@ const AllTasks = () => {
         // Check if the task requires an attachment
         // (handling boolean true, or strings like "yes", "Yes", "true")
         const isAttachmentRequired =
-          task.require_attachment === true ||
-          String(task.require_attachment).toLowerCase() === "yes" ||
-          String(task.require_attachment).toLowerCase() === "true" ||
-          task.attachment === true;
+          isTruthyYes(task.require_attachment) ||
+          isTruthyYes(task.attachment);
 
         // Check if the user has selected a status of "Done" or "yes"
         // (You might not want to enforce attachment if they mark it "Not Done", but remove this extra condition if you want it strictly required on ANY submission)
@@ -1329,8 +1418,8 @@ const AllTasks = () => {
     }
     // =================================================================
 
-    // Validate Checklist tasks with extended status must have extended date AND remarks
-    if (activeTab === "checklist") {
+    // Validate Delegation tasks with extended status must have extended date AND remarks
+    if (activeTab === "delegation" || activeTab === "ea") {
       for (const id of selectedArray) {
         const isExtendedStatus =
           statusData[id] === "extended" || statusData[id] === "extend";
@@ -1516,52 +1605,6 @@ const AllTasks = () => {
     }
   };
 
-  const handleSendUrgentWhatsApp = async () => {
-    if (!canWrite) return;
-    if (selectedItems.size === 0) return;
-
-    setIsSubmitting(true);
-    try {
-      const selectedTasks = tasks.filter((t) => selectedItems.has(t.id));
-      let allSuccess = true;
-
-      for (const task of selectedTasks) {
-        const doerName = task.doer_name || task.name || task.assigned_person;
-        const taskId = task.task_id || task.id;
-        const description = task.task_description || task.issue_description;
-        const dueDateRaw =
-          task.planned_date || task.task_start_date || task.created_at;
-        const givenBy = task.given_by || task.filled_by;
-
-        const sent = await sendUrgentTaskNotification({
-          doerName,
-          taskId,
-          description,
-          dueDate: formatDateWithTime(dueDateRaw),
-          givenBy,
-          taskType: activeTab,
-          machineName: task.machine_name,
-          partName: task.part_name,
-          department: task.department || task.assigned_dept,
-        });
-        if (!sent) {
-          allSuccess = false;
-        }
-      }
-
-      if (allSuccess) {
-        showToast("WhatsApp message(s) sent successfully!", "success");
-      } else {
-        showToast("Some WhatsApp messages failed to send.", "warning");
-      }
-      setSelectedItems(new Set());
-    } catch (err) {
-      console.error("WhatsApp error:", err);
-      alert("Failed to send WhatsApp messages: " + err.message);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   return (
     <AdminLayout>
@@ -1606,31 +1649,17 @@ const AllTasks = () => {
                 )}
               </button>
 
-              {!showHistory && (
-                <>
-                  <button
-                    onClick={handleSendUrgentWhatsApp}
-                    disabled={!canWrite || selectedItems.size === 0 || isSubmitting}
-                    title={!canWrite ? READ_ONLY_TOOLTIP : undefined}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-extrabold text-white bg-green-600 rounded-xl hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs transition-all cursor-pointer"
-                  >
-                    <BellRing className="h-3.5 w-3.5" />
-                    <span>Urgent WhatsApp</span>
-                  </button>
-
-                  {activeTab !== "repair" && (
-                    <button
-                      onClick={handleSubmit}
-                      disabled={!canWrite || selectedItems.size === 0 || isSubmitting}
-                      title={!canWrite ? READ_ONLY_TOOLTIP : undefined}
-                      className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-extrabold text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs transition-all cursor-pointer"
-                    >
-                      {isSubmitting
-                        ? "Submitting..."
-                        : `Submit (${selectedItems.size})`}
-                    </button>
-                  )}
-                </>
+              {!showHistory && activeTab !== "repair" && (
+                <button
+                  onClick={handleSubmit}
+                  disabled={!canWrite || selectedItems.size === 0 || isSubmitting}
+                  title={!canWrite ? READ_ONLY_TOOLTIP : undefined}
+                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-extrabold text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs transition-all cursor-pointer"
+                >
+                  {isSubmitting
+                    ? "Submitting..."
+                    : `Submit (${selectedItems.size})`}
+                </button>
               )}
             </div>
           </div>
@@ -1923,7 +1952,7 @@ const AllTasks = () => {
                     <thead className="bg-gray-50 sticky top-0 z-20 shadow-sm transition-all duration-300">
                       <tr>
                         {!showHistory && (
-                          <th className="px-3 sm:px-6 py-3 sm:py-4 text-left font-bold text-gray-900">
+                          <th className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-left font-bold text-gray-900 w-10">
                             <input
                               type="checkbox"
                               checked={(() => {
@@ -1952,32 +1981,44 @@ const AllTasks = () => {
                         {tableHeaders.map((header) => (
                           <th
                             key={header.id}
-                            className={`px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider ${header.id === "task_description" || header.id === "issue_description" ? "max-w-xs xl:max-w-sm" : "whitespace-nowrap"}`}
+                            className={`px-3.5 sm:px-4 py-3 sm:py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider ${
+                              header.id === "task_description" || header.id === "issue_description"
+                                ? "min-w-[200px] max-w-xs xl:max-w-sm whitespace-normal"
+                                : header.id === "status"
+                                  ? "min-w-[145px] whitespace-nowrap"
+                                  : "whitespace-nowrap"
+                            }`}
                           >
                             {header.label}
                           </th>
                         ))}
-                        {!showHistory && (activeTab === "ea" || activeTab === "checklist") && (
-                          <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                        {!showHistory && (activeTab === "ea" || activeTab === "delegation") && (
+                          <th className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[140px]">
                             Extended Date
                           </th>
                         )}
                         {!showHistory && activeTab !== "repair" && (
                           <>
-                            <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                            <th className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[150px]">
+                              Admin Remark
+                            </th>
+                            <th className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[150px]">
                               Remarks
                             </th>
-                            <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                            <th className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[200px]">
                               Image
                             </th>
                           </>
                         )}
                         {showHistory && (
                           <>
-                            <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                            <th className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[150px]">
+                              Admin Remark
+                            </th>
+                            <th className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[150px]">
                               Remarks
                             </th>
-                            <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                            <th className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[200px]">
                               Attachment
                             </th>
                           </>
@@ -2007,8 +2048,8 @@ const AllTasks = () => {
                               {showGroupHeader && (
                                 <tr className="bg-gray-100/30">
                                   <td
-                                    colSpan={tableHeaders.length + 6}
-                                    className="px-3 py-2"
+                                    colSpan={tableHeaders.length + 7}
+                                    className="px-3.5 sm:px-4 py-2"
                                   >
                                     <div className="flex items-center gap-2">
                                       <div
@@ -2016,7 +2057,7 @@ const AllTasks = () => {
                                       ></div>
                                       <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.15em] text-gray-500">
                                         {currentStatus}{" "}
-                                        {activeTab === "ea" &&
+                                        {(activeTab === "ea" || activeTab === "delegation") &&
                                         currentStatus === "Today"
                                           ? " & Extended"
                                           : ""}
@@ -2027,7 +2068,7 @@ const AllTasks = () => {
                               )}
                               <tr className="hover:bg-gray-50">
                                 {!showHistory && (
-                                  <td className="px-3 py-3 whitespace-nowrap">
+                                  <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 whitespace-nowrap w-10">
                                     <input
                                       type="checkbox"
                                       checked={selectedItems.has(task.id)}
@@ -2053,7 +2094,7 @@ const AllTasks = () => {
                                   <>
                                     {!showHistory ? (
                                       <>
-                                        <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-800">
+                                        <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 whitespace-nowrap text-sm text-gray-800">
                                           <button
                                             onClick={() =>
                                               openUpdateModal(task)
@@ -2065,10 +2106,7 @@ const AllTasks = () => {
                                             <Edit className="h-3 w-3" /> Process
                                           </button>
                                         </td>
-                                        <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-800 font-bold">
-                                          {task.id}
-                                        </td>
-                                        <td className="px-3 py-3 whitespace-nowrap text-sm">
+                                        <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 whitespace-nowrap text-sm">
                                           <span
                                             className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getTimeStatus(task.created_at, task.status) === "Overdue" ? "bg-red-100 text-red-800" : getTimeStatus(task.created_at, task.status) === "Today" ? "bg-green-100 text-green-800" : "bg-blue-100 text-blue-800"}`}
                                           >
@@ -2078,7 +2116,10 @@ const AllTasks = () => {
                                             )}
                                           </span>
                                         </td>
-                                        <td className="px-3 py-3 text-sm text-gray-800 max-w-xs xl:max-w-sm break-words">
+                                        <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 whitespace-nowrap text-sm text-gray-800 font-bold">
+                                          {task.id}
+                                        </td>
+                                        <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm text-gray-800 min-w-[200px] max-w-xs xl:max-w-sm break-words">
                                           <RenderDescription
                                             text={task.issue_description}
                                             audioUrl={task.audio_url}
@@ -2188,6 +2229,9 @@ const AllTasks = () => {
                                             ? `₹${task.bill_amount}`
                                             : "—"}
                                         </td>
+                                        <td className="px-3 py-3 text-sm text-gray-800 min-w-[150px] max-w-[240px]">
+                                          {renderAdminRemark(task)}
+                                        </td>
                                         <td className="px-3 py-3 text-sm text-gray-800 max-w-xs truncate">
                                           {task.remarks || "—"}
                                         </td>
@@ -2228,7 +2272,13 @@ const AllTasks = () => {
                                     {tableHeaders.map((header) => (
                                       <td
                                         key={header.id}
-                                        className={`px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-800 ${header.id === "task_description" || header.id === "issue_description" ? "min-w-[200px] whitespace-normal" : header.id === "status" ? "min-w-[145px] whitespace-nowrap" : "whitespace-nowrap"}`}
+                                        className={`px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm text-gray-800 ${
+                                          header.id === "task_description" || header.id === "issue_description"
+                                            ? "min-w-[200px] max-w-xs xl:max-w-sm whitespace-normal"
+                                            : header.id === "status"
+                                              ? "min-w-[145px] whitespace-nowrap"
+                                              : "whitespace-nowrap"
+                                        }`}
                                       >
                                         {header.id === "time_status" ? (
                                           <span
@@ -2333,7 +2383,7 @@ const AllTasks = () => {
                                               <option value="">
                                                 Select Status
                                               </option>
-                                              {activeTab === "ea" ? (
+                                              {activeTab === "ea" || activeTab === "delegation" ? (
                                                 <>
                                                   <option value="done">
                                                     Done
@@ -2350,18 +2400,6 @@ const AllTasks = () => {
                                                   <option value="no">
                                                     Not Done
                                                   </option>
-                                                  {String(
-                                                    task.frequency ||
-                                                      task.freq ||
-                                                      task.FREQ ||
-                                                      "",
-                                                  )
-                                                    .toLowerCase()
-                                                    .trim() !== "daily" && (
-                                                    <option value="extended">
-                                                      Extend
-                                                    </option>
-                                                  )}
                                                 </>
                                               ) : (
                                                 <>
@@ -2389,7 +2427,7 @@ const AllTasks = () => {
                                           ) : (
                                             <span
                                               className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                                activeTab === "ea"
+                                                (activeTab === "ea" || activeTab === "delegation")
                                                   ? task[
                                                       header.id
                                                     ]?.toLowerCase() ===
@@ -2437,7 +2475,7 @@ const AllTasks = () => {
                                                       : "bg-gray-100 text-gray-800"
                                               }`}
                                             >
-                                              {activeTab === "ea" && showHistory
+                                              {(activeTab === "ea" || activeTab === "delegation") && showHistory
                                                 ? task[
                                                     header.id
                                                   ]?.toLowerCase() ===
@@ -2491,7 +2529,7 @@ const AllTasks = () => {
                                           header.id === "require_attachment" ||
                                           header.id === "enable_reminder" ||
                                           header.id === "attachment" ? (
-                                          task[header.id] ? (
+                                          isTruthyYes(task[header.id]) ? (
                                             "Yes"
                                           ) : (
                                             "No"
@@ -2580,8 +2618,8 @@ const AllTasks = () => {
                                         )}
                                       </td>
                                     ))}
-                                    {!showHistory && (activeTab === "ea" || activeTab === "checklist") && (
-                                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap text-sm text-gray-800">
+                                    {!showHistory && (activeTab === "ea" || activeTab === "delegation") && (
+                                      <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 whitespace-nowrap text-sm text-gray-800 min-w-[140px]">
                                         <input
                                           type="date"
                                           placeholder="Extended Date"
@@ -2611,14 +2649,17 @@ const AllTasks = () => {
                                     )}
                                     {!showHistory && activeTab !== "repair" && (
                                       <>
-                                        <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap text-sm text-gray-800">
+                                        <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm text-gray-800 min-w-[150px] max-w-[240px]">
+                                          {renderAdminRemark(task)}
+                                        </td>
+                                        <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 whitespace-nowrap text-sm text-gray-800 min-w-[150px]">
                                           <input
                                             type="text"
                                             placeholder="Enter remarks"
                                             value={
                                               remarksData[task.id] !== undefined
                                                 ? remarksData[task.id]
-                                                : (task.remark || task.remarks || "")
+                                                : getUserRemark(task)
                                             }
                                             onChange={(e) =>
                                               setRemarksData((prev) => ({
@@ -2632,7 +2673,7 @@ const AllTasks = () => {
                                             }
                                           />
                                         </td>
-                                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-800 bg-emerald-50/30 min-w-[200px]">
+                                        <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm text-gray-800 bg-emerald-50/30 min-w-[200px]">
                                           <div className="flex flex-col gap-2">
                                             {/* Staged uploaded files */}
                                             {uploadedImages[task.id] &&
@@ -2776,8 +2817,8 @@ const AllTasks = () => {
                                               >
                                                 <Upload className="h-3.5 w-3.5" />
                                                 <span>Upload</span>
-                                                {(task.require_attachment ||
-                                                  task.attachment) && (
+                                                {(isTruthyYes(task.require_attachment) ||
+                                                  isTruthyYes(task.attachment)) && (
                                                   <span className="text-red-500 font-bold">
                                                     *
                                                   </span>
@@ -2826,7 +2867,10 @@ const AllTasks = () => {
                                     )}
                                     {showHistory && (
                                       <>
-                                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-800 max-w-xs truncate">
+                                        <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm text-gray-800 min-w-[150px] max-w-[240px]">
+                                          {renderAdminRemark(task)}
+                                        </td>
+                                        <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm text-gray-800 min-w-[150px] max-w-xs truncate">
                                           <RenderDescription
                                             text={task.remark || task.remarks}
                                             audioUrl={task.audio_url}
@@ -2838,7 +2882,7 @@ const AllTasks = () => {
                                             }
                                           />
                                         </td>
-                                        <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap text-sm text-gray-800">
+                                        <td className="px-3.5 sm:px-4 py-3 sm:py-3.5 whitespace-nowrap text-sm text-gray-800 min-w-[200px]">
                                           {getHistoryImageUrls(task).length >
                                           0 ? (
                                             <div className="flex items-center gap-1.5 flex-wrap">
@@ -2894,7 +2938,7 @@ const AllTasks = () => {
                       ) : (
                         <tr>
                           <td
-                            colSpan={tableHeaders.length + 6}
+                            colSpan={tableHeaders.length + 7}
                             className="px-6 py-20 text-center text-gray-400"
                           >
                             <div className="flex flex-col items-center gap-2">
@@ -2991,7 +3035,7 @@ const AllTasks = () => {
                                   className={`w-1 h-1 rounded-full ${currentStatus === "Overdue" ? "bg-red-500" : currentStatus === "Today" ? "bg-green-500" : "bg-blue-500"}`}
                                 ></div>
                                 {currentStatus}{" "}
-                                {activeTab === "ea" && currentStatus === "Today"
+                                {(activeTab === "ea" || activeTab === "delegation") && currentStatus === "Today"
                                   ? " & Extended"
                                   : ""}
                               </span>
@@ -3118,7 +3162,7 @@ const AllTasks = () => {
                                         className="w-full text-xs border-gray-200 rounded-md py-1 focus:ring-blue-400"
                                       >
                                         <option value="">Status</option>
-                                        {activeTab === "ea" ? (
+                                        {activeTab === "ea" || activeTab === "delegation" ? (
                                           <>
                                             <option value="done">Done</option>
                                             <option value="extended">
@@ -3129,18 +3173,7 @@ const AllTasks = () => {
                                           <>
                                             <option value="yes">Done</option>
                                             <option value="no">Not Done</option>
-                                            {String(
-                                              task.frequency ||
-                                                task.freq ||
-                                                task.FREQ ||
-                                                "",
-                                            )
-                                              .toLowerCase()
-                                              .trim() !== "daily" && (
-                                              <option value="extended">
-                                                Extend
-                                              </option>
-                                            )}
+                                            
                                           </>
                                         ) : (
                                           <>
@@ -3293,7 +3326,7 @@ const AllTasks = () => {
                               {!showHistory && activeTab !== "repair" && (
                                 <div className="pt-2 space-y-3 border-t border-gray-50">
                                   {(activeTab === "ea" ||
-                                    activeTab === "checklist") &&
+                                    activeTab === "delegation") &&
                                     (statusData[task.id] === "extended" ||
                                       statusData[task.id] === "extend") && (
                                     <div className="space-y-1">
@@ -3322,6 +3355,12 @@ const AllTasks = () => {
                                   )}
                                   <div className="space-y-1">
                                     <p className="text-[10px] text-gray-400 uppercase font-semibold">
+                                      Admin Remark
+                                    </p>
+                                    <div>{renderAdminRemark(task)}</div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-[10px] text-gray-400 uppercase font-semibold">
                                       Remarks
                                     </p>
                                     <input
@@ -3330,7 +3369,7 @@ const AllTasks = () => {
                                       value={
                                         remarksData[task.id] !== undefined
                                           ? remarksData[task.id]
-                                          : (task.remark || task.remarks || "")
+                                          : getUserRemark(task)
                                       }
                                       onChange={(e) =>
                                         setRemarksData((prev) => ({
@@ -3460,6 +3499,25 @@ const AllTasks = () => {
                                     <Edit className="h-3.5 w-3.5" /> PROCESS
                                     REPAIR
                                   </button>
+                                </div>
+                              )}
+
+                              {showHistory && (
+                                <div className="space-y-1 pt-2 border-t border-gray-50">
+                                  <p className="text-[10px] text-gray-400 uppercase font-semibold">
+                                    Admin Remark
+                                  </p>
+                                  <div>{renderAdminRemark(task)}</div>
+                                </div>
+                              )}
+                              {showHistory && (task.remark || task.remarks) && (
+                                <div className="space-y-1">
+                                  <p className="text-[10px] text-gray-400 uppercase font-semibold">
+                                    Remarks
+                                  </p>
+                                  <p className="text-xs text-gray-700">
+                                    {task.remark || task.remarks}
+                                  </p>
                                 </div>
                               )}
 
@@ -3748,8 +3806,8 @@ const AllTasks = () => {
                           <Upload className="h-6 w-6 text-gray-400 mb-2" />
                           <span className="text-xs font-bold text-gray-500">
                             Photo of Work Done
-                            {(selectedUpdateTask.require_attachment ||
-                              selectedUpdateTask.attachment) && (
+                            {(isTruthyYes(selectedUpdateTask.require_attachment) ||
+                              isTruthyYes(selectedUpdateTask.attachment)) && (
                               <span className="text-red-500 ml-1">*</span>
                             )}
                           </span>

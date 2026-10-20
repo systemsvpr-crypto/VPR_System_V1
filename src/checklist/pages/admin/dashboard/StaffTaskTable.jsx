@@ -240,7 +240,7 @@ export default function StaffTasksTable({
                 Audit Log
               </div>
               <div className="text-xs font-bold text-gray-600 bg-gray-50/80 px-3 py-1.5 rounded-md border border-gray-100/50">
-                <span className="text-blue-600">{staffMembers.length}</span> /{" "}
+                <span className="text-blue-600">{totalStaffCount || staffMembers.length}</span> /{" "}
                 {totalUsersCount} active
               </div>
             </div>
@@ -313,9 +313,10 @@ export default function StaffTasksTable({
                   {[
                     "Seq",
                     "Staff Performance Detail",
-                    "Department",
+                    "Designation",
                     "Total",
                     "Done",
+                    "Upcoming",
                     "On-Time",
                     "Done Score",
                   ].map(
@@ -336,11 +337,13 @@ export default function StaffTasksTable({
                 {staffMembers.map((staff, index) => {
                   const score = staff.completion_score;
                   const scoreColor =
-                    score >= 80
-                      ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-                      : score >= 50
-                        ? "bg-amber-100 text-amber-800 border-amber-200"
-                        : "bg-rose-100 text-rose-800 border-rose-200";
+                    staff.total_tasks === 0
+                      ? "bg-gray-100 text-gray-500 border-gray-200"
+                      : score >= 80
+                        ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                        : score >= 50
+                          ? "bg-amber-100 text-amber-800 border-amber-200"
+                          : "bg-rose-100 text-rose-800 border-rose-200";
 
                   return (
                     <tr
@@ -389,7 +392,7 @@ export default function StaffTasksTable({
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap">
                         <span className="px-2 py-1 bg-gray-100 text-gray-600 text-[10px] font-black uppercase rounded-md border border-gray-200">
-                          {staff.department}
+                          {staff.designation || "—"}
                         </span>
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-black text-gray-700">
@@ -397,6 +400,9 @@ export default function StaffTasksTable({
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-emerald-600 bg-emerald-50/30 border-x border-transparent group-hover/row:border-blue-100">
                         {staff.total_completed_tasks}
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-amber-600 bg-amber-50/30 border-x border-transparent group-hover/row:border-blue-100">
+                        {staff.total_pending_tasks}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-indigo-600">
                         {staff.total_done_on_time}
@@ -417,7 +423,15 @@ export default function StaffTasksTable({
                             </div>
                             <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden mt-1">
                               <div
-                                className={`h-full rounded-full transition-all duration-1000 ${score >= 80 ? "bg-emerald-500" : score >= 50 ? "bg-amber-500" : "bg-rose-500"}`}
+                                className={`h-full rounded-full transition-all duration-1000 ${
+                                  staff.total_tasks === 0
+                                    ? "bg-gray-300"
+                                    : score >= 80
+                                      ? "bg-emerald-500"
+                                      : score >= 50
+                                        ? "bg-amber-500"
+                                        : "bg-rose-500"
+                                }`}
                                 style={{ width: `${score}%` }}
                               ></div>
                             </div>

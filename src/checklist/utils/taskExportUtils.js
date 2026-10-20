@@ -98,6 +98,14 @@ export const formatFrequency = (val) => {
 export const transformTaskForExport = (task, tab = "checklist") => {
   const normalizedTab = (tab || "checklist").toLowerCase();
 
+  const getAdminRemarkText = (t) => {
+    if (t.rejection_reason) return `Rejected: ${t.rejection_reason}`;
+    if (t.status?.toLowerCase() === "rejected") return `Rejected: ${t.remark || t.reason || "Rejected by Admin"}`;
+    if (t.admin_done) return t.admin_approved_by ? `Approved by ${t.admin_approved_by}` : "Approved";
+    if (t.admin_remark) return t.admin_remark;
+    return "—";
+  };
+
   if (normalizedTab === "checklist") {
     return {
       "Task ID": task.id || task.task_id || "—",
@@ -112,6 +120,7 @@ export const transformTaskForExport = (task, tab = "checklist") => {
       "Duration": formatDuration(task.duration),
       "Reminders": formatYesNo(task.enable_reminder),
       "Attachment Required": formatYesNo(task.require_attachment),
+      "Admin Remark": getAdminRemarkText(task),
       "Remarks": task.remarks || task.remark || "—",
     };
   }
@@ -130,6 +139,7 @@ export const transformTaskForExport = (task, tab = "checklist") => {
       "Duration": formatDuration(task.duration),
       "Reminders": formatYesNo(task.enable_reminder),
       "Attachment Required": formatYesNo(task.require_attachment),
+      "Admin Remark": getAdminRemarkText(task),
       "Remarks": task.remarks || "—",
     };
   }
@@ -145,6 +155,7 @@ export const transformTaskForExport = (task, tab = "checklist") => {
       "Duration": formatDuration(task.duration),
       "Attachment Required": formatYesNo(task.require_attachment),
       "Status": task.status || "Pending",
+      "Admin Remark": getAdminRemarkText(task),
       "Remarks": task.remarks || "—",
     };
   }
@@ -159,6 +170,7 @@ export const transformTaskForExport = (task, tab = "checklist") => {
       "Doer Name": parseUsername(task.name) || "—",
       "Start Date": formatDate(task.task_start_date),
       "Frequency": formatFrequency(task.freq || task.frequency),
+      "Admin Remark": getAdminRemarkText(task),
       "Remarks": task.remarks || "—",
     };
   }

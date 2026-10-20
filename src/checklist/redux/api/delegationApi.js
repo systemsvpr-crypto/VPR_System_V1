@@ -308,7 +308,6 @@ export const rejectDelegationTask = async (id, taskId, reason) => {
       .update({
         status: "rejected",
         rejection_reason: reason,
-        remark: reason,
         submission_date: null,
         admin_done: false,
       })

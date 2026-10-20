@@ -11,7 +11,7 @@ export const PAGES = [
     { id: 'sales', label: 'Sales' },
     { id: 'purchase', label: 'Purchase' },
     { id: 'checklist', label: 'Checklist' },
-    { id: 'settings', label: 'Settings' },
+    { id: 'settings', label: 'Global Settings' },
     { id: 'my-profile', label: 'My Profile' },
 ];
 
@@ -60,5 +60,6 @@ export const PAGE_TABS = {
     { id: 'checklist_holiday', label: 'Holiday List', path: 'holiday-list' },
     { id: 'checklist_working_day', label: 'Working Day Calendar', path: 'working-day-calendar' },
     { id: 'checklist_approval', label: 'Admin Approval', path: 'admin-approval' },
+    { id: 'checklist_settings', label: 'Settings', path: 'setting' },
   ],
 };

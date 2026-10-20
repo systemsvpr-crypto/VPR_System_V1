@@ -3,8 +3,36 @@ import { useState, useEffect } from 'react';
 import AdminLayout from '../../components/layout/ChecklistLayout';
 import { Calendar as CalendarIcon, Plus, Trash2, Search, Loader2 } from 'lucide-react';
 import supabase from '../../SupabaseClient';
+import { shiftTasksOffHoliday } from '../../utils/holidayShift';
+import useAuthStore from '../../../store/authStore';
+import { canEditOrDelete } from '../../../lib/permissions';
+import { isAdminOrSuperAdmin } from '../../utils/roleUtils';
 
 const HolidayListPage = () => {
+    const user = useAuthStore((state) => state.user);
+    const [storedRole, setStoredRole] = useState(() => {
+        try {
+            return localStorage.getItem('role') || '';
+        } catch {
+            return '';
+        }
+    });
+
+    useEffect(() => {
+        try {
+            setStoredRole(localStorage.getItem('role') || '');
+        } catch {
+            // ignore
+        }
+    }, []);
+
+    const userRole = (user?.role || storedRole || '').trim();
+    const isAdmin = Boolean(
+        canEditOrDelete(user) ||
+        isAdminOrSuperAdmin(userRole) ||
+        isAdminOrSuperAdmin(storedRole)
+    );
+
     const [holidays, setHolidays] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -44,14 +72,16 @@ const HolidayListPage = () => {
 
     const handleAddHoliday = async (e) => {
         e.preventDefault();
+        if (!isAdmin) {
+            alert('You do not have permission to add holidays.');
+            return;
+        }
         if (!newHoliday.holiday_date || !newHoliday.holiday_name) return;
 
         try {
             setIsSubmitting(true);
 
             const selectedDate = newHoliday.holiday_date; // YYYY-MM-DD
-            const startOfDay = `${selectedDate}T00:00:00.000Z`;
-            const endOfDay = `${selectedDate}T23:59:59.999Z`;
 
             // 1. Insert into holidays table
             const { error: holidayError } = await supabase
@@ -66,28 +96,22 @@ const HolidayListPage = () => {
                 .delete()
                 .eq('working_date', selectedDate);
 
-            // 3. Remove assigned tasks from all relevant tables for this specific day
-            // Tables: checklist, delegation, maintenance_tasks (column: task_start_date)
-
-            const cleanupResults = await Promise.allSettled([
-                supabase.from('checklist').delete().gte('task_start_date', startOfDay).lte('task_start_date', endOfDay),
-                supabase.from('delegation').delete().gte('task_start_date', startOfDay).lte('task_start_date', endOfDay),
-                supabase.from('maintenance_tasks').delete().gte('task_start_date', startOfDay).lte('task_start_date', endOfDay)
-            ]);
-
-            cleanupResults.forEach((result, index) => {
-                if (result.status === 'rejected') {
-                    console.error(`Cleanup failed for table index ${index}:`, result.reason);
-                } else if (result.value.error) {
-                    console.error(`Cleanup error for table index ${index}:`, result.value.error);
+            // 3. Shift pending tasks planned on this day (checklist, delegation,
+            //    maintenance_tasks) to the next working day
+            let shiftMessage = '';
+            try {
+                const { targetDate, shifted, merged } = await shiftTasksOffHoliday(selectedDate);
+                if (shifted || merged) {
+                    shiftMessage = ` ${shifted + merged} pending task(s) moved to ${targetDate}.`;
                 }
-            });
-
-            console.log(`Cleaned up tasks for holiday: ${selectedDate}`);
+            } catch (shiftErr) {
+                console.error('Error shifting tasks off holiday:', shiftErr);
+                shiftMessage = ` However, shifting tasks failed: ${shiftErr.message}`;
+            }
 
             setNewHoliday({ holiday_date: '', holiday_name: '' });
             fetchHolidays();
-            alert('Holiday added and tasks cleaned up successfully!');
+            alert(`Holiday added successfully!${shiftMessage}`);
         } catch (err) {
             console.error('Error adding holiday:', err);
             alert(`Error adding holiday: ${err.message || 'Unknown error'}`);
@@ -97,6 +121,10 @@ const HolidayListPage = () => {
     };
 
     const handleDeleteHoliday = async (holiday) => {
+        if (!isAdmin) {
+            alert('You do not have permission to delete holidays.');
+            return;
+        }
         if (!window.confirm(`Delete holiday "${holiday.holiday_name}"?`)) return;
 
         try {
@@ -170,53 +198,55 @@ const HolidayListPage = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {/* Entry Form */}
-                    <div className="md:col-span-1">
-                        <div className="bg-white border border-gray-200 rounded shadow-sm">
-                            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
-                                <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                                    <Plus size={16} /> Add New Entry
-                                </h2>
+                <div className={isAdmin ? "grid grid-cols-1 md:grid-cols-3 gap-6" : "space-y-6"}>
+                    {/* Entry Form - Admin & Super Admin Only */}
+                    {isAdmin && (
+                        <div className="md:col-span-1">
+                            <div className="bg-white border border-gray-200 rounded shadow-sm">
+                                <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                                    <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                                        <Plus size={16} /> Add New Entry
+                                    </h2>
+                                </div>
+                                <form onSubmit={handleAddHoliday} className="p-4 space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">
+                                            Holiday Name
+                                        </label>
+                                        <input
+                                            type="text"
+                                            required
+                                            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:border-blue-500 outline-none"
+                                            value={newHoliday.holiday_name}
+                                            onChange={(e) => setNewHoliday({ ...newHoliday, holiday_name: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">
+                                            Select Date
+                                        </label>
+                                        <input
+                                            type="date"
+                                            required
+                                            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:border-blue-500 outline-none"
+                                            value={newHoliday.holiday_date}
+                                            onChange={(e) => setNewHoliday({ ...newHoliday, holiday_date: e.target.value })}
+                                        />
+                                    </div>
+                                    <button
+                                        type="submit"
+                                        disabled={isSubmitting}
+                                        className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded font-bold text-xs transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : 'Save Record'}
+                                    </button>
+                                </form>
                             </div>
-                            <form onSubmit={handleAddHoliday} className="p-4 space-y-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-1">
-                                        Holiday Name
-                                    </label>
-                                    <input
-                                        type="text"
-                                        required
-                                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:border-blue-500 outline-none"
-                                        value={newHoliday.holiday_name}
-                                        onChange={(e) => setNewHoliday({ ...newHoliday, holiday_name: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-1">
-                                        Select Date
-                                    </label>
-                                    <input
-                                        type="date"
-                                        required
-                                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:border-blue-500 outline-none"
-                                        value={newHoliday.holiday_date}
-                                        onChange={(e) => setNewHoliday({ ...newHoliday, holiday_date: e.target.value })}
-                                    />
-                                </div>
-                                <button
-                                    type="submit"
-                                    disabled={isSubmitting}
-                                    className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded font-bold text-xs transition-colors flex items-center justify-center gap-2"
-                                >
-                                    {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : 'Save Record'}
-                                </button>
-                            </form>
                         </div>
-                    </div>
+                    )}
 
                     {/* Data Table */}
-                    <div className="md:col-span-2">
+                    <div className={isAdmin ? "md:col-span-2" : "w-full"}>
                         <div className="bg-white border border-gray-200 rounded shadow-sm overflow-hidden h-full flex flex-col">
                             <div className="p-3 bg-gray-50 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-3">
                                 <h2 className="text-sm font-bold text-gray-700">
@@ -240,19 +270,21 @@ const HolidayListPage = () => {
                                         <tr className="bg-gray-100 border-b border-gray-200">
                                             <th className="px-4 py-3 font-bold text-gray-600 text-xs uppercase">Date</th>
                                             <th className="px-4 py-3 font-bold text-gray-600 text-xs uppercase">Name</th>
-                                            <th className="px-4 py-3 font-bold text-gray-600 text-xs uppercase text-right">Action</th>
+                                            {isAdmin && (
+                                                <th className="px-4 py-3 font-bold text-gray-600 text-xs uppercase text-right">Action</th>
+                                            )}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="3" className="px-4 py-10 text-center text-gray-400 italic">
+                                                <td colSpan={isAdmin ? 3 : 2} className="px-4 py-10 text-center text-gray-400 italic">
                                                     Loading data...
                                                 </td>
                                             </tr>
                                         ) : filteredHolidays.length === 0 ? (
                                             <tr>
-                                                <td colSpan="3" className="px-4 py-10 text-center text-gray-400 font-bold">
+                                                <td colSpan={isAdmin ? 3 : 2} className="px-4 py-10 text-center text-gray-400 font-bold">
                                                     NO RECORDS FOUND
                                                 </td>
                                             </tr>
@@ -270,15 +302,17 @@ const HolidayListPage = () => {
                                                     <td className="px-4 py-3 font-medium text-gray-700">
                                                         {holiday.holiday_name}
                                                     </td>
-                                                    <td className="px-4 py-3 text-right">
-                                                        <button
-                                                            onClick={() => handleDeleteHoliday(holiday)}
-                                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
-                                                            title="Delete"
-                                                        >
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    </td>
+                                                    {isAdmin && (
+                                                        <td className="px-4 py-3 text-right">
+                                                            <button
+                                                                onClick={() => handleDeleteHoliday(holiday)}
+                                                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                                                                title="Delete"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </td>
+                                                    )}
                                                 </tr>
                                             ))
                                         )}

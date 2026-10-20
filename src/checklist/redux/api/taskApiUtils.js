@@ -1,4 +1,5 @@
 import {
+  supabase,
   fetchAllRows as rawFetchAllRows,
   fetchAllRowsInChunks as rawFetchAllRowsInChunks,
 } from "../../../supabase";
@@ -108,7 +109,8 @@ export const toYesNo = (value, fallback = "no") => {
 // occurrences sharing department/doer/description) in JS rather than with
 // nested PostgREST or-filters.
 export const sameText = (a, b) =>
-  String(a ?? "").trim() === String(b ?? "").trim();
+  String(a ?? "").trim().replace(/\r\n/g, "\n") ===
+  String(b ?? "").trim().replace(/\r\n/g, "\n");
 
 // Local, zone-less "YYYY-MM-DDTHH:MM:SS" — planned_date/task_start_date on
 // checklist & delegation are `timestamp` columns holding local wall-clock.

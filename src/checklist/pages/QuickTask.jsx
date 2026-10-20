@@ -696,9 +696,11 @@ export default function QuickTask() {
         : [];
     }
 
+    const currentTaskId = task.id ?? task.task_id;
     if (activeTab === "maintenance") {
       setEditFormData({
-        id: task.id,
+        id: currentTaskId,
+        task_id: task.task_id ?? task.id,
         machine_name: task.machine_name || "",
         part_name: task.part_name || "",
         part_area: task.part_area || "",
@@ -719,7 +721,8 @@ export default function QuickTask() {
       });
     } else {
       setEditFormData({
-        id: task.id,
+        id: currentTaskId,
+        task_id: task.task_id ?? task.id,
         department: task.department || "",
         given_by: task.given_by || "",
         name: task.name || "",
@@ -752,7 +755,7 @@ export default function QuickTask() {
 
   const handleSaveEdit = async () => {
     if (!canWrite) return;
-    if (!editFormData.id) return;
+    if (!editFormData.id && !editFormData.task_id) return;
 
     setIsSaving(true);
     try {
@@ -834,9 +837,11 @@ export default function QuickTask() {
         audioToCleanup = editFormData.originalAudioUrl;
       }
 
+      const targetId = String(editFormData.id ?? editFormData.task_id);
+
       if (activeTab === "maintenance") {
         const originalTask = maintenance.find(
-          (task) => task.id === editFormData.id,
+          (task) => String(task.id ?? task.task_id) === targetId,
         );
         await dispatch(
           updateMaintenanceTask({
@@ -854,7 +859,7 @@ export default function QuickTask() {
         ).unwrap();
       } else if (activeTab === "delegation") {
         const originalTask = delegationTasks.find(
-          (task) => task.id === editFormData.id,
+          (task) => String(task.id ?? task.task_id) === targetId,
         );
         await dispatch(
           updateDelegationTask({
@@ -869,23 +874,21 @@ export default function QuickTask() {
           }),
         ).unwrap();
       } else {
-        // Find the original task data for matching (only for checklist currently)
+        // Find the original task data for matching
         const originalTask = quickTask.find(
-          (task) => task.id === editFormData.id,
+          (task) => String(task.id ?? task.task_id) === targetId,
         );
-        if (!originalTask) {
-          setIsSaving(false);
-          return;
-        }
 
         await dispatch(
           updateChecklistTask({
             updatedTask: finalEditData,
-            originalTask: {
-              department: originalTask.department,
-              name: originalTask.name,
-              task_description: originalTask.task_description,
-            },
+            originalTask: originalTask
+              ? {
+                  department: originalTask.department,
+                  name: originalTask.name,
+                  task_description: originalTask.task_description,
+                }
+              : null,
           }),
         ).unwrap();
       }
@@ -905,12 +908,13 @@ export default function QuickTask() {
       setEditingTaskId(null);
       setEditFormData({});
       setRecordedAudio(null);
+      setIsEditModalOpen(false);
 
       showToast("Task updated successfully!", "success");
 
       // Refresh the data
       if (activeTab === "checklist") {
-        dispatch(
+        await dispatch(
           uniqueChecklistTaskData({
             page: 0,
             pageSize: 50,
@@ -923,7 +927,7 @@ export default function QuickTask() {
           }),
         );
       } else if (activeTab === "maintenance") {
-        dispatch(
+        await dispatch(
           maintenanceData({
             page: 1,
             frequency: freqFilter,
@@ -931,7 +935,7 @@ export default function QuickTask() {
           }),
         );
       } else if (activeTab === "delegation") {
-        dispatch(
+        await dispatch(
           uniqueDelegationTaskData({
             page: 0,
             pageSize: 50,
@@ -3050,7 +3054,7 @@ export default function QuickTask() {
                       Edit Task Details
                     </h3>
                     <p className="text-[10px] font-medium text-gray-500 uppercase tracking-widest">
-                      ID: #{editFormData.id}
+                      ID: #{editFormData.id || editFormData.task_id}
                     </p>
                   </div>
                 </div>

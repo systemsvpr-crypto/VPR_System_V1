@@ -635,7 +635,7 @@ const isRowCompleted = (cfg, row) => {
   );
 };
 
-// "YYYY-MM" → planned_date window clipped to today; no month = all up to today.
+// "YYYY-MM" → planned_date window for the full month; no month = all up to today.
 const monthWindow = (selectedMonth) => {
   const tomorrow = addDays(localDateString(), 1);
   const m = /^(\d{4})-(\d{1,2})$/.exec(String(selectedMonth || "").trim());
@@ -644,7 +644,7 @@ const monthWindow = (selectedMonth) => {
   const mo = Number(m[2]);
   const first = `${y}-${pad(mo)}-01`;
   const next = localDateString(new Date(y, mo, 1));
-  return { gte: first, lt: minYmd(next, tomorrow) };
+  return { gte: first, lt: next };
 };
 
 const slug = (s) =>
@@ -664,7 +664,7 @@ const aggregateStaff = async ({
   sortBy,
 }) => {
   const cfg = tableFor(dashboardType);
-  const { role, user } = roleInfo();
+  const { role, user, isAdmin, scoped } = roleInfo();
   const key = JSON.stringify([
     cfg.type,
     staffFilter,
@@ -697,27 +697,110 @@ const aggregateStaff = async ({
     const userByName = new Map(
       users.map((u) => [String(u.user_name).trim().toLowerCase(), u]),
     );
+
+    // Determine which active users are visible for the current role and filters
+    let visibleUsers = [...users];
+
+    if (isSet(staffFilter)) {
+      const sf = String(staffFilter).trim().toLowerCase();
+      visibleUsers = visibleUsers.filter(
+        (u) => String(u.user_name || "").trim().toLowerCase() === sf,
+      );
+    }
+
+    if (isSet(departmentFilter)) {
+      const df = String(departmentFilter).trim().toLowerCase();
+      visibleUsers = visibleUsers.filter(
+        (u) => String(u.department || "").trim().toLowerCase() === df,
+      );
+    }
+
+    if (!isAdmin) {
+      if (scoped) {
+        const depts = getUserAllowedDepartments().map((x) => x.toLowerCase());
+        if (depts.length > 0) {
+          visibleUsers = visibleUsers.filter((u) =>
+            depts.includes(String(u.department || "").trim().toLowerCase()),
+          );
+        }
+      } else {
+        const un = String(user || "").trim().toLowerCase();
+        visibleUsers = visibleUsers.filter(
+          (u) => String(u.user_name || "").trim().toLowerCase() === un,
+        );
+      }
+    }
+
+    // Ensure the logged-in regular user is represented even if absent from active checklist_users
+    if (!isAdmin && !scoped && visibleUsers.length === 0 && user) {
+      visibleUsers.push({
+        id: "current-user",
+        user_name: user,
+        department: "",
+      });
+    }
+
     const byName = new Map();
+
+    for (const u of visibleUsers) {
+      const k = String(u.user_name || "").trim().toLowerCase();
+      if (!k) continue;
+      byName.set(k, {
+        user: u,
+        name: u.user_name,
+        taskDepartment: u.department || "",
+        total: 0,
+        completed: 0,
+        onTime: 0,
+        overdue: 0,
+        dueToday: 0,
+        upcoming: 0,
+      });
+    }
 
     for (const row of rows) {
       const name = String(row[cfg.name] || "").trim();
       if (!name) continue;
       const k = name.toLowerCase();
       if (!byName.has(k)) {
+        if (!isAdmin && !scoped && k !== String(user || "").trim().toLowerCase()) {
+          continue;
+        }
+        if (scoped) {
+          const depts = getUserAllowedDepartments().map((x) => x.toLowerCase());
+          const rowDept = String(row.department || "").trim().toLowerCase();
+          if (depts.length > 0 && !depts.includes(rowDept)) {
+            continue;
+          }
+        }
+        if (isSet(staffFilter) && k !== String(staffFilter).trim().toLowerCase()) {
+          continue;
+        }
+        if (
+          isSet(departmentFilter) &&
+          String(row.department || "").trim().toLowerCase() !==
+            String(departmentFilter).trim().toLowerCase()
+        ) {
+          continue;
+        }
         const u = userByName.get(k);
         byName.set(k, {
           user: u,
           name: u?.user_name || name,
-          taskDepartment: row.department || "",
+          taskDepartment: row.department || u?.department || "",
           total: 0,
           completed: 0,
           onTime: 0,
           overdue: 0,
           dueToday: 0,
+          upcoming: 0,
         });
       }
       const s = byName.get(k);
       s.total++;
+      if (row.department && !s.taskDepartment) {
+        s.taskDepartment = row.department;
+      }
       const planned = toYmd(row.planned_date);
       if (isRowCompleted(cfg, row)) {
         s.completed++;
@@ -726,16 +809,27 @@ const aggregateStaff = async ({
           : null;
         const submitted =
           submittedAt && !isNaN(submittedAt) ? localDateString(submittedAt) : "";
-        if (submitted && planned && submitted <= planned) s.onTime++;
+        if (submitted && planned && submitted <= planned) {
+          s.onTime++;
+        } else if (!submitted && planned && planned >= localDateString()) {
+          s.onTime++;
+        }
       } else if (planned && planned < localDateString()) {
         s.overdue++;
-      } else {
+      } else if (planned && planned === localDateString()) {
         s.dueToday++;
+      } else {
+        s.upcoming++;
       }
     }
 
-    const list = Array.from(byName.values()).map((s) => {
-      const pending = s.total - s.completed;
+    let list = Array.from(byName.values());
+    if (isSet(assignFromFilter)) {
+      list = list.filter((s) => s.total > 0);
+    }
+
+    const resultList = list.map((s) => {
+      const pending = Math.max(0, s.total - s.completed);
       const score = s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0;
       const u = s.user;
       return {
@@ -743,14 +837,15 @@ const aggregateStaff = async ({
         user_id: u?.id ?? null,
         name: s.name,
         email: u?.email_id || "",
-        department: u?.department || s.taskDepartment || "-",
+        department: s.taskDepartment || u?.department || "-",
         division: u?.division || null,
-        designation: u?.Designation || null,
+        designation: u?.Designation || u?.designation || null,
         profile_image: u?.profile_image || null,
         // StaffTaskTable.jsx field names
         total_tasks: s.total,
         total_completed_tasks: s.completed,
         total_pending_tasks: pending,
+        total_upcoming_tasks: s.upcoming,
         total_overdue_tasks: s.overdue,
         total_due_today_tasks: s.dueToday,
         total_done_on_time: s.onTime,
@@ -767,16 +862,16 @@ const aggregateStaff = async ({
     });
 
     if (sortBy === "name") {
-      list.sort((a, b) => a.name.localeCompare(b.name));
+      resultList.sort((a, b) => a.name.localeCompare(b.name));
     } else {
-      list.sort(
+      resultList.sort(
         (a, b) =>
           b.completion_score - a.completion_score ||
           b.total_tasks - a.total_tasks ||
           a.name.localeCompare(b.name),
       );
     }
-    return list;
+    return resultList;
   })();
 
   staffCache.set(key, { at: Date.now(), promise });

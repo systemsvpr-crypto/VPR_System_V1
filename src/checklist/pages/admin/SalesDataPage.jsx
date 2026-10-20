@@ -465,10 +465,10 @@ export default function AccountDataPage({
                       </span>
                     </td>
                     <td className="px-3 py-4 text-sm text-gray-600 whitespace-nowrap align-top text-center">
-                      {item.enable_reminder ? "Yes" : "No"}
+                      {["yes", "true", true, 1, "1"].includes(typeof item.enable_reminder === "string" ? item.enable_reminder.trim().toLowerCase() : item.enable_reminder) ? "Yes" : "No"}
                     </td>
                     <td className="px-3 py-4 text-sm text-gray-600 whitespace-nowrap align-top text-center">
-                      {item.require_attachment ? "Yes" : "No"}
+                      {["yes", "true", true, 1, "1"].includes(typeof item.require_attachment === "string" ? item.require_attachment.trim().toLowerCase() : item.require_attachment) ? "Yes" : "No"}
                     </td>
 
                     {/* Status Column */}

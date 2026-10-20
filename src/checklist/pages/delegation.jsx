@@ -8,13 +8,13 @@ import {
   Search,
   History,
   ArrowLeft,
-  BellRing,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
   Printer,
   FileText,
   ExternalLink,
+  XCircle,
 } from "lucide-react";
 import AdminLayout from "../components/layout/ChecklistLayout";
 import { useDispatch, useSelector } from "react-redux";
@@ -25,7 +25,6 @@ import {
 import { isAdministrator, isAdminOrSuperAdmin, getUserAllowedDepartments } from "../utils/roleUtils";
 import { insertDelegationDoneAndUpdate } from "../redux/api/delegationApi";
 import {
-  sendUrgentTaskNotification,
   sendTaskExtensionNotification,
 } from "../services/whatsappService";
 import { useMagicToast } from "../context/MagicToastContext";
@@ -102,6 +101,79 @@ const getFileType = (url) => {
   
   // Default to general document for any other non-image file types to prevent broken image previews
   return "document";
+};
+
+const renderAdminRemark = (task) => {
+  if (!task) return <span className="text-gray-400 text-xs">—</span>;
+
+  // 1. Rejection state
+  const isRejected =
+    task.status?.toLowerCase() === "rejected" ||
+    Boolean(task.rejection_reason);
+
+  if (isRejected) {
+    const reasonText = task.rejection_reason || task.admin_remark || null;
+
+    return (
+      <div className="flex flex-col gap-1 min-w-[130px] max-w-[240px]">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-700 w-fit">
+          <XCircle className="w-3 h-3 text-red-600 shrink-0" />
+          Rejected
+        </span>
+        {reasonText && (
+          <span
+            className="text-xs text-red-600 font-medium whitespace-normal break-words leading-tight"
+            title={reasonText}
+          >
+            {reasonText}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // 2. Approved state
+  const isApproved =
+    task.admin_done === true ||
+    task.admin_done === "true" ||
+    task.status?.toLowerCase() === "approved" ||
+    ((task.status?.toLowerCase() === "done" ||
+      task.status?.toLowerCase() === "yes" ||
+      task.status?.toLowerCase() === "completed") &&
+      Boolean(task.admin_approved_by));
+
+  if (isApproved) {
+    const approvedBy = task.admin_approved_by;
+    const adminRemarkText = task.admin_remark || task.approval_remark;
+
+    return (
+      <div className="flex flex-col gap-1 min-w-[130px] max-w-[240px]">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-green-100 text-green-700 w-fit">
+          <CheckCircle2 className="w-3 h-3 text-green-600 shrink-0" />
+          {approvedBy ? `Approved by ${approvedBy}` : "Approved"}
+        </span>
+        {adminRemarkText && (
+          <span
+            className="text-xs text-green-700 font-medium whitespace-normal break-words leading-tight"
+            title={adminRemarkText}
+          >
+            {adminRemarkText}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // 3. Explicit admin remark
+  if (task.admin_remark) {
+    return (
+      <div className="text-xs text-gray-800 whitespace-normal break-words leading-tight max-w-[240px]">
+        {task.admin_remark}
+      </div>
+    );
+  }
+
+  return <span className="text-gray-400 text-xs">—</span>;
 };
 
 function DelegationDataPage() {
@@ -248,21 +320,6 @@ function DelegationDataPage() {
     [canWrite, isFullAdminUser, username],
   );
 
-  // Initialize remarksData from delegation tasks (e.g., to show rejection reasons)
-  useEffect(() => {
-    if (delegation && delegation.length > 0) {
-      setRemarksData((prev) => {
-        const newRemarks = { ...prev };
-        delegation.forEach((task) => {
-          const remark = task.rejection_reason || task.remark;
-          if (remark && !newRemarks[task.id]) {
-            newRemarks[task.id] = remark;
-          }
-        });
-        return newRemarks;
-      });
-    }
-  }, [delegation]);
 
   const parseGoogleSheetsDateTime = useCallback(
     (dateTimeStr) => {
@@ -1031,7 +1088,7 @@ function DelegationDataPage() {
       (id) => statusData[id] === "Extend date" && !nextTargetDate[id],
     );
     if (missingNextDate.length > 0) {
-      showToast(`Please select a next target date for extensions.`, "error");
+      showToast(`Please select an extended date for extensions.`, "error");
       return;
     }
 
@@ -1120,7 +1177,11 @@ function DelegationDataPage() {
                   nextTargetDate[id] ? nextTargetDate[id] + "T23:00:00" : null,
                 )
               : null,
-          reason: remarksData[id] || "",
+          reason:
+            remarksData[id] !== undefined &&
+            remarksData[id] !== (item.remark || "")
+              ? remarksData[id]
+              : "",
           duration: item.duration || "",
           image_url: uploadedImages[id] ? null : item.image,
           image_location_data: imageLocationData[id] || item.image_location_data || null,
@@ -1670,45 +1731,6 @@ function DelegationDataPage() {
     printWindow.document.close();
   };
 
-  const handleSendUrgentWhatsApp = async () => {
-    if (!canWrite) return;
-    if (selectedItems.size === 0) return;
-
-    setIsSubmitting(true);
-    try {
-      const selectedTasks = delegation.filter((t) => selectedItems.has(t.id));
-      let allSuccess = true;
-
-      for (const task of selectedTasks) {
-        const sent = await sendUrgentTaskNotification({
-          doerName: task.name,
-          taskId: task.id,
-          description: task.task_description,
-          dueDate: formatDateTimeForDisplay(
-            task.planned_date,
-          ),
-          givenBy: task.given_by || username,
-          taskType: "delegation",
-          department: task.department,
-        });
-        if (!sent) {
-          allSuccess = false;
-        }
-      }
-
-      if (allSuccess) {
-        showToast("WhatsApp message(s) sent successfully!", "success");
-      } else {
-        showToast("Some WhatsApp messages failed to send.", "warning");
-      }
-      setSelectedItems(new Set());
-    } catch (err) {
-      console.error("WhatsApp error:", err);
-      showToast("Failed to send WhatsApp messages.", "error");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const selectedItemsCount = selectedItems.size;
 
@@ -1749,16 +1771,6 @@ function DelegationDataPage() {
                     <span className="sm:hidden">Print</span>
                   </button>
 
-                  <button
-                    onClick={handleSendUrgentWhatsApp}
-                    disabled={!canWrite || selectedItems.size === 0 || isSubmitting}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-extrabold text-white bg-green-600 rounded-xl hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xs cursor-pointer"
-                    title={!canWrite ? READ_ONLY_TOOLTIP : "Send Urgent WhatsApp"}
-                  >
-                    <BellRing size={13} />
-                    <span className="hidden sm:inline">Urgent WhatsApp</span>
-                    <span className="sm:hidden">Urgent</span>
-                  </button>
 
                   <button
                     onClick={handleSubmit}
@@ -1992,7 +2004,10 @@ function DelegationDataPage() {
                           Status
                         </th>
                         <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                          Next Target
+                          Extended Date
+                        </th>
+                        <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px] whitespace-nowrap">
+                          Admin Remark
                         </th>
                         <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px]">
                           Remarks
@@ -2073,6 +2088,9 @@ function DelegationDataPage() {
                                 ) || "—"}
                               </div>
                             </td>
+                            <td className="px-3 sm:px-6 py-2 sm:py-4 min-w-[150px] max-w-[240px]">
+                              {renderAdminRemark(history)}
+                            </td>
                             <td className="px-3 sm:px-6 py-2 sm:py-4 bg-blue-50 min-w-[150px] max-w-[250px]">
                               <div
                                 className="text-xs sm:text-sm text-gray-900 whitespace-normal break-words leading-relaxed"
@@ -2138,7 +2156,7 @@ function DelegationDataPage() {
                       ) : (
                         <tr>
                           <td
-                            colSpan={isFullAdminUser ? 9 : 8}
+                            colSpan={isFullAdminUser ? 10 : 9}
                             className="px-4 sm:px-6 py-4 text-center text-gray-500 text-xs sm:text-sm"
                           >
                             {searchTerm || startDate || endDate
@@ -2236,7 +2254,7 @@ function DelegationDataPage() {
                           {history.next_extend_date && (
                             <div className="space-y-1">
                               <p className="text-[10px] text-gray-400 uppercase font-semibold">
-                                Next Target
+                                Extended Date
                               </p>
                               <p className="text-xs text-indigo-600 font-bold">
                                 {formatDateTimeForDisplay(
@@ -2245,6 +2263,12 @@ function DelegationDataPage() {
                               </p>
                             </div>
                           )}
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-gray-400 uppercase font-semibold">
+                              Admin Remark
+                            </p>
+                            <div>{renderAdminRemark(history)}</div>
+                          </div>
                           {history.reason && (
                             <div className="space-y-1 p-2 bg-blue-50 rounded">
                               <p className="text-[10px] text-blue-400 uppercase font-semibold">
@@ -2353,7 +2377,10 @@ function DelegationDataPage() {
                           Select Status
                         </th>
                         <th className="px-2 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-indigo-50">
-                          Next Target
+                          Extended Date
+                        </th>
+                        <th className="px-2 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px] whitespace-nowrap bg-rose-50/50">
+                          Admin Remark
                         </th>
                         <th className="px-2 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px] bg-blue-50">
                           Remarks
@@ -2367,6 +2394,12 @@ function DelegationDataPage() {
                       {paginatedTasks.length > 0 ? (
                         paginatedTasks.map((task, index) => {
                           const isSelected = selectedItems.has(task.id);
+                          const previousRemark = task.remark || "";
+                          const userEnteredRemark =
+                            remarksData[task.id] !== undefined &&
+                            remarksData[task.id] !== previousRemark
+                              ? remarksData[task.id]
+                              : "";
                           const showHeader =
                             index === 0 ||
                             task.timeStatus !==
@@ -2376,7 +2409,7 @@ function DelegationDataPage() {
                             <Fragment key={index}>
                               {showHeader && (
                                 <tr className="bg-gray-100/50">
-                                  <td colSpan={13} className="px-6 py-2">
+                                  <td colSpan={14} className="px-6 py-2">
                                     <div className="flex items-center gap-2">
                                       <div
                                         className={`w-2 h-2 rounded-full ${
@@ -2516,19 +2549,60 @@ function DelegationDataPage() {
                                     className="border border-gray-300 rounded-md px-2 py-1 w-full disabled:bg-gray-100 disabled:cursor-not-allowed text-xs sm:text-sm"
                                   />
                                 </td>
+                                <td className="px-2 sm:px-6 py-2 sm:py-4 min-w-[150px] max-w-[240px]">
+                                  {renderAdminRemark(task)}
+                                </td>
                                 <td className="px-2 sm:px-6 py-2 sm:py-4 min-w-[150px] max-w-[250px] bg-blue-50">
-                                  <textarea
-                                    placeholder="Enter remarks"
-                                    disabled={!isSelected}
-                                    value={remarksData[task.id] || ""}
-                                    onChange={(e) =>
-                                      setRemarksData((prev) => ({
-                                        ...prev,
-                                        [task.id]: e.target.value,
-                                      }))
-                                    }
-                                    className="border border-gray-300 rounded-md px-3 py-2 w-full h-8 sm:h-auto min-h-[32px] sm:min-h-[64px] disabled:bg-gray-100 disabled:cursor-not-allowed text-xs sm:text-sm resize-none"
-                                  />
+                                  {isSelected ? (
+                                    <div className="flex flex-col gap-1.5 w-full">
+                                      {previousRemark && (
+                                        <div className="text-[11px] bg-white/90 p-1.5 rounded border border-blue-200 whitespace-normal break-words leading-tight shadow-xs">
+                                          <span className="font-semibold text-gray-500">
+                                            {task.rejection_reason
+                                              ? "Rejected: "
+                                              : "Previous: "}
+                                          </span>
+                                          <span
+                                            className={
+                                              task.rejection_reason
+                                                ? "text-red-600 font-medium"
+                                                : "text-gray-800"
+                                            }
+                                          >
+                                            {previousRemark}
+                                          </span>
+                                        </div>
+                                      )}
+                                      <textarea
+                                        placeholder="Enter remarks"
+                                        value={userEnteredRemark}
+                                        onChange={(e) =>
+                                          setRemarksData((prev) => ({
+                                            ...prev,
+                                            [task.id]: e.target.value,
+                                          }))
+                                        }
+                                        className="border border-gray-300 rounded-md px-3 py-2 w-full min-h-[56px] text-xs sm:text-sm resize-none focus:border-blue-400 focus:bg-white bg-white outline-none"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs sm:text-sm whitespace-normal break-words leading-relaxed">
+                                      {task.rejection_reason ? (
+                                        <span className="text-red-600 font-medium">
+                                          <span className="font-semibold text-red-700">
+                                            Rejected:{" "}
+                                          </span>
+                                          {task.rejection_reason}
+                                        </span>
+                                      ) : task.remark ? (
+                                        <span className="text-gray-800">
+                                          {task.remark}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">—</span>
+                                      )}
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="px-2 sm:px-6 py-2 sm:py-4 bg-orange-50 min-w-[200px]">
                                   <div className="flex flex-col gap-2">
@@ -2702,7 +2776,7 @@ function DelegationDataPage() {
                       ) : (
                         <tr>
                           <td
-                            colSpan={11}
+                            colSpan={14}
                             className="px-4 sm:px-6 py-4 text-center text-gray-500 text-xs sm:text-sm"
                           >
                             {searchTerm
@@ -2767,6 +2841,12 @@ function DelegationDataPage() {
                   {paginatedTasks.length > 0 ? (
                     paginatedTasks.map((task, index) => {
                       const isSelected = selectedItems.has(task.id);
+                      const previousRemark = task.remark || "";
+                      const userEnteredRemark =
+                        remarksData[task.id] !== undefined &&
+                        remarksData[task.id] !== previousRemark
+                          ? remarksData[task.id]
+                          : "";
                       const showHeader =
                         index === 0 ||
                         task.timeStatus !==
@@ -2933,7 +3013,7 @@ function DelegationDataPage() {
                                   </div>
                                   <div className="space-y-1">
                                     <p className="text-[10px] text-gray-400 uppercase font-semibold">
-                                      Next Target
+                                      Extended Date
                                     </p>
                                     <input
                                       type="date"
@@ -2955,21 +3035,66 @@ function DelegationDataPage() {
 
                                 <div className="space-y-1">
                                   <p className="text-[10px] text-gray-400 uppercase font-semibold">
+                                    Admin Remark
+                                  </p>
+                                  <div>{renderAdminRemark(task)}</div>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <p className="text-[10px] text-gray-400 uppercase font-semibold">
                                     Remarks
                                   </p>
-                                  <textarea
-                                    placeholder="Enter remarks"
-                                    disabled={!isSelected}
-                                    value={remarksData[task.id] || ""}
-                                    onChange={(e) =>
-                                      setRemarksData((prev) => ({
-                                        ...prev,
-                                        [task.id]: e.target.value,
-                                      }))
-                                    }
-                                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-xs focus:ring-blue-400 resize-none"
-                                    rows="2"
-                                  />
+                                  {isSelected ? (
+                                    <div className="flex flex-col gap-1.5">
+                                      {previousRemark && (
+                                        <div className="text-[11px] bg-gray-50 p-1.5 rounded border border-gray-200 whitespace-normal break-words leading-tight">
+                                          <span className="font-semibold text-gray-500">
+                                            {task.rejection_reason
+                                              ? "Rejected: "
+                                              : "Previous: "}
+                                          </span>
+                                          <span
+                                            className={
+                                              task.rejection_reason
+                                                ? "text-red-600 font-medium"
+                                                : "text-gray-800"
+                                            }
+                                          >
+                                            {previousRemark}
+                                          </span>
+                                        </div>
+                                      )}
+                                      <textarea
+                                        placeholder="Enter remarks"
+                                        value={userEnteredRemark}
+                                        onChange={(e) =>
+                                          setRemarksData((prev) => ({
+                                            ...prev,
+                                            [task.id]: e.target.value,
+                                          }))
+                                        }
+                                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-xs focus:ring-blue-400 resize-none bg-white"
+                                        rows="2"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-gray-700 whitespace-normal break-words py-1">
+                                      {task.rejection_reason ? (
+                                        <span className="text-red-600 font-medium">
+                                          <span className="font-semibold text-red-700">
+                                            Rejected:{" "}
+                                          </span>
+                                          {task.rejection_reason}
+                                        </span>
+                                      ) : task.remark ? (
+                                        <span className="text-gray-800">
+                                          {task.remark}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">—</span>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
 
                                 <div className="space-y-1">
