@@ -131,11 +131,7 @@ const Setting = () => {
   } = useSelector((state) => state.setting);
   const dispatch = useDispatch();
 
-  useEffect(() => {
-    console.log("Setting Component - userData:", userData);
-    console.log("Setting Component - loading:", loading);
-    console.log("Setting Component - error:", error);
-  }, [userData, loading, error]);
+
 
   const fetchDeviceLogsAndUpdateStatus = useCallback(async () => {
     // Set to true to enable background sync when the hardware API is online
@@ -180,20 +176,12 @@ const Setting = () => {
 
       // Back-off logic if entirely failing
       if (encountered400 && allLogs.length === 0) {
-        if (lastSyncError.current.status !== 400) {
-          console.log(
-            "ℹ️ Device APIs unreachable (400). Sync paused for 30 minutes.",
-          );
-        }
         lastSyncError.current = { status: 400, timestamp: now };
         return;
       }
 
       // Clear back-off if we got any data
-      if (allLogs.length > 0 && lastSyncError.current.status === 400) {
-        console.log("✅ Device sync partially or fully restored.");
         lastSyncError.current = { status: null, timestamp: 0 };
-      }
 
       if (allLogs.length === 0) return;
 
@@ -895,7 +883,6 @@ const Setting = () => {
     };
 
     try {
-      console.log("Creating user with payload:", newUser);
       await dispatch(createUser(newUser)).unwrap();
 
       // If the new user has the same name as current logged in user (unlikely but safe)
@@ -974,12 +961,10 @@ const Setting = () => {
     };
 
     try {
-      console.log("Updating user with image:", imageUrl);
       await dispatch(updateUser({ id: currentUserId, updatedUser })).unwrap();
 
       // Critical: Update localStorage if the edited user is the current logged-in user
       if (updatedUser.user_name === localStorage.getItem("user-name")) {
-        console.log("Updating current user's localStorage image");
         localStorage.setItem("profile_image", imageUrl || "");
         localStorage.setItem("division", updatedUser.division || "");
         // Refresh to update all layouts immediately
@@ -2294,10 +2279,6 @@ const Setting = () => {
                               user.user_name
                                 .toLowerCase()
                                 .includes(usernameFilter.toLowerCase())),
-                        );
-                        console.log(
-                          "Setting Page - Filtered Users COUNT:",
-                          filtered.length,
                         );
                         return filtered;
                       })().map((user, index) => (

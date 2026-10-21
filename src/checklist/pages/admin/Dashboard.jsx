@@ -614,9 +614,6 @@ export default function AdminDashboard() {
         return;
       }
 
-      console.log(
-        `✅ Fetched ${data.length} TOTAL records for ${mainTab || dashboardType}`,
-      );
 
       const username = localStorage.getItem("user-name");
       // Reference point for all date comparisons

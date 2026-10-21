@@ -24,30 +24,24 @@ import AdminLayout from "../../components/layout/ChecklistLayout";
 import supabase from "../../SupabaseClient";
 import { isAdministrator } from "../../utils/roleUtils";
 import { getReadablePageIds, setStoredPageAccess } from "../../utils/pagePermissionUtils";
+import useAuthStore from "../../../store/authStore";
 
 export default function PortalDashboard() {
+  const authUser = useAuthStore.getState().user || {};
   const [userInfo, setUserInfo] = useState({
-    username: localStorage.getItem("user-name") || "Admin User",
-    role: (localStorage.getItem("role") || "admin").toUpperCase(),
-    email:
-      localStorage.getItem("email_id") ||
-      localStorage.getItem("email") ||
-      "Not provided",
-    phone:
-      localStorage.getItem("phone") ||
-      localStorage.getItem("contact") ||
-      localStorage.getItem("number") ||
-      "Not provided",
-    profileImage: localStorage.getItem("profile_image") || "",
+    username: localStorage.getItem("user-name") || authUser.full_name || authUser.Name || authUser.username || "Admin User",
+    role: (localStorage.getItem("role") || authUser.role || "admin").toUpperCase(),
+    email: authUser.email || "Not provided",
+    phone: authUser.phone_number || "Not provided",
+    profileImage: localStorage.getItem("profile_image") || authUser.profile_picture || "",
   });
 
   useEffect(() => {
     const fetchUserProfile = async () => {
       const storedUsername = localStorage.getItem("user-name");
       const storedUserId = localStorage.getItem("user-id");
-      const storedEmail = localStorage.getItem("email_id");
 
-      if (!storedUsername && !storedUserId && !storedEmail) return;
+      if (!storedUsername && !storedUserId) return;
 
       try {
         let query = supabase.from("checklist_users").select("*");
@@ -55,8 +49,6 @@ export default function PortalDashboard() {
           query = query.eq("id", storedUserId);
         } else if (storedUsername) {
           query = query.eq("user_name", storedUsername);
-        } else if (storedEmail) {
-          query = query.eq("email_id", storedEmail);
         }
 
         const { data, error } = await query.maybeSingle();
@@ -78,20 +70,23 @@ export default function PortalDashboard() {
             profileImage: fetchedImg,
           });
 
-          // Sync back to localStorage for seamless persistence
+          // Sync back required items to localStorage
           localStorage.setItem("user-name", fetchedUsername);
-          if (data.email_id || data.email)
-            localStorage.setItem("email_id", data.email_id || data.email);
-          if (data.number || data.phone || data.mobile) {
-            const num = data.number || data.phone || data.mobile;
-            localStorage.setItem("phone", String(num));
-            localStorage.setItem("contact", String(num));
-          }
           if (data.role) localStorage.setItem("role", data.role);
-          if (data.division !== undefined) localStorage.setItem("division", data.division || "");
+          if (data.division) localStorage.setItem("division", data.division);
+          else localStorage.removeItem("division");
           if (data.page_access) setStoredPageAccess(data.page_access);
-          if (data.profile_image)
+          if (data.profile_image) {
             localStorage.setItem("profile_image", data.profile_image);
+          } else {
+            localStorage.removeItem("profile_image");
+          }
+
+          // Clean up sensitive / redundant keys
+          localStorage.removeItem("email_id");
+          localStorage.removeItem("phone");
+          localStorage.removeItem("contact");
+          localStorage.removeItem("can_self_assign");
         }
       } catch (err) {
         console.error("Error fetching user profile in PortalDashboard:", err);

@@ -356,7 +356,6 @@ const CalendarPage = () => {
         return dateA - dateB;
       });
 
-      console.log(`✅ Loaded ${normalizedTasks.length} tasks for Calendar.`);
       setTasks(normalizedTasks);
       setHolidays(holidaysRes.data || []);
       setWorkingDays(workingDaysRes.data || []);

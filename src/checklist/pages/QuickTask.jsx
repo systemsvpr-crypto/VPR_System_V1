@@ -1058,7 +1058,6 @@ export default function QuickTask() {
 
     setIsDeleting(true);
     try {
-      console.log("Deleting rows:", selectedTasks);
       if (activeTab === "checklist") {
         await dispatch(deleteChecklistTask(selectedTasks)).unwrap();
       } else if (activeTab === "maintenance") {

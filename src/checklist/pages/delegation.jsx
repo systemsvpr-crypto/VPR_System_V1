@@ -1193,8 +1193,6 @@ function DelegationDataPage() {
         };
       });
 
-      console.log("Selected Data for submission:", selectedData);
-
       const hasImagesToUpload = selectedItemsArray.some(
         (id) =>
           uploadedImages[id] &&

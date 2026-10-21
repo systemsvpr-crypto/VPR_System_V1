@@ -45,30 +45,41 @@ const UserLayout = ({ children }) => {
           if (data.profile_image) {
             setProfileImage(data.profile_image);
             localStorage.setItem("profile_image", data.profile_image);
-            console.log("✅ User profile image synced from DB:", data.profile_image);
+          } else {
+            localStorage.removeItem("profile_image");
           }
           localStorage.removeItem("division");
         }
       } catch (err) {
-        console.error("❌ Error syncing user profile image:", err);
+        // ignore error
       }
     };
 
     if (storedUsername) {
       syncProfileImage();
     }
-
-    console.log("UserLayout - Profile Image URL (Cached):", cachedImage);
   }, [navigate, username]) // Added username to dependency to ensure it runs when set
 
   // Logout handler
   const handleLogout = () => {
     localStorage.removeItem("user-name");
-    localStorage.removeItem('role')
-    localStorage.removeItem('email_id')
-    localStorage.removeItem('profile_image')
-    navigate('/login')
-  }
+    localStorage.removeItem('role');
+    localStorage.removeItem('email_id');
+    localStorage.removeItem('phone');
+    localStorage.removeItem('can_self_assign');
+    localStorage.removeItem('token');
+    localStorage.removeItem('profile_image');
+    localStorage.removeItem('user');
+    localStorage.removeItem('user-id');
+    localStorage.removeItem('department');
+    localStorage.removeItem('division');
+    localStorage.removeItem('user_access');
+    localStorage.removeItem('page_access');
+    localStorage.removeItem('designation');
+    localStorage.removeItem('vpr-systems');
+    sessionStorage.clear();
+    navigate('/login');
+  };
 
   const routes = isAdmin
     ? [

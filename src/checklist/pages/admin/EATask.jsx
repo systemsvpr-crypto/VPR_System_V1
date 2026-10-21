@@ -27,6 +27,7 @@ import { sendTaskAssignmentNotification } from "../../services/whatsappService";
 import { useMagicToast } from "../../context/MagicToastContext";
 import { usePagePermission, READ_ONLY_TOOLTIP } from "../../utils/pagePermissionUtils";
 import ReadOnlyBanner from "../../components/ReadOnlyBanner";
+import useAuthStore from "../../../store/authStore";
 
 const formatDateLong = (date) =>
   date
@@ -48,10 +49,11 @@ const DEFAULT_DOER_NAME = "";
 
 const defaultTask = () => {
   const role = (localStorage.getItem("role") || "").toLowerCase();
+  const authUser = useAuthStore.getState().user || {};
   return {
     id: Date.now() + Math.random(),
     doer_name: role === "user" ? localStorage.getItem("user-name") || "" : "",
-    phone_number: role === "user" ? localStorage.getItem("phone") || "" : "",
+    phone_number: role === "user" ? (authUser.phone_number || "") : "",
     given_by: "",
     planned_date: new Date().toISOString().split("T")[0],
     planned_time: "18:00",
@@ -622,7 +624,7 @@ export default function EATask() {
             (role === "user" ? localStorage.getItem("user-name") || "" : ""),
           phone_number:
             lastTask?.phone_number ||
-            (role === "user" ? localStorage.getItem("phone") || "" : ""),
+            (role === "user" ? (authUser.phone_number || "") : ""),
           given_by: lastTask?.given_by || "",
         },
       ];
@@ -678,9 +680,6 @@ export default function EATask() {
 
       // If it's not a holiday, we allow it for EA tasks even if not in working_day_calender
       // This enables assigning tasks beyond the current calendar range (e.g. after Feb 2027)
-      if (!isW) {
-        console.log(`Allowing EA Task for non-calendar date: ${dateStr}`);
-      }
     }
 
     setIsSubmitting(true);

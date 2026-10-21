@@ -136,13 +136,7 @@ export default function EAView() {
                             .replace("Z", "+05:30"),
                     })
                     .in("task_id", validExpiredExtensionIds)
-                    .then(({ error }) => {
-                        if (error) {
-                            console.error("Failed to auto-reset expired EA extensions in DB (dashboard):", error);
-                        } else {
-                            console.log("Successfully auto-reset expired EA extensions in DB (dashboard):", validExpiredExtensionIds);
-                        }
-                    });
+                    .then(() => {});
             }
 
             // Filter for non-admin users

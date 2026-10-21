@@ -425,8 +425,6 @@ function AccountDataPage({ showLayout = true }) {
       const todayStr = formatDateToDDMMYYYY(today);
       const tomorrowStr = formatDateToDDMMYYYY(tomorrow);
 
-      console.log("Filtering dates:", { todayStr, tomorrowStr });
-
       // Debugging array to track row filtering
       const debugRows = [];
 

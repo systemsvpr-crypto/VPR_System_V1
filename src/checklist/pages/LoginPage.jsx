@@ -97,37 +97,38 @@ const LoginPage = () => {
           }
         }
 
-        // Store all user data in localStorage
-        localStorage.setItem(
-          "user-name",
-          userData.user_name || userData.username || "",
-        );
-        localStorage.setItem("user-id", userData.id || "");
-        localStorage.setItem("role", userData.role || "");
-        localStorage.setItem(
-          "email_id",
-          userData.email_id || userData.email || "",
-        );
-        localStorage.setItem(
-          "phone",
-          userData.number || userData.phone || userData.mobile || "",
-        );
-        localStorage.setItem(
-          "contact",
-          userData.number || userData.phone || userData.mobile || "",
-        );
-        localStorage.setItem("user_access", userData.user_access || "");
-        localStorage.setItem("page_access", userData.page_access || "");
-        localStorage.setItem("profile_image", userData.profile_image || "");
-        localStorage.setItem(
-          "can_self_assign",
-          userData.can_self_assign === true ? "true" : "false",
-        );
-        localStorage.setItem("department", userData.department || "");
-        localStorage.setItem("division", userData.division || "");
-        localStorage.setItem("designation", designation);
+        // Store required identity keys in localStorage
+        const userName = userData.user_name || userData.username || "";
+        if (userName) localStorage.setItem("user-name", userName);
+        if (userData.id) localStorage.setItem("user-id", String(userData.id));
+        if (userData.role) localStorage.setItem("role", userData.role);
 
-        console.log("Stored email:", userData.email_id || userData.email); // Debug log
+        if (designation) localStorage.setItem("designation", designation);
+        else localStorage.removeItem("designation");
+
+        if (userData.profile_image) localStorage.setItem("profile_image", userData.profile_image);
+        else localStorage.removeItem("profile_image");
+
+        if (userData.department) localStorage.setItem("department", userData.department);
+        else localStorage.removeItem("department");
+
+        if (userData.division) localStorage.setItem("division", userData.division);
+        else localStorage.removeItem("division");
+
+        if (userData.user_access) localStorage.setItem("user_access", userData.user_access);
+        else localStorage.removeItem("user_access");
+
+        if (userData.page_access) localStorage.setItem("page_access", userData.page_access);
+        else localStorage.removeItem("page_access");
+
+        // Purge sensitive / redundant credentials
+        localStorage.removeItem("email_id");
+        localStorage.removeItem("phone");
+        localStorage.removeItem("contact");
+        localStorage.removeItem("can_self_assign");
+        localStorage.removeItem("password");
+        localStorage.removeItem("password_hash");
+        localStorage.removeItem("token");
 
         showToast(
           `Welcome back, ${userData.user_name || userData.username}!`,

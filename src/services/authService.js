@@ -19,5 +19,8 @@ export const loginUser = async (username, password) => {
     throw new Error('Your account has been deactivated. Please contact the administrator.');
   }
 
-  return user;
+  // Remove sensitive credentials before returning
+  const { password_hash, password: _p, ...safeUser } = user;
+  return safeUser;
 };
+

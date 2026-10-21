@@ -95,6 +95,7 @@ const MyProfile = () => {
           Name: cleanUpdates.full_name 
         };
         delete updatedUser.password;
+        delete updatedUser.password_hash;
         useAuthStore.getState().login(updatedUser);
         localStorage.setItem('user', JSON.stringify(updatedUser));
       }

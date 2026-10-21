@@ -30,12 +30,15 @@ const Login = () => {
 
       toast.success('Login successful!');
 
-      // Compatibility object
+      // Compatibility object (ensure no passwords or hashes stored)
+      const { password_hash, password: _pwd, ...cleanUser } = user;
       const userForStore = {
-        ...user,
-        Name: user.full_name,
-        Admin: (user.role && USER_ROLES.slice(0, -1).some(r => r.toLowerCase() === user.role.toLowerCase())) ? 'Yes' : 'No'
+        ...cleanUser,
+        Name: cleanUser.full_name,
+        Admin: (cleanUser.role && USER_ROLES.slice(0, -1).some(r => r.toLowerCase() === cleanUser.role.toLowerCase())) ? 'Yes' : 'No'
       };
+      delete userForStore.password_hash;
+      delete userForStore.password;
 
       localStorage.setItem('user', JSON.stringify(userForStore));
       login(userForStore);

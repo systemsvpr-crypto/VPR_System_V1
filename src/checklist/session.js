@@ -103,24 +103,38 @@ const createEmployeeRow = async (vprUser) => {
 };
 
 const writeIdentity = (row, role) => {
-  const values = {
-    "user-name": row.user_name,
-    role,
-    "user-id": row.id,
+  // Required identity keys for checklist
+  if (row.user_name) localStorage.setItem("user-name", String(row.user_name));
+  if (role) localStorage.setItem("role", String(role));
+  if (row.id) localStorage.setItem("user-id", String(row.id));
+
+  // Only store permissions / filters if they have actual non-empty values
+  const optionalKeys = {
     department: row.department,
     division: row.division,
     user_access: row.user_access,
     page_access: row.page_access,
-    email_id: row.email_id,
-    phone: row.number,
     profile_image: row.profile_image,
     designation: row.Designation,
-    can_self_assign: row.can_self_assign,
   };
-  Object.entries(values).forEach(([k, v]) => {
-    if (v === null || v === undefined) localStorage.removeItem(k);
-    else localStorage.setItem(k, String(v));
+
+  Object.entries(optionalKeys).forEach(([k, v]) => {
+    if (v && String(v).trim() !== "" && String(v) !== "null" && String(v) !== "undefined") {
+      localStorage.setItem(k, String(v).trim());
+    } else {
+      localStorage.removeItem(k);
+    }
   });
+
+  // Purge sensitive credentials, contact info, and internal flags from localStorage
+  localStorage.removeItem("email_id");
+  localStorage.removeItem("phone");
+  localStorage.removeItem("contact");
+  localStorage.removeItem("can_self_assign");
+  localStorage.removeItem("password");
+  localStorage.removeItem("password_hash");
+  localStorage.removeItem("token");
+
   sessionStorage.setItem("username", row.user_name);
   sessionStorage.setItem("role", role);
 };

@@ -105,7 +105,22 @@ const Sidebar = ({ onClose }) => {
   }, [user?.user_id]);
 
   const handleLogout = () => {
+    logout();
     localStorage.removeItem('user');
+    localStorage.removeItem('user-name');
+    localStorage.removeItem('role');
+    localStorage.removeItem('user-id');
+    localStorage.removeItem('email_id');
+    localStorage.removeItem('phone');
+    localStorage.removeItem('can_self_assign');
+    localStorage.removeItem('profile_image');
+    localStorage.removeItem('department');
+    localStorage.removeItem('division');
+    localStorage.removeItem('user_access');
+    localStorage.removeItem('page_access');
+    localStorage.removeItem('designation');
+    localStorage.removeItem('vpr-systems');
+    sessionStorage.clear();
     navigate('/login', { replace: true });
   };
 

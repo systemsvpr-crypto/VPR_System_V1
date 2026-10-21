@@ -207,7 +207,10 @@ const UserModal = ({ isOpen, onClose, editingUser, users, onSuccess }) => {
         await updateUser(editingUser.user_id, userData);
         toast.success('User updated successfully');
         if (currentUser && currentUser.user_id === editingUser.user_id) {
-          const updatedUserCompat = { ...currentUser, ...userData, Name: userData.full_name, Admin: (userData.role && USER_ROLES.slice(0, -1).some(r => r.toLowerCase() === userData.role.toLowerCase())) ? 'Yes' : 'No' };
+          const { password: _pw, password_hash: _ph, ...cleanUserData } = userData;
+          const updatedUserCompat = { ...currentUser, ...cleanUserData, Name: cleanUserData.full_name, Admin: (cleanUserData.role && USER_ROLES.slice(0, -1).some(r => r.toLowerCase() === cleanUserData.role.toLowerCase())) ? 'Yes' : 'No' };
+          delete updatedUserCompat.password;
+          delete updatedUserCompat.password_hash;
           useAuthStore.getState().login(updatedUserCompat);
           localStorage.setItem('user', JSON.stringify(updatedUserCompat));
         }

@@ -24,6 +24,7 @@ import {
 } from "../../../../systems/orderDelivery/utils/storageManager";
 import { isAdministrator } from "../../utils/roleUtils";
 import { getReadablePageIds, setStoredPageAccess, usePagePermission } from "../../utils/pagePermissionUtils";
+import useAuthStore from "../../../../store/authStore";
 import ReadOnlyGuard from "../ReadOnlyGuard";
 import {
   CheckSquare,
@@ -367,7 +368,8 @@ export default function AdminLayout({
   useEffect(() => {
     const storedUsername = localStorage.getItem("user-name");
     const storedRole = localStorage.getItem("role");
-    const storedEmail = localStorage.getItem("email_id");
+    const authUser = useAuthStore.getState().user || {};
+    const storedEmail = authUser.email || "";
 
     if (!storedUsername) {
       // Redirect to login if not authenticated
@@ -447,12 +449,12 @@ export default function AdminLayout({
           if (data.profile_image) {
             setProfileImage(data.profile_image);
             localStorage.setItem("profile_image", data.profile_image);
+          } else {
+            localStorage.removeItem("profile_image");
           }
-          localStorage.setItem(
-            "can_self_assign",
-            data.can_self_assign === true ? "true" : "false",
-          );
-          localStorage.setItem("department", data.department || "");
+          localStorage.removeItem("can_self_assign");
+          if (data.department) localStorage.setItem("department", data.department);
+          else localStorage.removeItem("department");
           localStorage.removeItem("division");
           setStoredPageAccess(data.page_access || "");
         }
@@ -699,9 +701,19 @@ export default function AdminLayout({
     localStorage.removeItem("user-name");
     localStorage.removeItem("role");
     localStorage.removeItem("email_id");
+    localStorage.removeItem("phone");
+    localStorage.removeItem("can_self_assign");
     localStorage.removeItem("token");
     localStorage.removeItem("profile_image");
     localStorage.removeItem("user");
+    localStorage.removeItem("user-id");
+    localStorage.removeItem("department");
+    localStorage.removeItem("division");
+    localStorage.removeItem("user_access");
+    localStorage.removeItem("page_access");
+    localStorage.removeItem("designation");
+    localStorage.removeItem("vpr-systems");
+    sessionStorage.clear();
     window.location.href = "/login";
   };
 

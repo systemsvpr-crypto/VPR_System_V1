@@ -585,8 +585,6 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
         const totalValuesStr = `${overallBag} bag, ${overallKg} KG, ${overallLot} Lot`;
 
         try {
-          console.log('DeliveryTable - about to call sendPurchaseDeliveredWhatsapp for LR:', lrNumber);
-          console.log('Group details:', { transporterName, date, productDetails, totalValuesStr });
           await sendPurchaseDeliveredWhatsapp({
             transporterName,
             lrNumber,
