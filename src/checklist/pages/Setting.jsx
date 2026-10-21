@@ -312,6 +312,7 @@ const Setting = () => {
     }
     setLeaveTasksLoading(true);
     setLeaveTasks([]);
+    setSelectedLeaveTaskIds([]);
     setHasFetched(false);
     setLeaveSuccess(false);
     try {
@@ -319,74 +320,91 @@ const Setting = () => {
       const endISO = `${leaveEndDate}T23:59:59`;
 
       const [
-        { data: checklistTasks },
-        { data: delegationTasks },
-        { data: maintenanceTasks },
-        { data: repairTasks },
-        { data: eaTasks },
+        { data: checklistTasks, error: checklistErr },
+        { data: delegationTasks, error: delegationErr },
+        { data: maintenanceTasks, error: maintenanceErr },
+        { data: repairTasks, error: repairErr },
+        eaResult,
       ] = await Promise.all([
         supabase
           .from("checklist")
           .select("*")
           .eq("name", leavePersonName)
-          .gte("task_start_date", startISO)
-          .lte("task_start_date", endISO)
-          .is("submission_date", null),
+          .gte("planned_date", startISO)
+          .lte("planned_date", endISO)
+          .is("submission_date", null)
+          .limit(5000),
         supabase
           .from("delegation")
           .select("*")
           .eq("name", leavePersonName)
-          .gte("task_start_date", startISO)
-          .lte("task_start_date", endISO)
-          .is("submission_date", null),
+          .gte("planned_date", startISO)
+          .lte("planned_date", endISO)
+          .is("submission_date", null)
+          .limit(5000),
         supabase
           .from("maintenance_tasks")
           .select("*")
           .eq("name", leavePersonName)
-          .gte("task_start_date", startISO)
-          .lte("task_start_date", endISO)
-          .is("submission_date", null),
+          .gte("planned_date", startISO)
+          .lte("planned_date", endISO)
+          .is("submission_date", null)
+          .limit(5000),
         supabase
           .from("repair_tasks")
           .select("*")
           .eq("assigned_person", leavePersonName)
           .gte("created_at", startISO)
           .lte("created_at", endISO)
-          .eq("status", "Pending"),
+          .is("submission_date", null)
+          .limit(5000),
         supabase
           .from("ea_tasks")
           .select("*")
           .eq("doer_name", leavePersonName)
           .gte("planned_date", startISO)
           .lte("planned_date", endISO)
-          .eq("status", "pending"),
+          .is("submission_date", null)
+          .limit(5000)
+          .then((res) => res)
+          .catch(() => ({ data: [] })),
       ]);
+
+      if (checklistErr) console.warn("Checklist fetch error:", checklistErr);
+      if (delegationErr) console.warn("Delegation fetch error:", delegationErr);
+      if (maintenanceErr) console.warn("Maintenance fetch error:", maintenanceErr);
+      if (repairErr) console.warn("Repair fetch error:", repairErr);
+
+      const eaTasks = eaResult?.data || [];
 
       const combined = [
         ...(checklistTasks || []).map((t) => ({
           ...t,
           _table: "checklist",
-          id: t.task_id,
-          _uniqueId: `checklist-${t.task_id}`,
+          id: t.task_id || t.id,
+          task_date: t.planned_date || t.task_start_date,
+          _uniqueId: `checklist-${t.task_id || t.id}`,
         })),
         ...(delegationTasks || []).map((t) => ({
           ...t,
           _table: "delegation",
-          id: t.task_id,
-          _uniqueId: `delegation-${t.task_id}`,
+          id: t.task_id || t.id,
+          task_date: t.planned_date || t.task_start_date,
+          _uniqueId: `delegation-${t.task_id || t.id}`,
         })),
         ...(maintenanceTasks || []).map((t) => ({
           ...t,
           _table: "maintenance_tasks",
           id: t.id,
+          task_date: t.planned_date || t.task_start_date,
           _uniqueId: `maintenance_tasks-${t.id}`,
         })),
         ...(repairTasks || []).map((t) => ({
           ...t,
           _table: "repair_tasks",
           id: t.id,
-          task_description: t.issue_description,
-          task_start_date: t.created_at,
+          task_description: t.issue_description || t.task_description,
+          task_date: t.planned_date || t.created_at,
           _uniqueId: `repair_tasks-${t.id}`,
         })),
         ...(eaTasks || []).map((t) => ({
@@ -394,15 +412,25 @@ const Setting = () => {
           _table: "ea_tasks",
           id: t.id,
           task_description: t.task_description,
-          task_start_date: t.planned_date,
+          task_date: t.planned_date || t.task_start_date,
           _uniqueId: `ea_tasks-${t.id}`,
         })),
       ];
+
+      // Sort chronological by date
+      combined.sort((a, b) => {
+        const da = new Date(a.task_date || a.planned_date || a.task_start_date || a.created_at || 0).getTime();
+        const db = new Date(b.task_date || b.planned_date || b.task_start_date || b.created_at || 0).getTime();
+        return da - db;
+      });
+
       setLeaveTasks(combined);
-      setSelectedLeaveTaskIds([]); // Clear selection on new fetch
+      // Auto-select all tasks so user can immediately shift them (as shown in screenshot)
+      setSelectedLeaveTaskIds(combined.map((t) => t._uniqueId));
       setHasFetched(true);
     } catch (err) {
       console.error("Error fetching leave tasks:", err);
+      showToast("Failed to fetch tasks. Please check your connection.", "error");
     } finally {
       setLeaveTasksLoading(false);
     }
@@ -516,31 +544,34 @@ const Setting = () => {
         if (eaError) console.error("Error updating EA tasks:", eaError);
       }
 
-      // Send WhatsApp Notifications for shifted tasks
+      // Send WhatsApp Notifications for shifted tasks in background
       if (tasksToShift.length > 0) {
-        for (const task of tasksToShift) {
-          await sendTaskReassignmentNotification({
-            newDoerName: shiftToPerson,
-            originalDoerName: leavePersonName,
-            taskId: task.task_id || task.id,
-            description:
-              task.task_description ||
-              task.tasks ||
-              task.title ||
-              task.issue_description,
-            startDate:
-              task.task_start_date || task.planned_date || task.created_at
-                ? new Date(
-                    task.task_start_date ||
-                      task.planned_date ||
-                      task.created_at,
-                  ).toLocaleDateString("en-IN")
-                : "N/A",
-            givenBy: task.given_by || task.filled_by || "Admin",
-            department: task.department,
-            taskType: task._table,
-          });
-        }
+        Promise.allSettled(
+          tasksToShift.map((task) =>
+            sendTaskReassignmentNotification({
+              newDoerName: shiftToPerson,
+              originalDoerName: leavePersonName,
+              taskId: task.task_id || task.id,
+              description:
+                task.task_description ||
+                task.tasks ||
+                task.title ||
+                task.issue_description,
+              startDate:
+                task.task_date || task.planned_date || task.task_start_date || task.created_at
+                  ? new Date(
+                      task.task_date ||
+                        task.planned_date ||
+                        task.task_start_date ||
+                        task.created_at,
+                    ).toLocaleDateString("en-IN")
+                  : "N/A",
+              givenBy: task.given_by || task.filled_by || "Admin",
+              department: task.department,
+              taskType: task._table,
+            }).catch((err) => console.warn("WhatsApp notification error:", err)),
+          ),
+        );
       }
 
       // Filter out shifted tasks from the local view
@@ -1706,6 +1737,9 @@ const Setting = () => {
                         setLeavePersonId(id);
                         setLeavePersonName(user ? user.user_name : "");
                         setLeaveTasks([]);
+                        setSelectedLeaveTaskIds([]);
+                        setHasFetched(false);
+                        setLeaveSuccess(false);
                       }}
                       className="w-full border border-gray-200 rounded-lg py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50"
                     >
@@ -1803,6 +1837,9 @@ const Setting = () => {
                               setLeaveStartDate(formatDateISO(date));
                               setShowStartCalendar(false);
                               setLeaveTasks([]);
+                              setSelectedLeaveTaskIds([]);
+                              setHasFetched(false);
+                              setLeaveSuccess(false);
                             }}
                             onClose={() => setShowStartCalendar(false)}
                           />
@@ -1872,6 +1909,9 @@ const Setting = () => {
                               setLeaveEndDate(formatDateISO(date));
                               setShowEndCalendar(false);
                               setLeaveTasks([]);
+                              setSelectedLeaveTaskIds([]);
+                              setHasFetched(false);
+                              setLeaveSuccess(false);
                             }}
                             onClose={() => setShowEndCalendar(false)}
                           />
@@ -2070,11 +2110,16 @@ const Setting = () => {
                               }
                             }}
                           >
-                            <div className="text-sm font-bold text-gray-800 max-w-xs">
-                              {task.task_description}
+                            <div className="text-sm font-bold text-gray-800 max-w-md whitespace-pre-line">
+                              {task.task_description ||
+                                task.tasks ||
+                                task.title ||
+                                task.issue_description ||
+                                "—"}
                             </div>
                             {task.issue_description &&
-                              task._table === "repair_tasks" && (
+                              task._table === "repair_tasks" &&
+                              task.issue_description !== task.task_description && (
                                 <div className="text-[10px] text-gray-500 font-medium mt-0.5">
                                   {task.issue_description}
                                 </div>
@@ -2094,18 +2139,29 @@ const Setting = () => {
                                         : "bg-green-100 text-green-700"
                               }`}
                             >
-                              {task._table
-                                .replace("_tasks", "")
-                                .replace("checklist", "Check")
-                                .replace("delegation", "Deleg")}
+                              {task._table === "checklist"
+                                ? "CHECK"
+                                : task._table === "delegation"
+                                  ? "DELEG"
+                                  : task._table === "maintenance_tasks"
+                                    ? "MAINT"
+                                    : task._table === "repair_tasks"
+                                      ? "REPAIR"
+                                      : "EA"}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-xs text-gray-600 font-medium whitespace-nowrap">
-                            {task.task_start_date
+                            {task.task_date ||
+                            task.planned_date ||
+                            task.task_start_date ||
+                            task.created_at
                               ? new Date(
-                                  task.task_start_date,
+                                  task.task_date ||
+                                    task.planned_date ||
+                                    task.task_start_date ||
+                                    task.created_at,
                                 ).toLocaleDateString("en-IN", {
-                                  day: "2-digit",
+                                  day: "numeric",
                                   month: "short",
                                 })
                               : "—"}

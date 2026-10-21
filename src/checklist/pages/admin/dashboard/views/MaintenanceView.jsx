@@ -751,10 +751,10 @@ export default function MaintenanceView({ tasks = [] }) {
                           )}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap text-center">
-                          {task.enable_reminders ? "Yes" : "No"}
+                          {["yes", "true", true, 1, "1"].includes(typeof task.enable_reminders === "string" ? task.enable_reminders.trim().toLowerCase() : task.enable_reminders) ? "Yes" : "No"}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap text-center">
-                          {task.require_attachment ? "Yes" : "No"}
+                          {["yes", "true", true, 1, "1"].includes(typeof task.require_attachment === "string" ? task.require_attachment.trim().toLowerCase() : task.require_attachment) ? "Yes" : "No"}
                         </td>
                         <td className="px-4 py-3 text-sm whitespace-nowrap">
                           <span

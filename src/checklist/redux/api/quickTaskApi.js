@@ -135,8 +135,8 @@ const editableColumns = (u, remarkColumn) => {
   copy("task_description");
   copy("audio_url");
   if (u.duration !== undefined) out.duration = u.duration || null;
-  if (u.enable_reminder) out.enable_reminder = toYesNo(u.enable_reminder, "yes");
-  if (u.require_attachment) out.require_attachment = toYesNo(u.require_attachment, "no");
+  if (u.enable_reminder !== undefined) out.enable_reminder = toYesNo(u.enable_reminder, "yes");
+  if (u.require_attachment !== undefined) out.require_attachment = toYesNo(u.require_attachment, "no");
   copy("instruction_attachment_url");
   copy("instruction_attachment_type");
   if (u.reminder_days_before !== undefined)
@@ -147,6 +147,7 @@ const editableColumns = (u, remarkColumn) => {
 };
 
 // Open rows of `table` belonging to the series described by `original`
+// Open rows of `table` belonging to the series described by `original`
 // ({ department, name, task_description }), matched null-safely.
 const findOpenSeriesIds = async (table, pendingFilter, original) => {
   const rows = await fetchAllRows(() => {
@@ -155,13 +156,18 @@ const findOpenSeriesIds = async (table, pendingFilter, original) => {
       .select("task_id, department, name, task_description")
       .or(pendingFilter)
       .order("task_id", { ascending: true });
-    return original.name ? q.eq("name", original.name) : q.is("name", null);
+    const name = original?.name?.trim();
+    if (name) {
+      q = q.ilike("name", name);
+    }
+    return q;
   });
   return rows
     .filter(
       (r) =>
-        sameText(r.department, original.department) &&
-        sameText(r.task_description, original.task_description),
+        sameText(r.name, original?.name) &&
+        sameText(r.department, original?.department) &&
+        sameText(r.task_description, original?.task_description),
     )
     .map((r) => r.task_id);
 };
@@ -180,26 +186,30 @@ const updateByIds = async (table, ids, updates) => {
   return rows;
 };
 
-// Checklist series edit: { updatedTask, originalTask }. With no
-// originalTask, falls back to the single row updatedTask.id.
+// Checklist series edit: updates the series occurrences matching originalTask
+// as well as the edited task itself (via updatedTask id/task_id).
 export const updateChecklistTaskApi = async ({ updatedTask = {}, originalTask = null } = {}) => {
   const updates = editableColumns(updatedTask, "remark");
   if (!Object.keys(updates).length) return { updatedTask, originalTask, rows: [] };
-  const ids = originalTask
+  const seriesIds = originalTask
     ? await findOpenSeriesIds("checklist", CHECKLIST_PENDING_FILTER, originalTask)
-    : idsOf([updatedTask]);
+    : [];
+  const ownIds = idsOf([updatedTask]);
+  const ids = [...new Set([...seriesIds, ...ownIds])];
   const rows = await updateByIds("checklist", ids, updates);
   return { updatedTask, originalTask, rows };
 };
 
-// Delegation edit: one task (updatedTask.task_id / id); falls back to
-// matching originalTask when no id is given.
+// Delegation edit: updates the series occurrences matching originalTask
+// as well as the edited task itself (via updatedTask id/task_id).
 export const updateDelegationTaskApi = async ({ updatedTask = {}, originalTask = null } = {}) => {
   const updates = editableColumns(updatedTask, "remark");
   if (!Object.keys(updates).length) return { updatedTask, originalTask, rows: [] };
-  let ids = idsOf([updatedTask]);
-  if (!ids.length && originalTask)
-    ids = await findOpenSeriesIds("delegation", DELEGATION_PENDING_FILTER, originalTask);
+  const seriesIds = originalTask
+    ? await findOpenSeriesIds("delegation", DELEGATION_PENDING_FILTER, originalTask)
+    : [];
+  const ownIds = idsOf([updatedTask]);
+  const ids = [...new Set([...seriesIds, ...ownIds])];
   const rows = await updateByIds("delegation", ids, updates);
   return { updatedTask, originalTask, rows };
 };
@@ -280,7 +290,6 @@ export const rejectChecklistTask = async (id, reason) => {
     .update({
       status: "rejected",
       rejection_reason: reason,
-      remark: reason,
       submission_date: null,
       admin_done: false,
     })

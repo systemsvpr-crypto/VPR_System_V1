@@ -77,11 +77,12 @@ const DELEGATION_FREQUENCY_OPTIONS = ["One Time (No Recurrence)"];
 
 const defaultTask = (isDelegation = false) => {
   const role = (localStorage.getItem("role") || "").toLowerCase();
+  const userName = localStorage.getItem("user-name") || "";
   return {
     id: Date.now() + Math.random(),
     department: role === "user" ? localStorage.getItem("department") || "" : "",
-    givenBy: "",
-    doer: role === "user" ? localStorage.getItem("user-name") || "" : "",
+    givenBy: userName,
+    doer: role === "user" ? userName : "",
     description: "",
     frequency: isDelegation ? "One Time (No Recurrence)" : "Daily",
     frequencyLocked: isDelegation,
@@ -117,6 +118,8 @@ function TaskCard({
   onUpdate,
   onRemove,
   frequencyOptions,
+  holidays,
+  canWrite = true,
 }) {
   // Departments: includes active godowns/departments and user assigned departments
   const availableDepartments = useMemo(() => {
@@ -191,9 +194,7 @@ function TaskCard({
 
       // USER filter check
       if (currentR === "user") {
-        const dName = (user.user_name || "").toLowerCase().trim();
-        if (dName !== currentU) return false;
-        if (!user.can_self_assign) return false;
+        return true;
       }
 
       return true;
@@ -225,7 +226,8 @@ function TaskCard({
           <button
             type="button"
             onClick={() => onRemove(task.id)}
-            className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+            disabled={!canWrite}
+            className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -242,9 +244,7 @@ function TaskCard({
             <select
               name="department"
               value={task.department}
-              disabled={
-                (localStorage.getItem("role") || "").toLowerCase() === "user"
-              }
+              disabled={!canWrite}
               onChange={(e) => {
                 const selectedDept = e.target.value;
                 onUpdate(task.id, { department: selectedDept, doer: "" });
@@ -267,10 +267,14 @@ function TaskCard({
             <select
               name="givenBy"
               value={task.givenBy}
+              disabled={!canWrite}
               onChange={handleChange}
-              className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-sm"
+              className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-sm disabled:opacity-75 disabled:cursor-not-allowed"
             >
               <option value="">Select Assign From</option>
+              {task.givenBy && !givenBy.includes(task.givenBy) && (
+                <option value={task.givenBy}>{task.givenBy}</option>
+              )}
               {givenBy.map((g, i) => (
                 <option key={i} value={g}>
                   {g}
@@ -287,10 +291,7 @@ function TaskCard({
               name="doer"
               value={task.doer}
               title={!task.department ? "First fill Department field" : ""}
-              disabled={
-                (localStorage.getItem("role") || "").toLowerCase() === "user" ||
-                !task.department
-              }
+              disabled={!canWrite || !task.department}
               onChange={handleChange}
               className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-sm disabled:opacity-75 disabled:cursor-not-allowed"
             >
@@ -315,8 +316,9 @@ function TaskCard({
             </label>
             <select
               value="none"
+              disabled={!canWrite}
               onChange={(e) => {
-                if (e.target.value === "none") return;
+                if (!canWrite || e.target.value === "none") return;
                 const newRefs = [
                   ...(task.references || []),
                   {
@@ -328,7 +330,7 @@ function TaskCard({
                 ];
                 onUpdate(task.id, { references: newRefs });
               }}
-              className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded px-2 py-1 outline-none cursor-pointer transition-colors"
+              className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded px-2 py-1 outline-none cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="none">+ Add Reference</option>
               <option value="image">Image (Upload)</option>
@@ -358,12 +360,13 @@ function TaskCard({
                       <input
                         type="file"
                         accept="image/*"
+                        disabled={!canWrite}
                         onChange={(e) => {
                           const newRefs = [...task.references];
                           newRefs[i].file = e.target.files[0];
                           onUpdate(task.id, { references: newRefs });
                         }}
-                        className="text-[10px] w-full text-blue-700 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 cursor-pointer uppercase tracking-wider"
+                        className="text-[10px] w-full text-blue-700 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 cursor-pointer uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                     </div>
                   ) : (
@@ -372,12 +375,13 @@ function TaskCard({
                         type="url"
                         placeholder="https://"
                         value={ref.link}
+                        disabled={!canWrite}
                         onChange={(e) => {
                           const newRefs = [...task.references];
                           newRefs[i].link = e.target.value;
                           onUpdate(task.id, { references: newRefs });
                         }}
-                        className={`flex-1 w-full px-3 py-1.5 text-xs font-medium bg-white border rounded-lg outline-none transition-all ${ytId ? "border-red-200 focus:ring-2 focus:ring-red-100 text-red-900" : "border-blue-200 focus:ring-2 focus:ring-blue-100 text-blue-900"}`}
+                        className={`flex-1 w-full px-3 py-1.5 text-xs font-medium bg-white border rounded-lg outline-none transition-all disabled:opacity-75 disabled:cursor-not-allowed ${ytId ? "border-red-200 focus:ring-2 focus:ring-red-100 text-red-900" : "border-blue-200 focus:ring-2 focus:ring-blue-100 text-blue-900"}`}
                       />
                     </div>
                   )}
@@ -394,13 +398,15 @@ function TaskCard({
                     )}
                     <button
                       type="button"
+                      disabled={!canWrite}
                       onClick={() => {
+                        if (!canWrite) return;
                         const newRefs = task.references.filter(
                           (r) => r.id !== ref.id,
                         );
                         onUpdate(task.id, { references: newRefs });
                       }}
-                      className="text-red-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                      className="text-red-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Remove Reference"
                     >
                       <X className="w-4 h-4" />
@@ -427,14 +433,16 @@ function TaskCard({
                       name="description"
                       value={task.description}
                       onChange={handleChange}
+                      disabled={!canWrite}
                       rows="3"
                       placeholder="Enter task description..."
-                      className="w-full p-3 pr-11 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none bg-gray-50 focus:bg-white transition-all text-sm"
+                      className="w-full p-3 pr-11 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none bg-gray-50 focus:bg-white transition-all text-sm disabled:opacity-75 disabled:cursor-not-allowed"
                     />
                     <button
                       type="button"
                       onClick={startRecording}
-                      className="absolute bottom-2.5 right-2.5 p-1.5 bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 transition-all"
+                      disabled={!canWrite}
+                      className="absolute bottom-2.5 right-2.5 p-1.5 bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Record Voice Note"
                     >
                       <Mic className="w-4 h-4" />
@@ -466,11 +474,13 @@ function TaskCard({
                       </span>
                       <button
                         type="button"
+                        disabled={!canWrite}
                         onClick={() => {
+                          if (!canWrite) return;
                           clearBlobUrl();
                           onUpdate(task.id, { recordedAudio: null });
                         }}
-                        className="text-xs text-red-500 hover:text-red-700 font-bold flex items-center gap-1"
+                        className="text-xs text-red-500 hover:text-red-700 font-bold flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <Trash2 className="w-3 h-3" /> Remove
                       </button>
@@ -493,10 +503,11 @@ function TaskCard({
               type="button"
               onClick={() =>
                 !task.dateLocked &&
+                canWrite &&
                 onUpdate(task.id, { showCalendar: !task.showCalendar })
               }
-              className={`w-full px-3 py-2.5 text-left border border-gray-200 rounded-lg bg-gray-50 hover:bg-white focus:ring-2 focus:ring-blue-500 transition-all flex items-center justify-between text-xs ${task.dateLocked ? "opacity-70 cursor-not-allowed" : ""}`}
-              disabled={task.dateLocked}
+              className={`w-full px-3 py-2.5 text-left border border-gray-200 rounded-lg bg-gray-50 hover:bg-white focus:ring-2 focus:ring-blue-500 transition-all flex items-center justify-between text-xs ${task.dateLocked || !canWrite ? "opacity-70 cursor-not-allowed" : ""}`}
+              disabled={task.dateLocked || !canWrite}
             >
               <span className={task.date ? "text-gray-800" : "text-gray-400"}>
                 {task.date ? formatDate(task.date) : "Select"}
@@ -512,6 +523,7 @@ function TaskCard({
                   }
                   onClose={() => onUpdate(task.id, { showCalendar: false })}
                   disableBeforeMinWorkingDate={true}
+                  disabledDates={holidays}
                 />
               </div>
             )}
@@ -524,8 +536,9 @@ function TaskCard({
               type="time"
               name="time"
               value={task.time}
+              disabled={!canWrite}
               onChange={handleChange}
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm"
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm disabled:opacity-75 disabled:cursor-not-allowed"
             />
           </div>{" "}
           <div>
@@ -536,8 +549,8 @@ function TaskCard({
                name="frequency"
                value={task.frequency}
                onChange={handleChange}
-               disabled={task.frequencyLocked}
-               className={`w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-xs ${task.frequencyLocked ? "opacity-70 cursor-not-allowed" : ""}`}
+               disabled={task.frequencyLocked || !canWrite}
+               className={`w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-xs ${task.frequencyLocked || !canWrite ? "opacity-70 cursor-not-allowed" : ""}`}
             >
               {frequencyOptions.map((opt, i) => (
                 <option key={i} value={opt}>
@@ -554,8 +567,9 @@ function TaskCard({
               <select
                 name="reminderDaysBefore"
                 value={task.reminderDaysBefore || 1}
+                disabled={!canWrite}
                 onChange={(e) => onUpdate(task.id, { reminderDaysBefore: parseInt(e.target.value) })}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-xs text-gray-800"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-xs text-gray-800 disabled:opacity-75 disabled:cursor-not-allowed"
               >
                 {[1, 2, 3, 4, 5, 6, 7].map((num) => (
                   <option key={num} value={num}>
@@ -575,12 +589,13 @@ function TaskCard({
                 min="1"
                 name="duration"
                 value={task.duration ? task.duration.replace(" MIN", "") : ""}
+                disabled={!canWrite}
                 onChange={(e) => {
                   const val = e.target.value;
                   onUpdate(task.id, { duration: val ? `${val} MIN` : "" });
                 }}
                 placeholder="e.g. 30"
-                className="w-full pl-3 pr-12 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-sm"
+                className="w-full pl-3 pr-12 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-sm disabled:opacity-75 disabled:cursor-not-allowed"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
                 MIN
@@ -593,10 +608,12 @@ function TaskCard({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <button
             type="button"
+            disabled={!canWrite}
             onClick={() =>
+              canWrite &&
               onUpdate(task.id, { enableReminders: !task.enableReminders })
             }
-            className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-bold transition-all ${task.enableReminders ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-gray-50 border-gray-200 text-gray-500"}`}
+            className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-bold transition-all disabled:opacity-75 disabled:cursor-not-allowed ${task.enableReminders ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-gray-50 border-gray-200 text-gray-500"}`}
           >
             <span>Enable Reminders</span>
             <div
@@ -609,10 +626,12 @@ function TaskCard({
           </button>
           <button
             type="button"
+            disabled={!canWrite}
             onClick={() =>
+              canWrite &&
               onUpdate(task.id, { requireAttachment: !task.requireAttachment })
             }
-            className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-bold transition-all ${task.requireAttachment ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-gray-50 border-gray-200 text-gray-500"}`}
+            className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-bold transition-all disabled:opacity-75 disabled:cursor-not-allowed ${task.requireAttachment ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-gray-50 border-gray-200 text-gray-500"}`}
           >
             <span>Require Attachment</span>
             <div
@@ -625,8 +644,11 @@ function TaskCard({
           </button>
           <button
             type="button"
-            onClick={() => onUpdate(task.id, { skipSunday: !task.skipSunday })}
-            className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-bold transition-all ${task.skipSunday ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-gray-50 border-gray-200 text-gray-500"}`}
+            disabled={!canWrite}
+            onClick={() =>
+              canWrite && onUpdate(task.id, { skipSunday: !task.skipSunday })
+            }
+            className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-bold transition-all disabled:opacity-75 disabled:cursor-not-allowed ${task.skipSunday ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-gray-50 border-gray-200 text-gray-500"}`}
           >
             <span>Sunday Off</span>
             <div
@@ -670,10 +692,7 @@ export default function ChecklistTask() {
   const [tasks, setTasks] = useState([
     {
       ...defaultTask(isDelegation),
-      givenBy:
-        (localStorage.getItem("role") || "").toLowerCase() === "user"
-          ? ""
-          : localStorage.getItem("user-name") || "",
+      givenBy: localStorage.getItem("user-name") || "",
     },
   ]);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
@@ -804,11 +823,14 @@ export default function ChecklistTask() {
     }
   }, [department]);
 
-  const updateTask = (id, updates) =>
+  const updateTask = (id, updates) => {
+    if (!canWrite) return;
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, ...updates } : t)),
     );
-  const addTask = () =>
+  };
+  const addTask = () => {
+    if (!canWrite) return;
     setTasks((prev) => {
       const lastTask = prev[prev.length - 1];
       const role = (localStorage.getItem("role") || "").toLowerCase();
@@ -826,8 +848,11 @@ export default function ChecklistTask() {
         },
       ];
     });
-  const removeTask = (id) =>
+  };
+  const removeTask = (id) => {
+    if (!canWrite) return;
     setTasks((prev) => prev.filter((t) => t.id !== id));
+  };
 
   const freqMap = {
     "One Time (No Recurrence)": "one-time",
@@ -1472,8 +1497,10 @@ export default function ChecklistTask() {
           <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
             <button
               type="button"
+              disabled={!canWrite}
+              title={!canWrite ? READ_ONLY_TOOLTIP : undefined}
               onClick={() => setIsImportModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl text-xs border border-blue-200 transition-all shadow-sm cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl text-xs border border-blue-200 transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload size={14} /> Bulk Import
             </button>
@@ -1516,6 +1543,8 @@ export default function ChecklistTask() {
               onUpdate={updateTask}
               onRemove={removeTask}
               frequencyOptions={frequencyOptions}
+              holidays={holidays}
+              canWrite={canWrite}
             />
           ))}
         </div>
@@ -1524,8 +1553,11 @@ export default function ChecklistTask() {
         <button
           type="button"
           onClick={addTask}
-          className="mt-4 w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-blue-300 text-blue-600 font-bold rounded-2xl hover:border-blue-500 hover:bg-blue-50 transition-all duration-200 group"
-        >
+          disabled={!canWrite}
+          title={!canWrite ? READ_ONLY_TOOLTIP : undefined}
+          className="mt-4 w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-blue-300 text-blue-600 font-bold rounded-2xl hover:border-blue-500 hover:bg-blue-50 transition-all duration-200 group disabled:opacity-50 disabled:cursor-not-allowed"
+
+>
           <Plus className="w-5 h-5 group-hover:scale-110 transition-transform" />
           Add Another Task
         </button>

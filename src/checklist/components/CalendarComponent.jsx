@@ -16,7 +16,11 @@ const CalendarComponent = ({
   onChange,
   onClose,
   disableBeforeMinWorkingDate = false,
+  disabledDates = [], // "YYYY-MM-DD" strings (e.g. holidays) that cannot be picked
 }) => {
+  const toDateStr = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const disabledSet = new Set(disabledDates);
   const [currentMonth, setCurrentMonth] = useState(
     date && !isNaN(new Date(date).getTime()) ? new Date(date) : new Date(),
   );
@@ -91,16 +95,20 @@ const CalendarComponent = ({
         date.getFullYear() === currentMonth.getFullYear();
 
       const isToday = new Date().toDateString() === dateToCheck.toDateString();
-      const isMuted = minD && dateToCheck < minD;
+      const isDisabledDate = disabledSet.has(toDateStr(dateToCheck));
+      const isMuted = (minD && dateToCheck < minD) || isDisabledDate;
 
       days.push(
         <button
           key={day}
           type="button"
           disabled={isMuted}
+          title={isDisabledDate ? "Holiday" : undefined}
           onClick={() => !isMuted && handleDateClick(day)}
           className={`h-8 w-8 rounded-full flex items-center justify-center text-sm transition-colors ${
-            isMuted
+            isDisabledDate
+              ? "text-red-300 line-through cursor-not-allowed"
+              : isMuted
               ? "text-gray-300 cursor-not-allowed opacity-50"
               : isSelected
                 ? "bg-blue-600 text-white font-bold shadow-md"
@@ -117,6 +125,7 @@ const CalendarComponent = ({
   };
 
   const isTodayMuted = (() => {
+    if (disabledSet.has(toDateStr(new Date()))) return true;
     if (!disableBeforeMinWorkingDate || !minWorkingDate) return false;
     const minD = parseLocalDate(minWorkingDate);
     if (!minD) return false;

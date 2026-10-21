@@ -1,5 +1,4 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
 import AdminLayout from "../../components/layout/ChecklistLayout";
 import { usePagePermission, READ_ONLY_TOOLTIP } from "../../utils/pagePermissionUtils";
 import ReadOnlyBanner from "../../components/ReadOnlyBanner";
@@ -15,13 +14,6 @@ export default function AssignTask() {
   const navigate = useNavigate();
   const { isReadOnly, canWrite } = usePagePermission("checklist_assign_task");
 
-  useEffect(() => {
-    const role = (localStorage.getItem("role") || "").toLowerCase();
-    const canSelfAssign = localStorage.getItem("can_self_assign") === "true";
-    if (role === "user" && !canSelfAssign) {
-      navigate("/checklist/admin");
-    }
-  }, [navigate]);
 
   const role = (localStorage.getItem("role") || "").toLowerCase();
   const designation = (localStorage.getItem("designation") || "").toLowerCase();
