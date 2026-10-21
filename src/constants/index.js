@@ -11,6 +11,7 @@ export const PAGES = [
     { id: 'sales', label: 'Sales' },
     { id: 'purchase', label: 'Purchase' },
     { id: 'checklist', label: 'Checklist' },
+    { id: 'docs', label: 'Docs & Subscriptions' },
     { id: 'settings', label: 'Global Settings' },
     { id: 'my-profile', label: 'My Profile' },
 ];
@@ -61,5 +62,22 @@ export const PAGE_TABS = {
     { id: 'checklist_working_day', label: 'Working Day Calendar', path: 'working-day-calendar' },
     { id: 'checklist_approval', label: 'Admin Approval', path: 'admin-approval' },
     { id: 'checklist_settings', label: 'Settings', path: 'setting' },
+  ],
+  // Docs & Subscriptions sub-pages, grouped under section headers in the
+  // sidebar. `path` is the route under /docs; `badge` keys into
+  // fetchDocsSidebarBadgeCounts().
+  docs: [
+    { id: 'docs_dashboard', label: 'Dashboard', path: 'dashboard', section: 'Documents' },
+    { id: 'docs_resource_manager', label: 'Resource Manager', path: 'resource-manager', section: 'Documents' },
+    { id: 'docs_all_documents', label: 'All Documents', path: 'all-documents', section: 'Documents' },
+    { id: 'docs_document_renewal', label: 'Document Renewal', path: 'document-renewal', section: 'Documents', badge: 'documentRenewal' },
+    { id: 'docs_shared_documents', label: 'Shared Documents', path: 'shared-documents', section: 'Documents' },
+    { id: 'docs_all_subscriptions', label: 'All Subscriptions', path: 'all-subscriptions', section: 'Subscriptions' },
+    { id: 'docs_subscription_approval', label: 'Approval', path: 'subscription-approval', section: 'Subscriptions', badge: 'subscriptionApproval' },
+    { id: 'docs_subscription_payment', label: 'Payment', path: 'subscription-payment', section: 'Subscriptions', badge: 'subscriptionPayment' },
+    { id: 'docs_subscription_renewal', label: 'Renewal', path: 'subscription-renewal', section: 'Subscriptions', badge: 'subscriptionRenewal' },
+    { id: 'docs_all_loans', label: 'All Loans', path: 'all-loans', section: 'Loans' },
+    { id: 'docs_loan_foreclosure', label: 'Foreclosure', path: 'loan-foreclosure', section: 'Loans', badge: 'loanForeclosure' },
+    { id: 'docs_loan_noc', label: 'NOC', path: 'loan-noc', section: 'Loans', badge: 'loanNoc' },
   ],
 };

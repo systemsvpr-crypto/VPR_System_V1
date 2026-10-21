@@ -200,10 +200,12 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
   }, [filteredDeliveries, currentPage, pageSize]);
 
   const getRowVal = (del, field) => {
+    // Godown always resolves through resolveGodownId (which honours a valid
+    // pick) so a blank edit can never hide the 'Godown' default.
+    if (field === 'godown_id') return resolveGodownId(del);
     const edit = editingRows[del.delivery_id];
     if (edit && edit[field] !== undefined) return edit[field];
     if (field === 'status') return del.status === 'In Transport Godown' ? 'AT TPT GDN' : del.status || '';
-    if (field === 'godown_id') return resolveGodownId(del);
     if (field === 'driver_phone_number') return del.driver_phone_number || del.transporters?.driver_phone_number || '';
     if (field === 'vehicle_number') return del.vehicle_number || del.transporters?.vehicle_number || '';
     if (field === 'expected_delivery_date') return del.expected_delivery_date ? del.expected_delivery_date.slice(0, 10) : '';
@@ -940,7 +942,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         onChange={e => handleGodownChange(del.delivery_id, e.target.value)}
                         className="w-full h-8 text-xs px-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
                       >
-                        <option value="">Select godown...</option>
+                        <option value="" disabled>Select godown...</option>
                         {ownGodowns.map(g => (
                           <option key={g.godown_id} value={g.godown_id}>{g.name}</option>
                         ))}
@@ -1502,7 +1504,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                             onChange={e => handleGodownChange(del.delivery_id, e.target.value)}
                             className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px]"
                           >
-                            <option value="">Select godown...</option>
+                            <option value="" disabled>Select godown...</option>
                             {ownGodowns.map(g => (
                               <option key={g.godown_id} value={g.godown_id}>{g.name}</option>
                             ))}

@@ -23,22 +23,58 @@ import {
   ShoppingCart,
   Boxes,
   ListChecks,
+  FolderLock,
+  LayoutDashboard,
+  FolderKanban,
+  FileText,
+  CalendarClock,
+  Share2,
+  Layers,
+  BadgeCheck,
+  CreditCard,
+  RefreshCw,
+  Landmark,
+  HandCoins,
+  FileCheck2,
 } from 'lucide-react';
 import vprLogo from '../../assets/vpr_logo.png';
+import { DOCS_DATA_CHANGED_EVENT, fetchDocsSidebarBadgeCounts } from '../docs/services/docsApi';
+
+// Icons for the Docs & Subscriptions sub-pages (keyed by PAGE_TABS.docs id).
+const SUB_ICONS = {
+  docs_dashboard: LayoutDashboard,
+  docs_resource_manager: FolderKanban,
+  docs_all_documents: FileText,
+  docs_document_renewal: CalendarClock,
+  docs_shared_documents: Share2,
+  docs_all_subscriptions: Layers,
+  docs_subscription_approval: BadgeCheck,
+  docs_subscription_payment: CreditCard,
+  docs_subscription_renewal: RefreshCw,
+  docs_all_loans: Landmark,
+  docs_loan_foreclosure: HandCoins,
+  docs_loan_noc: FileCheck2,
+};
+
+// Pages whose sub-pages each get their own sidebar link (as a collapsible
+// group) instead of in-page tabs.
+const DROPDOWN_PAGES = ['checklist', 'docs'];
 
 const Sidebar = ({ onClose }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { user } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
-  const [openDropdowns, setOpenDropdowns] = useState(() => ({
-    checklist: pathname.startsWith('/checklist'),
-  }));
+  const [openDropdowns, setOpenDropdowns] = useState(() =>
+    Object.fromEntries(DROPDOWN_PAGES.map(id => [id, pathname.startsWith(`/${id}`)])),
+  );
+  const [docsBadges, setDocsBadges] = useState({});
 
-  // Keep the Checklist group expanded whenever one of its pages is open.
+  // Keep a group expanded whenever one of its pages is open.
   useEffect(() => {
-    if (pathname.startsWith('/checklist')) {
-      setOpenDropdowns(prev => (prev.checklist ? prev : { ...prev, checklist: true }));
+    const active = DROPDOWN_PAGES.find(id => pathname.startsWith(`/${id}`));
+    if (active) {
+      setOpenDropdowns(prev => (prev[active] ? prev : { ...prev, [active]: true }));
     }
   }, [pathname]);
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -133,6 +169,7 @@ const Sidebar = ({ onClose }) => {
     'purchase': ShoppingCart,
     'ultimate-ims': Boxes,
     'checklist': ListChecks,
+    'docs': FolderLock,
     'settings': Settings,
     'my-profile': User,
   };
@@ -140,10 +177,6 @@ const Sidebar = ({ onClose }) => {
   const toggleDropdown = (id) => {
     setOpenDropdowns(prev => ({ ...prev, [id]: !prev[id] }));
   };
-
-  // Pages whose sub-pages each get their own sidebar link (as a collapsible
-  // group) instead of in-page tabs.
-  const DROPDOWN_PAGES = ['checklist'];
 
   /* Combined Master Menu List for Permission Checking */
   const MASTER_MENU_ITEMS = PAGES.map(page => {
@@ -164,6 +197,9 @@ const Sidebar = ({ onClose }) => {
         parentId: page.id,
         label: tab.label,
         path: `/${page.id}/${tab.path}`,
+        section: tab.section,
+        icon: SUB_ICONS[tab.id],
+        badge: tab.badge ? docsBadges[tab.badge] : undefined,
       })),
     };
   });
@@ -204,7 +240,28 @@ const Sidebar = ({ onClose }) => {
     return acc;
   }, []);
 
-  const menuItems = baseMenuItems;
+  // Pending-stage counts for the Docs group, refreshed on every Docs change.
+  const showDocs = baseMenuItems.some(item => item.id === 'docs');
+  useEffect(() => {
+    if (!showDocs) return;
+    let cancelled = false;
+    const load = () => fetchDocsSidebarBadgeCounts()
+      .then(counts => !cancelled && setDocsBadges(counts))
+      .catch(() => {});
+    load();
+    window.addEventListener(DOCS_DATA_CHANGED_EVENT, load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(DOCS_DATA_CHANGED_EVENT, load);
+    };
+  }, [showDocs]);
+
+  // A group's badge sums the badges of the sub-pages this user can see.
+  const menuItems = baseMenuItems.map(item => {
+    if (item.type !== 'dropdown') return item;
+    const total = item.items.reduce((sum, sub) => sum + (sub.badge || 0), 0);
+    return total > 0 ? { ...item, badge: total } : item;
+  });
 
   return (
     <>
@@ -280,6 +337,12 @@ const Sidebar = ({ onClose }) => {
   );
 };
 
+const SidebarBadge = ({ count }) => (count > 0 ? (
+  <span className="min-w-[20px] h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-primary/10 text-primary text-[10px] font-bold tabular-nums shrink-0">
+    {count > 99 ? '99+' : count}
+  </span>
+) : null);
+
 // Extracted SidebarContent to prevent re-renders
 const SidebarContent = ({ menuItems, onClose, isCollapsed = false, user, handleLogout, isMobile = false }) => (
   <div className={`flex flex-col h-full ${isCollapsed ? 'w-20' : 'w-[85vw] max-w-[280px] lg:w-72'} bg-sidebar text-sidebar-foreground transition-all duration-300 ${!isMobile ? 'border-r border-sidebar-border' : ''} ${isMobile ? 'shadow-2xl' : ''}`}>
@@ -329,32 +392,43 @@ const SidebarContent = ({ menuItems, onClose, isCollapsed = false, user, handleL
                   : 'text-sidebar-foreground/80 hover:bg-primary/5 hover:text-primary'
                   }`}
               >
-                <div className="flex items-center gap-3">
-                  <item.icon className={`transition-colors ${item.isOpen ? 'text-primary' : 'text-sidebar-foreground/60 group-hover:text-primary'}`} size={20} />
-                  {!isCollapsed && <span className="font-medium text-sm">{item.label}</span>}
+                <div className="flex items-center gap-3 min-w-0">
+                  <item.icon className={`shrink-0 transition-colors ${item.isOpen ? 'text-primary' : 'text-sidebar-foreground/60 group-hover:text-primary'}`} size={20} />
+                  {!isCollapsed && <span className="font-medium text-sm truncate">{item.label}</span>}
                 </div>
-                {!isCollapsed && (item.isOpen ? <ChevronUp size={14} className="text-primary" /> : <ChevronDown size={14} className="text-sidebar-foreground/40 group-hover:text-primary" />)}
+                <div className="flex items-center gap-2 shrink-0">
+                  {!item.isOpen && <SidebarBadge count={item.badge} />}
+                  {!isCollapsed && (item.isOpen ? <ChevronUp size={14} className="text-primary" /> : <ChevronDown size={14} className="text-sidebar-foreground/40 group-hover:text-primary" />)}
+                </div>
               </button>
 
               {
                 item.isOpen && !isCollapsed && (
                   <div className="ml-5 mt-1 space-y-1 pl-4 border-l border-slate-100">
-                    {item.items.map((subItem) => (
-                      <NavLink
-                        key={subItem.path}
-                        to={subItem.path}
-                        className={({ isActive }) =>
-                          `flex items-center py-2.5 px-3 rounded-lg transition-all duration-200 text-sm ${isActive
-                            ? 'text-primary font-medium bg-primary/10'
-                            : 'text-sidebar-foreground/60 hover:text-primary hover:bg-primary/5'
-                          }`
-                        }
-                        onClick={() => {
-                          onClose?.();
-                        }}
-                      >
-                        <span className="font-medium">{subItem.label}</span>
-                      </NavLink>
+                    {item.items.map((subItem, index) => (
+                      <React.Fragment key={subItem.path}>
+                        {subItem.section && subItem.section !== item.items[index - 1]?.section && (
+                          <p className={`px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-sidebar-foreground/40 ${index > 0 ? 'pt-3' : 'pt-1'}`}>
+                            {subItem.section}
+                          </p>
+                        )}
+                        <NavLink
+                          to={subItem.path}
+                          className={({ isActive }) =>
+                            `flex items-center gap-2.5 py-2.5 px-3 rounded-lg transition-all duration-200 text-sm ${isActive
+                              ? 'text-primary font-medium bg-primary/10'
+                              : 'text-sidebar-foreground/60 hover:text-primary hover:bg-primary/5'
+                            }`
+                          }
+                          onClick={() => {
+                            onClose?.();
+                          }}
+                        >
+                          {subItem.icon && <subItem.icon size={16} className="shrink-0" />}
+                          <span className="font-medium flex-1 truncate">{subItem.label}</span>
+                          <SidebarBadge count={subItem.badge} />
+                        </NavLink>
+                      </React.Fragment>
                     ))}
                   </div>
                 )

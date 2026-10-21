@@ -14,6 +14,7 @@ import StockManagement from './pages/StockManagement/StockManagement';
 import LiveStockDashboard from './pages/LiveStockDashboard/LiveStockDashboard';
 import UltimateIMS from './pages/UltimateIMS/UltimateIMS';
 import ChecklistApp from './checklist/ChecklistApp';
+import DocsApp from './docs/DocsApp';
 import { PAGES } from './constants';
 
 function App() {
@@ -38,6 +39,7 @@ function App() {
             <Route path="purchase" element={<Purchase />} />
             <Route path="ultimate-ims" element={<UltimateIMS />} />
             <Route path="checklist/*" element={<ChecklistApp />} />
+            <Route path="docs/*" element={<DocsApp />} />
             <Route path="my-profile" element={<MyProfile />} />
           </Route>
 

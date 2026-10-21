@@ -1,10 +1,10 @@
 import { supabase } from '../supabase';
 import { chunkNumberedProductList } from '../lib/whatsappFormat';
 
-const sendWhatsappTemplate = async ({ phone, template, language, parameters }) => {
+const sendWhatsappTemplate = async ({ phone, template, language, parameters, headerDocument }) => {
   if (!phone) return;
   const { data, error } = await supabase.functions.invoke('send-whatsapp', {
-    body: { phone, template, language, parameters },
+    body: { phone, template, language, parameters, headerDocument },
   });
   if (error) throw error;
   if (data && data.success === false) {
@@ -30,6 +30,25 @@ export const sendOrderConfirmationWhatsapp = async ({ phone, customerName, itemD
       sanitizeParam(customerName || 'Customer'), // {{2}}
       sanitizeParam(itemDetails || '-', false),  // {{3}}
       sanitizeParam(String(totalQty ?? '0')),    // {{4}}
+    ],
+  });
+};
+
+// Document Share template (header: the document itself):
+//   Namaste {{1}},
+//   A document has been shared with you from VPR Systems.
+//   📄 Document: {{2}}
+//   Please click the link above to view or download the document.
+//   Thank you,
+export const sendDocumentShareWhatsapp = async ({ phone, recipientName, documentName, fileUrl, fileName }) => {
+  await sendWhatsappTemplate({
+    phone,
+    template: 'document_share',
+    language: 'en',
+    headerDocument: { link: fileUrl, filename: fileName || 'document.pdf' },
+    parameters: [
+      sanitizeParam(recipientName || 'Sir/Madam'), // {{1}}
+      sanitizeParam(documentName || 'Document'),  // {{2}}
     ],
   });
 };

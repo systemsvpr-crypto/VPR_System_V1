@@ -6,7 +6,10 @@
 //   WHATSAPP_PHONE_NUMBER_ID - the "Phone number ID" of the sending WhatsApp number
 //
 // Request body:
-//   { phone: string, template: string, language?: string, parameters?: string[], headerParameters?: string[] }
+//   { phone: string, template: string, language?: string, parameters?: string[], headerParameters?: string[],
+//     headerDocument?: { link: string, filename?: string } }
+// headerDocument is for templates whose header is a Document (e.g. "document_share");
+// the link must be a public https URL Meta can fetch.
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -25,7 +28,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { phone, template, language, parameters, headerParameters } = await req.json();
+    const { phone, template, language, parameters, headerParameters, headerDocument } = await req.json();
 
     let targetPhone = phone;
 
@@ -59,9 +62,17 @@ Deno.serve(async (req) => {
 
     const to = normalizePhone(String(targetPhone));
 
-    const components: Array<{ type: string; parameters: Array<{ type: string; text: string }> }> = [];
+    const components: Array<{ type: string; parameters: Array<Record<string, unknown>> }> = [];
 
-    if (headerParameters && Array.isArray(headerParameters) && headerParameters.length > 0) {
+    if (headerDocument?.link) {
+      components.push({
+        type: 'header',
+        parameters: [{
+          type: 'document',
+          document: { link: String(headerDocument.link), filename: String(headerDocument.filename || 'document.pdf') },
+        }],
+      });
+    } else if (headerParameters && Array.isArray(headerParameters) && headerParameters.length > 0) {
       components.push({
         type: 'header',
         parameters: headerParameters.map((text: unknown) => ({ type: 'text', text: String(text ?? '') })),
