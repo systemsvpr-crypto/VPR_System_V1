@@ -18,6 +18,7 @@ import {
   FileSpreadsheet,
 } from "lucide-react";
 import AdminLayout from "../components/layout/ChecklistLayout";
+import TableScrollSync from "@/components/TableScrollSync";
 import DelegationPage from "./delegation-data";
 import { useDispatch, useSelector } from "react-redux";
 import {
@@ -2401,12 +2402,13 @@ export default function QuickTask() {
                     </span>
                   )}
                 </div>
-                <div
-                  ref={tableContainerRef}
-                  className="overflow-x-auto overflow-y-auto max-h-[65vh]"
+                <TableScrollSync
+                  containerRef={tableContainerRef}
+                  className="w-full"
+                  scrollClassName="overflow-x-auto overflow-y-auto md:overflow-y-scroll max-h-[calc(100vh-320px)] min-h-[350px] custom-scrollbar"
                 >
                   {/* Desktop View */}
-                  <table className="hidden md:table min-w-full divide-y divide-gray-200">
+                  <table className="hidden md:table min-w-[1600px] w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0 z-20">
                       <tr>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
@@ -2423,35 +2425,37 @@ export default function QuickTask() {
                           />
                         </th>
                         {[
-                          { key: "actions", label: "Actions" },
-                          { key: "id", label: "Task ID" },
+                          { key: "actions", label: "Actions", minWidth: "min-w-[90px]" },
+                          { key: "id", label: "Task ID", minWidth: "min-w-[80px]" },
                           {
                             key: "task_description",
                             label: "Task Description",
-                            minWidth: "min-w-[300px]",
+                            minWidth: "min-w-[320px]",
                           },
-                          { key: "department", label: "Department" },
-                          { key: "given_by", label: "Assign From" },
-                          { key: "name", label: "Name" },
+                          { key: "department", label: "Department", minWidth: "min-w-[120px]" },
+                          { key: "given_by", label: "Assign From", minWidth: "min-w-[120px]" },
+                          { key: "name", label: "Name", minWidth: "min-w-[140px]" },
                           {
                             key: "task_start_date",
                             label: "Working Day",
                             bg: "bg-yellow-50",
+                            minWidth: "min-w-[120px]",
                           },
                           {
                             key: "planned_date",
                             label: "End-Date",
                             bg: "bg-red-50",
+                            minWidth: "min-w-[120px]",
                           },
-                          { key: "frequency", label: "Frequency" },
-                          { key: "duration", label: "Duration" },
-                          { key: "enable_reminder", label: "Reminders" },
-                          { key: "require_attachment", label: "Attachment" },
-                          { key: "remarks", label: "Remarks" },
+                          { key: "frequency", label: "Frequency", minWidth: "min-w-[110px]" },
+                          { key: "duration", label: "Duration", minWidth: "min-w-[100px]" },
+                          { key: "enable_reminder", label: "Reminders", minWidth: "min-w-[110px]" },
+                          { key: "require_attachment", label: "Attachment", minWidth: "min-w-[110px]" },
+                          { key: "remarks", label: "Remarks", minWidth: "min-w-[140px]" },
                         ].map((column) => (
                           <th
                             key={column.label}
-                            className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${column.bg || ""} ${column.minWidth || ""} ${column.key && column.key !== "actions" ? "cursor-pointer hover:bg-gray-100" : ""}`}
+                            className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap ${column.bg || ""} ${column.minWidth || ""} ${column.key && column.key !== "actions" ? "cursor-pointer hover:bg-gray-100" : ""}`}
                             onClick={() =>
                               column.key &&
                               column.key !== "actions" &&
@@ -2713,7 +2717,7 @@ export default function QuickTask() {
                       </p>
                     </div>
                   )}
-                </div>
+                </TableScrollSync>
               </div>
             ) : activeTab === "maintenance" ? (
               <div className="mt-4 rounded-lg border border-blue-200 shadow-md bg-white overflow-hidden">
@@ -2730,9 +2734,12 @@ export default function QuickTask() {
                     </p>
                   </div>
                 </div>
-                <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
+                <TableScrollSync
+                  className="w-full"
+                  scrollClassName="overflow-x-auto overflow-y-auto md:overflow-y-scroll max-h-[calc(100vh-320px)] min-h-[350px] custom-scrollbar"
+                >
                   {/* Desktop view */}
-                  <table className="hidden md:table min-w-full divide-y divide-gray-200">
+                  <table className="hidden md:table min-w-[1600px] w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0 z-20">
                       <tr>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
@@ -2749,26 +2756,26 @@ export default function QuickTask() {
                           />
                         </th>
                         {[
-                          { label: "Actions" },
-                          { label: "Task ID" },
+                          { label: "Actions", minWidth: "min-w-[90px]" },
+                          { label: "Task ID", minWidth: "min-w-[80px]" },
                           {
                             label: "Task Description",
-                            minWidth: "min-w-[200px]",
+                            minWidth: "min-w-[260px]",
                           },
-                          { label: "Machine Name" },
-                          { label: "Part Name" },
-                          { label: "Part Area" },
-                          { label: "Assign From" },
-                          { label: "Name" },
-                          { label: "Working Day", bg: "bg-yellow-50" },
-                          { label: "Frequency" },
-                          { label: "Duration" },
-                          { label: "Status" },
-                          { label: "Remarks" },
+                          { label: "Machine Name", minWidth: "min-w-[130px]" },
+                          { label: "Part Name", minWidth: "min-w-[130px]" },
+                          { label: "Part Area", minWidth: "min-w-[120px]" },
+                          { label: "Assign From", minWidth: "min-w-[120px]" },
+                          { label: "Name", minWidth: "min-w-[140px]" },
+                          { label: "Working Day", bg: "bg-yellow-50", minWidth: "min-w-[120px]" },
+                          { label: "Frequency", minWidth: "min-w-[110px]" },
+                          { label: "Duration", minWidth: "min-w-[100px]" },
+                          { label: "Status", minWidth: "min-w-[100px]" },
+                          { label: "Remarks", minWidth: "min-w-[140px]" },
                         ].map((column) => (
                           <th
                             key={column.label}
-                            className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${column.bg || ""} ${column.minWidth || ""}`}
+                            className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap ${column.bg || ""} ${column.minWidth || ""}`}
                           >
                             {column.label}
                           </th>
@@ -2999,7 +3006,7 @@ export default function QuickTask() {
                       </div>
                     )}
                   </div>
-                </div>
+                </TableScrollSync>
               </div>
             ) : (
               <DelegationPage

@@ -529,28 +529,7 @@ export const getUniqueDepartmentsApi = async () => {
   const seen = new Set();
   const out = [];
 
-  try {
-    const { data: godowns, error } = await supabase
-      .from("godowns")
-      .select("godown_id, name, is_active, godown_type")
-      .order("name", { ascending: true });
-    if (!error && Array.isArray(godowns)) {
-      for (const g of godowns) {
-        if (g.is_active === false) continue;
-        if ((g.godown_type || "Own") !== "Own") continue;
-        const name = String(g.name || "").trim();
-        if (!name) continue;
-        const key = name.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({ name, id: g.godown_id, given_by: null });
-      }
-    }
-  } catch (err) {
-    console.warn("getUniqueDepartmentsApi godowns warning:", err?.message || err);
-  }
-
-  // 2. Also include any custom entries from checklist_departments as fallback
+  // 1. Fetch from checklist_departments master list
   try {
     const rows = await fetchAllRows(() =>
       supabase

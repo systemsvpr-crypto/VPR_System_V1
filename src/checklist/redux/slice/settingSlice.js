@@ -19,6 +19,7 @@ import {
   fetchDepartmentsApi,
   fetchDepartmentsOnlyApi,
   createDepartmentApi,
+  updateDepartmentApi,
   deleteDepartmentApi,
   fetchGivenByApi,
   createAssignFromApi,
@@ -68,6 +69,11 @@ export const createDepartment = thunk(
   "setting/createDepartment",
   createDepartmentApi,
   "Failed to create department",
+);
+export const updateDepartment = thunk(
+  "setting/updateDepartment",
+  updateDepartmentApi,
+  "Failed to update department",
 );
 export const deleteDepartment = thunk(
   "setting/deleteDepartment",
@@ -185,6 +191,12 @@ const settingSlice = createSlice({
     builder
       .addCase(createDepartment.fulfilled, (state, action) => {
         state.department.push(...(action.payload || []));
+      })
+      .addCase(updateDepartment.fulfilled, (state, action) => {
+        const row = action.payload;
+        if (!row) return;
+        const i = state.department.findIndex((d) => sameId(d.id, row.id));
+        if (i >= 0) state.department[i] = row;
       })
       .addCase(deleteDepartment.fulfilled, (state, action) => {
         state.department = state.department.filter((d) => !sameId(d.id, action.payload));

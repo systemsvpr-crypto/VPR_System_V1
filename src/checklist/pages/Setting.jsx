@@ -21,6 +21,7 @@ import AdminLayout from "../components/layout/ChecklistLayout";
 import { useDispatch, useSelector } from "react-redux";
 import {
   createDepartment,
+  updateDepartment,
   createUser,
   deleteUser,
   departmentOnlyDetails,
@@ -1024,44 +1025,15 @@ const Setting = () => {
           return;
         }
 
-        if (selectedDivisions.length === 0) {
-          showToast("Please select at least one parent division", "error");
-          return;
-        }
-
         try {
-          // Remove old database records associated with this department
-          const idsToDelete = Array.isArray(currentDeptId)
-            ? currentDeptId
-            : [currentDeptId];
-
-          for (const id of idsToDelete) {
-            if (id) {
-              try {
-                await dispatch(deleteDepartment(id)).unwrap();
-              } catch (e) {
-                console.warn("Error deleting old department row:", e);
-              }
-            }
-          }
-
-          // Create new records for updated selectedDivisions
-          await dispatch(
-            createDepartment({
-              department: trimmedName,
-              given_by: deptForm.givenBy,
-              divisions: selectedDivisions,
-            }),
-          ).unwrap();
-
-          if (deptForm.givenBy) {
-            try {
-              await dispatch(
-                createAssignFrom({ given_by: deptForm.givenBy }),
-              ).unwrap();
-            } catch {
-              // best-effort: department creation already succeeded, ignore assign_from sync failure
-            }
+          const deptId = Array.isArray(currentDeptId) ? currentDeptId[0] : currentDeptId;
+          if (deptId) {
+            await dispatch(
+              updateDepartment({
+                id: deptId,
+                department: trimmedName,
+              }),
+            ).unwrap();
           }
 
           resetDeptForm();
@@ -1070,7 +1042,7 @@ const Setting = () => {
           showToast("Department updated successfully!", "success");
         } catch (error) {
           console.error("Error updating department:", error);
-          showToast("Failed to update department", "error");
+          showToast(error?.message || "Failed to update department", "error");
         }
       } else if (activeDeptSubTab === "givenBy") {
         try {
@@ -1169,34 +1141,12 @@ const Setting = () => {
           return;
         }
 
-        const divList = selectedDivisions.length > 0
-          ? selectedDivisions
-          : (deptForm.division ? [deptForm.division] : []);
-
-        if (divList.length === 0) {
-          showToast("Please select at least one parent division", "error");
-          return;
-        }
-
         try {
           await dispatch(
             createDepartment({
               department: trimmedName,
-              given_by: deptForm.givenBy,
-              divisions: divList,
             }),
           ).unwrap();
-
-          // Also ensure it exists in assign_from table
-          if (deptForm.givenBy) {
-            try {
-              await dispatch(
-                createAssignFrom({ given_by: deptForm.givenBy }),
-              ).unwrap();
-            } catch {
-              // best-effort: department creation already succeeded, ignore assign_from sync failure
-            }
-          }
 
           resetDeptForm();
           setShowDeptModal(false);
@@ -1392,9 +1342,9 @@ const Setting = () => {
         setDeptForm({
           name: group.name,
           givenBy: group.givenBy || "",
-          division: group.divisionsList[0] || "",
+          division: "",
         });
-        setSelectedDivisions(group.divisionsList);
+        setSelectedDivisions([]);
         setCurrentDeptId(group.ids);
         setIsEditing(true);
         setShowDeptModal(true);
@@ -1404,9 +1354,9 @@ const Setting = () => {
           setDeptForm({
             name: (dept.department || "").trim(),
             givenBy: dept.given_by || "",
-            division: dept.division || "",
+            division: "",
           });
-          setSelectedDivisions(dept.division ? [dept.division] : []);
+          setSelectedDivisions([]);
           setCurrentDeptId([dept.id]);
           setIsEditing(true);
           setShowDeptModal(true);
@@ -1442,7 +1392,7 @@ const Setting = () => {
   const handleDeleteDepartmentGroup = async (group) => {
     if (
       window.confirm(
-        `Delete department "${group.name}" across all parent divisions?`,
+        `Are you sure you want to delete department "${group.name}"?`,
       )
     ) {
       try {
@@ -2703,13 +2653,7 @@ const Setting = () => {
                         </th>
                         <th
                           scope="col"
-                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        >
-                          Parent Division
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                          className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
                         >
                           Actions
                         </th>
@@ -2727,11 +2671,6 @@ const Setting = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
                               {group.name}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium">
-                              {group.divisionStr || (
-                                <span className="text-gray-400 italic">None</span>
-                              )}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                               <div className="flex space-x-2 justify-end">
@@ -2756,7 +2695,7 @@ const Setting = () => {
                       ) : (
                         <tr>
                           <td
-                            colSpan="4"
+                            colSpan="3"
                             className="px-6 py-4 text-center text-sm text-gray-500"
                           >
                             No departments found
@@ -3633,56 +3572,15 @@ const Setting = () => {
                         {(() => {
                           if (!department || department.length === 0) return null;
 
-                          const selectedDivList = (userForm.division || "")
-                            .split(",")
-                            .map((s) => s.toLowerCase().trim())
-                            .filter(Boolean);
+                          const deptNames = Array.from(
+                            new Set(
+                              department
+                                .map((d) => (d.department || d.name || "").trim())
+                                .filter(Boolean),
+                            ),
+                          ).sort((a, b) => a.localeCompare(b));
 
-                          let filteredDeptNames = [];
-
-                          if (selectedDivList.length === 0) {
-                            filteredDeptNames = Array.from(
-                              new Set(department.map((d) => (d.department || "").trim()).filter(Boolean))
-                            ).sort();
-                          } else if (selectedDivList.length === 1) {
-                            const targetDiv = selectedDivList[0];
-                            filteredDeptNames = Array.from(
-                              new Set(
-                                department
-                                  .filter((d) => (d.division || "").toLowerCase().trim() === targetDiv)
-                                  .map((d) => (d.department || "").trim())
-                                  .filter(Boolean)
-                              )
-                            ).sort();
-                          } else {
-                            const deptDivMap = new Map();
-
-                            department.forEach((d) => {
-                              const rawDeptName = (d.department || "").trim();
-                              const normDiv = (d.division || "").toLowerCase().trim();
-                              if (!rawDeptName || !normDiv || !selectedDivList.includes(normDiv)) return;
-
-                              const normDeptName = rawDeptName.toLowerCase();
-                              if (!deptDivMap.has(normDeptName)) {
-                                deptDivMap.set(normDeptName, {
-                                  displayName: rawDeptName,
-                                  divisions: new Set(),
-                                });
-                              }
-                              deptDivMap.get(normDeptName).divisions.add(normDiv);
-                            });
-
-                            const commonNames = [];
-                            deptDivMap.forEach((info) => {
-                              if (info.divisions.size >= selectedDivList.length) {
-                                commonNames.push(info.displayName);
-                              }
-                            });
-
-                            filteredDeptNames = commonNames.sort();
-                          }
-
-                          return filteredDeptNames.map((deptName, index) => (
+                          return deptNames.map((deptName, index) => (
                             <option key={index} value={deptName}>
                               {deptName}
                             </option>
@@ -4001,66 +3899,6 @@ const Setting = () => {
                   }
                   className="space-y-4"
                 >
-                  {activeTab === "departments" && activeDeptSubTab === "departments" && (
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-gray-700 ml-1 uppercase tracking-wide">
-                        Parent Division(s) <span className="text-red-500">*</span>
-                      </label>
-
-                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5 space-y-1.5 max-h-40 overflow-y-auto">
-                        <div className="flex items-center gap-2 pb-1.5 border-b border-gray-200">
-                          <input
-                            type="checkbox"
-                            id="select-all-divisions"
-                            checked={
-                              divisions.length > 0 &&
-                              selectedDivisions.length === divisions.length
-                            }
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedDivisions(divisions.map((d) => d.name));
-                              } else {
-                                setSelectedDivisions([]);
-                              }
-                            }}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
-                          />
-                          <label
-                            htmlFor="select-all-divisions"
-                            className="text-xs font-bold text-blue-700 cursor-pointer select-none"
-                          >
-                            Select All Divisions
-                          </label>
-                        </div>
-                        {divisions.map((div) => (
-                          <div key={div.id} className="flex items-center gap-2 py-0.5">
-                            <input
-                              type="checkbox"
-                              id={`div-${div.id}`}
-                              checked={selectedDivisions.includes(div.name)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedDivisions((prev) => [...prev, div.name]);
-                                } else {
-                                  setSelectedDivisions((prev) =>
-                                    prev.filter((name) => name !== div.name),
-                                  );
-                                }
-                              }}
-                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
-                            />
-                            <label
-                              htmlFor={`div-${div.id}`}
-                              className="text-xs font-semibold text-gray-700 cursor-pointer select-none"
-                            >
-                              {div.name}
-                            </label>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   <div className="space-y-1.5">
                     <label
                       htmlFor="givenBy"

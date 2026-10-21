@@ -6,6 +6,7 @@ import {
   uniqueDelegationTaskData,
 } from "../redux/slice/quickTaskSlice";
 import { useMagicToast } from "../context/MagicToastContext";
+import TableScrollSync from "@/components/TableScrollSync";
 
 import RenderDescription from "../components/RenderDescription";
 
@@ -323,9 +324,12 @@ function DelegationPage({
             )}
           </div>
 
-          <div className="overflow-x-auto">
+          <TableScrollSync
+            className="w-full"
+            scrollClassName="overflow-x-auto overflow-y-auto md:overflow-y-scroll max-h-[calc(100vh-320px)] min-h-[350px] custom-scrollbar"
+          >
             {/* Desktop View */}
-            <table className="hidden md:table min-w-full divide-y divide-gray-200">
+            <table className="hidden md:table min-w-[1600px] w-full divide-y divide-gray-200">
               <thead className="bg-gray-50 sticky top-0 z-20">
                 <tr>
                   <th className="px-2 sm:px-3 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
@@ -628,7 +632,7 @@ function DelegationPage({
                 </div>
               )}
             </div>
-          </div>
+          </TableScrollSync>
         </div>
       )}
     </>

@@ -214,22 +214,6 @@ export const uploadPartImageApi = async (file) => {
 // ---------------------------------------------------------------------------
 
 export const fetchDepartmentsApi = async () => {
-  try {
-    const { data: godowns, error } = await supabase
-      .from("godowns")
-      .select("godown_id, name, is_active")
-      .order("name", { ascending: true });
-    if (!error && Array.isArray(godowns) && godowns.length > 0) {
-      return godowns
-        .filter((g) => g.is_active !== false)
-        .map((g) => ({
-          id: g.godown_id,
-          department: g.name,
-          name: g.name,
-        }));
-    }
-  } catch (_) {}
-
   return fetchAllRows(() =>
     supabase
       .from(DEPARTMENTS_TABLE)
@@ -239,9 +223,7 @@ export const fetchDepartmentsApi = async () => {
   );
 };
 
-// Rows are still per (department, division) — Setting.jsx's users tab reads
-// `department.map(d => d.department)` and dedupes itself — plus the distinct
-// name list for callers that only want names.
+// Distinct name list for callers that only want names.
 export const fetchDepartmentsOnlyApi = async () => {
   const rows = await fetchDepartmentsApi();
   const names = [
@@ -251,7 +233,7 @@ export const fetchDepartmentsOnlyApi = async () => {
 };
 
 // { department, given_by } → one row. An existing department of the same
-// name is skipped, so re-saving it never duplicates rows.
+// name throws an error to notify the user.
 export const createDepartmentApi = async ({ department, given_by }) => {
   const name = (department || "").trim();
   if (!name) throw new Error("Department name is required.");
@@ -262,7 +244,9 @@ export const createDepartmentApi = async ({ department, given_by }) => {
     .ilike("department", name)
     .limit(1);
   if (exErr) throw new Error(exErr.message);
-  if (existing && existing.length > 0) return [];
+  if (existing && existing.length > 0) {
+    throw new Error(`Department "${name}" already exists.`);
+  }
 
   const { data, error } = await supabase
     .from(DEPARTMENTS_TABLE)
@@ -270,6 +254,22 @@ export const createDepartmentApi = async ({ department, given_by }) => {
     .select("id, department, given_by, created_at");
   if (error) throw new Error(error.message);
   return data || [];
+};
+
+export const updateDepartmentApi = async ({ id, department, given_by }) => {
+  const name = (department || "").trim();
+  if (!name) throw new Error("Department name is required.");
+
+  const { data, error } = await supabase
+    .from(DEPARTMENTS_TABLE)
+    .update({
+      department: name,
+      ...(given_by !== undefined && { given_by: blankToNull(given_by) }),
+    })
+    .eq("id", id)
+    .select("id, department, given_by, created_at");
+  if (error) throw new Error(error.message);
+  return data?.[0] || { id, department: name, given_by };
 };
 
 export const deleteDepartmentApi = async (id) => {

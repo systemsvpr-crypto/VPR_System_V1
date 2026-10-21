@@ -44,8 +44,7 @@ const fetchActiveUsers = async () => {
   }
 };
 
-// [{ department }] — departments are the active own godowns only;
-// transporter rows (godown_type = 'Transporter') are excluded.
+// [{ department }] — departments from checklist_departments master list only.
 export const fetchUniqueDepartmentDataApi = async () => {
   try {
     const seen = new Map();
@@ -56,14 +55,13 @@ export const fetchUniqueDepartmentDataApi = async () => {
       if (!seen.has(key)) seen.set(key, { department: dep });
     };
 
-    const { data: godowns, error } = await supabase
-      .from("godowns")
-      .select("godown_id, name, is_active, godown_type")
-      .order("name", { ascending: true });
-    if (error) throw error;
-    (godowns || []).forEach((g) => {
-      if (g.is_active !== false && (g.godown_type || "Own") === "Own") add(g.name);
-    });
+    // Fetch from checklist_departments master list
+    const { data: depts, error: deptErr } = await supabase
+      .from("checklist_departments")
+      .select("department")
+      .order("department", { ascending: true });
+    if (deptErr) throw deptErr;
+    (depts || []).forEach((d) => add(d.department));
 
     return [...seen.values()].sort((a, b) =>
       a.department.localeCompare(b.department),

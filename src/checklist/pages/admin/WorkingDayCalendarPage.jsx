@@ -194,21 +194,6 @@ const WorkingDayCalendarPage = () => {
     const month = currentDate.getMonth();
     const monthName = currentDate.toLocaleString('default', { month: 'long' });
 
-    // Function to convert English day names to Hindi
-    const getDayInHindi = (englishDay) => {
-        const dayMap = {
-            'Sunday': 'रविवार',
-            'Monday': 'सोमवार',
-            'Tuesday': 'मंगलवार',
-            'Wednesday': 'बुधवार',
-            'Thursday': 'गुरुवार',
-            'Friday': 'शुक्रवार',
-            'Saturday': 'शनिवार'
-        };
-        const hindiDay = dayMap[englishDay] || englishDay;
-        return `${hindiDay} (${englishDay})`;
-    };
-
     const getISOWeek = (date) => {
         const d = new Date(date);
         d.setHours(0, 0, 0, 0);
@@ -240,7 +225,7 @@ const WorkingDayCalendarPage = () => {
         allDaysInMonth.push({
             date: dateString,
             day: i,
-            dayName: getDayInHindi(englishDayName),
+            dayName: englishDayName,
             isHoliday: !!holiday,
             isWorking: !holiday && (hasCalendarData ? !!workingDay : true),
             holidayName: holiday?.holiday_name,

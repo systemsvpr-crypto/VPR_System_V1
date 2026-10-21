@@ -63,8 +63,8 @@ export const TopScrollbar = ({ topRef, onTopScroll, scrollWidth, hasOverflow }) 
     <div
       ref={topRef}
       onScroll={onTopScroll}
-      className="overflow-x-auto overflow-y-hidden custom-scrollbar bg-slate-50/90 border-b border-slate-200/80 shrink-0"
-      style={{ height: '10px', minHeight: '10px' }}
+      className="overflow-x-auto overflow-y-hidden custom-scrollbar bg-slate-100/90 border-b border-slate-200 shrink-0"
+      style={{ height: '12px', minHeight: '12px' }}
       title="Scroll table horizontally"
     >
       <div style={{ width: `${scrollWidth}px`, height: '1px' }} />
@@ -78,15 +78,38 @@ export const TopScrollbar = ({ topRef, onTopScroll, scrollWidth, hasOverflow }) 
  * `scrollClassName` is applied to the scrolling container (e.g. to add
  * vertical scrolling for sticky headers).
  */
-export const TableScrollSync = ({ children, className = '', scrollClassName = '', hideBottomScrollbar = false }) => {
+export const TableScrollSync = ({
+  children,
+  className = '',
+  scrollClassName = '',
+  hideBottomScrollbar = false,
+  containerRef,
+  onScroll,
+}) => {
   const { bottomRef, onBottomScroll, topProps } = useTopScrollSync();
+
+  const handleBottomScroll = (e) => {
+    onBottomScroll(e);
+    if (onScroll) onScroll(e);
+  };
+
+  const setBottomRef = (el) => {
+    bottomRef.current = el;
+    if (containerRef) {
+      if (typeof containerRef === 'function') {
+        containerRef(el);
+      } else {
+        containerRef.current = el;
+      }
+    }
+  };
 
   return (
     <div className={`flex flex-col w-full ${className}`}>
       <TopScrollbar {...topProps} />
       <div
-        ref={bottomRef}
-        onScroll={onBottomScroll}
+        ref={setBottomRef}
+        onScroll={handleBottomScroll}
         className={`overflow-x-auto ${hideBottomScrollbar ? 'scrollbar-hide' : 'custom-scrollbar'} ${scrollClassName}`}
       >
         {children}
