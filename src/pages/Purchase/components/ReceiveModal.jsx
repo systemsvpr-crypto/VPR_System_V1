@@ -224,7 +224,9 @@ const ReceiveModal = ({
   const handleCancelEdit = () => {
     setEditingLift(null);
     const defaultGodownId =
-      item.approved_godown_id || item.purchase_indents?.godown_id || "";
+      item.approved_godown_id || item.purchase_indents?.godown_id
+      || (godowns || []).find((g) => g.is_active !== false && g.name?.trim().toLowerCase() === "godown")?.godown_id
+      || "";
     setForm({
       delivery_date: getTodayLocalString(),
       expected_delivery_date: "",
@@ -242,7 +244,9 @@ const ReceiveModal = ({
     if (isOpen && item) {
       setEditingLift(null);
       const defaultGodownId =
-        item.approved_godown_id || item.purchase_indents?.godown_id || "";
+        item.approved_godown_id || item.purchase_indents?.godown_id
+        || (godowns || []).find((g) => g.is_active !== false && g.name?.trim().toLowerCase() === "godown")?.godown_id
+        || "";
       setForm({
         delivery_date: getTodayLocalString(),
         expected_delivery_date: "",
