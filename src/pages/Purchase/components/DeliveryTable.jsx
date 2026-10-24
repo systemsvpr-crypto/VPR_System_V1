@@ -471,7 +471,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
       // and the Arrived-status branches in purchaseService.js.
       const masterQty = roundQty(masterUnit === 'kg' ? dispatchQtyKg : dispatchQtyBag);
 
-      const defaultGodownId = item.approved_godown_id || item.purchase_indents?.godown_id || ownGodowns[0]?.godown_id;
+      const defaultGodownId = item.approved_godown_id || item.purchase_indents?.godown_id
+        || ownGodowns.find(g => g.name?.trim().toLowerCase() === 'godown')?.godown_id
+        || ownGodowns[0]?.godown_id;
 
       const selectedTransporter = transporters.find(t => String(t.transporter_id) === String(edit.transporter_id));
 
