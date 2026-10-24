@@ -16,6 +16,7 @@ import {
 } from '../../../services/purchaseService';
 import { getGroupNameFromItem } from '../../../services/productGroupingService';
 import { sendPurchaseDeliveredWhatsapp } from '../../../services/whatsappService';
+import { buildDeliveryMessages } from '../../../lib/whatsappFormat';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -553,47 +554,21 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
         const transporterName = group[0].transporterName;
         const date = group[0].date;
 
-        // Group items within this LR by their groupName
-        const groupedByGroup = group.reduce((acc, curr) => {
-          const gKey = curr.groupName || 'Other';
-          if (!acc[gKey]) acc[gKey] = [];
-          acc[gKey].push(curr);
-          return acc;
-        }, {});
-
-        // Build full product string for each product group:
-        // Product 1 :-  AM BLK | 4*8 -14 -₹0.86 | 5*10 -65 -₹0.85 | ... | Total Bag -  180 | Total KG - 5400 |  | Total Lot - 180
-        const productStrings = Object.entries(groupedByGroup).map(([gName, items], idx) => {
-          const itemParts = items.map(i => {
-            const r = Number(i.rate || 0);
-            const rateStr = r ? (Number.isInteger(r) ? String(r) : r.toFixed(2)) : '0';
-            return `${i.productName} -${i.delQty} -₹${rateStr}`;
-          });
-
-          const totalBag = Math.round(items.reduce((sum, i) => sum + (Number(i.dispatchQtyBag) || 0), 0) * 100) / 100;
-          const totalKg = Math.round(items.reduce((sum, i) => sum + (Number(i.dispatchQtyKg) || 0), 0) * 100) / 100;
-          const totalLot = Math.round(items.reduce((sum, i) => sum + (Number(i.delQty) || 0), 0) * 100) / 100;
-
-          return `Product ${idx + 1} :-  ${gName} | ${itemParts.join(' | ')} | Total Bag -  ${totalBag} | Total KG - ${totalKg} |  | Total Lot - ${totalLot}`;
-        });
-
-        const productDetails = productStrings.join('\n\n');
-
-        const overallBag = Math.round(group.reduce((sum, i) => sum + (Number(i.dispatchQtyBag) || 0), 0) * 100) / 100;
-        const overallKg = Math.round(group.reduce((sum, i) => sum + (Number(i.dispatchQtyKg) || 0), 0) * 100) / 100;
-        const overallLot = Math.round(group.reduce((sum, i) => sum + (Number(i.delQty) || 0), 0) * 100) / 100;
-        const totalValuesStr = `${overallBag} bag, ${overallKg} KG, ${overallLot} Lot`;
-
-        try {
-          await sendPurchaseDeliveredWhatsapp({
-            transporterName,
-            lrNumber,
-            date,
-            productDetails,
-            totalValuesStr,
-          });
-        } catch (err) {
-          console.error('WhatsApp Error:', err);
+        // One message when everything fits; a long LR is split over several
+        // messages (each with its own totals) to stay within Meta's length limit.
+        const messages = buildDeliveryMessages(group);
+        for (let m = 0; m < messages.length; m++) {
+          try {
+            await sendPurchaseDeliveredWhatsapp({
+              transporterName,
+              lrNumber: messages.length > 1 ? `${lrNumber} (Part ${m + 1}/${messages.length})` : lrNumber,
+              date,
+              productDetails: messages[m].productDetails,
+              totalValuesStr: messages[m].totalValuesStr,
+            });
+          } catch (err) {
+            console.error('WhatsApp Error:', err);
+          }
         }
       }
     }

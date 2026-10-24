@@ -1033,6 +1033,8 @@ export const generateNextLiftingNumber = async () => {
     .from('purchase_deliveries')
     .select('lifting_number')
     .like('lifting_number', 'LIFT-%')
+    // Count soft-deleted lifts too, so a deleted LIFT number is never handed out again.
+    .in('is_deleted', [true, false])
     .order('lifting_number', { ascending: false })
     .limit(1);
 

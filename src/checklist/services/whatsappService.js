@@ -41,7 +41,16 @@ const send = async (userName, template, parameters) => {
     const phone = await lookupPhone(userName);
     if (!phone) return false;
     const { data, error } = await supabase.functions.invoke("send-whatsapp", {
-      body: { phone: String(phone), template, language: "en", parameters: parameters.map(clean) },
+      body: {
+        phone: String(phone),
+        template,
+        language: "en",
+        parameters: parameters.map(clean),
+        module: "checklist",
+        recipientName: userName,
+        referenceType: "checklist_task",
+        referenceId: parameters[1] ?? null,
+      },
     });
     if (error || data?.success === false) {
       console.warn(`[checklist] WhatsApp "${template}" not sent:`, error || data?.error);

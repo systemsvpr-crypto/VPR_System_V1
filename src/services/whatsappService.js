@@ -1,10 +1,18 @@
 import { supabase } from '../supabase';
 import { chunkNumberedProductList } from '../lib/whatsappFormat';
 
-const sendWhatsappTemplate = async ({ phone, template, language, parameters, headerDocument }) => {
+const currentUsername = () => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}').username || null;
+  } catch {
+    return null;
+  }
+};
+
+const sendWhatsappTemplate = async ({ phone, template, language, parameters, headerDocument, module, recipientName }) => {
   if (!phone) return;
   const { data, error } = await supabase.functions.invoke('send-whatsapp', {
-    body: { phone, template, language, parameters, headerDocument },
+    body: { phone, template, language, parameters, headerDocument, module, recipientName, sentBy: currentUsername() },
   });
   if (error) throw error;
   if (data && data.success === false) {
@@ -25,6 +33,8 @@ export const sendOrderConfirmationWhatsapp = async ({ phone, customerName, itemD
     phone,
     template: 'order_confirmation',
     language: 'en',
+    module: 'sales',
+    recipientName: customerName,
     parameters: [
       sanitizeParam(orderDate || '-'),           // {{1}}
       sanitizeParam(customerName || 'Customer'), // {{2}}
@@ -45,6 +55,8 @@ export const sendDocumentShareWhatsapp = async ({ phone, recipientName, document
     phone,
     template: 'document_share',
     language: 'en',
+    module: 'docs',
+    recipientName,
     headerDocument: { link: fileUrl, filename: fileName || 'document.pdf' },
     parameters: [
       sanitizeParam(recipientName || 'Sir/Madam'), // {{1}}
@@ -64,8 +76,10 @@ const sanitizeParam = (str, allowLineBreaks = false) => {
     s = s.replace(/[\r\n]/g, ' ');
   }
   return s
-    .replace(/\t/g, ' ')
-    .replace(/[ ]{4,}/g, '   ') // Collapse 4+ consecutive ASCII spaces (Meta rejects 4+ consecutive spaces)
+    // Any run of whitespace (tabs, NBSP, U+2028/2029, repeated spaces) becomes one
+    // space - Meta rejects tabs/newlines and 4+ consecutive spaces (code 132018),
+    // and product names pasted from Excel often hide such characters.
+    .replace(/\s+/g, ' ')
     .trim() || '-';
 };
 
@@ -78,6 +92,7 @@ export const sendPurchaseDeliveredWhatsapp = async ({ transporterName, lrNumber,
     phone: 'USE_ADMIN_SECRET', // Edge function will intercept this and use the Supabase secret
     template: 'purchase_delivered_2',
     language: 'en',
+    module: 'purchase',
     parameters: [
       sanitizeParam(transporterName),
       sanitizeParam(lrNumber),
@@ -105,6 +120,8 @@ export const sendDispatchConfirmationWhatsapp = async ({ phone, date, customerNa
       phone,
       template: 'dispatch_confirmation',
       language: 'en_US',
+      module: 'sales',
+      recipientName: customerName,
       parameters: [
         sanitizeParam(date || '-'),                  // {{1}}
         sanitizeParam(customerName || 'Customer'),  // {{2}}
@@ -133,6 +150,8 @@ export const sendVendorApprovalWhatsapp = async ({ phone, vendorName, productEnt
       phone,
       template: 'vendor_approval',
       language: 'en',
+      module: 'purchase',
+      recipientName: vendorName,
       parameters: [
         sanitizeParam(vendorName || 'Sir'), // {{1}}
         sanitizeParam(productDetails),      // {{2}} — already single-line

@@ -73,6 +73,14 @@ export const updateTransporter = async ({ transporter_id, name, vehicle_number, 
 };
 
 export const deleteTransporter = async (transporter_id) => {
+  // The database foreign key used to refuse this; a soft delete would not.
+  const { count, error: usedErr } = await supabase
+    .from('purchase_deliveries')
+    .select('delivery_id', { count: 'exact', head: true })
+    .eq('transporter_id', transporter_id);
+  if (usedErr) throw usedErr;
+  if (count > 0) throw new Error(`This transporter can't be deleted because it is used in ${count} purchase deliver${count === 1 ? 'y' : 'ies'}.`);
+
   const { error } = await supabase
     .from('transporters')
     .delete()

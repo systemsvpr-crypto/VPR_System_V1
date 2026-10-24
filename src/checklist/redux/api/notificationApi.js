@@ -97,12 +97,11 @@ export const deleteNotificationApi = async (id) => {
 export const markNotificationReadApi = async ({ notificationId, userId }) => {
   const uid = toUserId(userId);
   if (uid === null) throw new Error("Missing user id.");
+  // Plain insert (not upsert): soft delete turns the unique constraint into a
+  // partial index, which ON CONFLICT can't target. 23505 = already marked read.
   const { error } = await supabase
     .from(READS_TABLE)
-    .upsert([{ notification_id: notificationId, user_id: uid }], {
-      onConflict: "notification_id,user_id",
-      ignoreDuplicates: true,
-    });
-  if (error) throw new Error(error.message);
+    .insert([{ notification_id: notificationId, user_id: uid }]);
+  if (error && error.code !== "23505") throw new Error(error.message);
   return { notificationId };
 };

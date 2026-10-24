@@ -73,6 +73,83 @@ export const chunkNumberedProductList = (entries, { maxChars = 650, heading = '�
   return chunks;
 };
 
+// Purchase "delivered" message: builds the product-details / totals parameters
+// for one LR. `group` is that LR's delivered items. When everything fits in
+// maxChars it returns the single message exactly as before; otherwise the items
+// are split over several messages (each with its own totals) so no parameter
+// goes past Meta's length limit.
+const round2 = (n) => Math.round(n * 100) / 100;
+const SEP = ' 🔹 '; // what sanitizeParam turns the blank line between products into
+
+export const buildDeliveryMessages = (group, { maxChars = 600 } = {}) => {
+  const byGroup = group.reduce((acc, curr) => {
+    const gKey = curr.groupName || 'Other';
+    if (!acc[gKey]) acc[gKey] = [];
+    acc[gKey].push(curr);
+    return acc;
+  }, {});
+
+  const itemText = (i) => {
+    const r = Number(i.rate || 0);
+    const rateStr = r ? (Number.isInteger(r) ? String(r) : r.toFixed(2)) : '0';
+    // "5*10" -> "5×10": WhatsApp turns text between two "*" into bold.
+    return `${toWhatsappSafeName(i.productName)} -${i.delQty} -₹${rateStr}`;
+  };
+  const sums = (items) => ({
+    bag: round2(items.reduce((s, i) => s + (Number(i.dispatchQtyBag) || 0), 0)),
+    kg: round2(items.reduce((s, i) => s + (Number(i.dispatchQtyKg) || 0), 0)),
+    lot: round2(items.reduce((s, i) => s + (Number(i.delQty) || 0), 0)),
+  });
+  const line = (idx, gName, items) => {
+    const t = sums(items);
+    return `Product ${idx + 1} :- ${toWhatsappSafeName(gName)} | ${items.map(itemText).join(' | ')} | Total Bag - ${t.bag} | Total KG - ${t.kg} | Total Lot - ${t.lot}`;
+  };
+  const totalsStr = (t) => `${t.bag} bag, ${t.kg} KG, ${t.lot} Lot`;
+
+  const entries = Object.entries(byGroup);
+  const fullLines = entries.map(([gName, items], idx) => line(idx, gName, items));
+  if (fullLines.join(SEP).length <= maxChars) {
+    return [{ productDetails: fullLines.join('\n\n'), totalValuesStr: totalsStr(sums(group)) }];
+  }
+
+  // Too long: break each product into units that fit, then pack units into messages.
+  const units = [];
+  entries.forEach(([gName, items], idx) => {
+    const whole = line(idx, gName, items);
+    if (whole.length <= maxChars) {
+      units.push({ text: whole, items });
+      return;
+    }
+    let cur = [];
+    items.forEach((item) => {
+      if (cur.length > 0 && line(idx, gName, [...cur, item]).length > maxChars) {
+        units.push({ text: line(idx, gName, cur), items: cur });
+        cur = [item];
+      } else {
+        cur.push(item);
+      }
+    });
+    if (cur.length > 0) units.push({ text: line(idx, gName, cur), items: cur });
+  });
+
+  const messages = [];
+  let current = [];
+  const flush = () => {
+    if (current.length === 0) return;
+    messages.push({
+      productDetails: current.map(u => u.text).join('\n\n'),
+      totalValuesStr: totalsStr(sums(current.flatMap(u => u.items))),
+    });
+    current = [];
+  };
+  units.forEach((u) => {
+    if (current.length > 0 && [...current, u].map(x => x.text).join(SEP).length > maxChars) flush();
+    current.push(u);
+  });
+  flush();
+  return messages;
+};
+
 // "9*12" → "9×12". WhatsApp renders text between two asterisks as bold, so
 // product sizes written with "*" would garble the message.
 export const toWhatsappSafeName = (name) => toSingleLine(name).replace(/\*/g, '×');

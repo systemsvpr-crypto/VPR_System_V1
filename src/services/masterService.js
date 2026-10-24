@@ -379,6 +379,17 @@ export const deleteProduct = async (product_id) => {
 };
 
 export const deleteGodown = async (godown_id) => {
+  // The database foreign key used to refuse this; a soft delete would not.
+  const [{ count: allocCount, error: allocErr }, { count: txnCount, error: txnErr }] = await Promise.all([
+    supabase.from('purchase_delivery_godowns').select('delivery_id', { count: 'exact', head: true }).eq('godown_id', godown_id),
+    supabase.from('transactions').select('txn_id', { count: 'exact', head: true }).eq('godown_id', godown_id),
+  ]);
+  if (allocErr) throw allocErr;
+  if (txnErr) throw txnErr;
+  if ((allocCount || 0) > 0 || (txnCount || 0) > 0) {
+    throw new Error("This godown can't be deleted because it already has stock entries or deliveries.");
+  }
+
   const { error } = await supabase
     .from('godowns')
     .delete()

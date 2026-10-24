@@ -33,7 +33,7 @@ const MyProfile = () => {
       const identifier = sessionUser.user_id || sessionUser.username;
       if (!identifier) throw new Error("User identifier missing.");
       const field = sessionUser.user_id ? 'user_id' : 'username';
-      const data = await fetchProfile(identifier, field);
+      const data = await fetchProfile(identifier, field, sessionUser.username);
       setProfileData(data);
       setFormData({ ...data, password: data.password || '' });
     } catch (error) {
