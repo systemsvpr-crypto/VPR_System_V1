@@ -9,8 +9,29 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 // keeps working unchanged until the migration has been run.
 const SOFT_DELETE_ON = import.meta.env.VITE_SOFT_DELETE === 'on';
 // Views and log tables have no is_deleted column of their own; holidays and the
-// working-day calendar are deliberately hard-deleted.
-const NO_SOFT_DELETE = new Set(['whatsapp_logs', 'daily_snapshots', 'godown_stock', 'checklist_users', 'checklist_unique_tasks', 'holidays', 'working_day_calender']);
+// working-day calendar are deliberately hard-deleted. The WhatsApp module uses
+// deleted_at instead of is_deleted.
+const NO_SOFT_DELETE = new Set([
+  'whatsapp_logs',
+  'whatsapp_contacts_metadata',
+  'whatsapp_bulk_contacts',
+  'whatsapp_templates',
+  'whatsapp_conversations',
+  'whatsapp_messages',
+  'whatsapp_message_status_history',
+  'whatsapp_broadcast_schedules',
+  'vw_whatsapp_chat_inbox',
+  'daily_snapshots',
+  'godown_stock',
+  'checklist_users',
+  'checklist_unique_tasks',
+  'holidays',
+  'working_day_calender',
+]);
+const isNoSoftDelete = (name) => {
+  if (!name) return false;
+  return NO_SOFT_DELETE.has(name) || name.startsWith('whatsapp_') || name.startsWith('vw_whatsapp_');
+};
 // Master data embedded in another row ("deliveries -> transporters(name)") stays
 // visible even after it is soft-deleted, so history keeps showing the old name.
 // Reading the master table itself still hides deleted rows.
@@ -28,7 +49,7 @@ const embedPaths = (select) => {
     if (ch === '(') {
       const raw = token.trim();
       const name = raw.includes(':') ? raw.split(':')[0] : raw.split('!')[0];
-      const isEmbed = name && !raw.includes('.') && !AGGREGATES.has(name) && !NO_SOFT_DELETE.has(name);
+      const isEmbed = name && !raw.includes('.') && !AGGREGATES.has(name) && !isNoSoftDelete(name);
       // A kept (master-data) embed and everything nested in it is left unfiltered.
       const keep = stack.includes(KEEP) || (isEmbed && KEEP_WHEN_EMBEDDED.has(name));
       stack.push(keep ? KEEP : isEmbed ? name : null);
@@ -49,7 +70,7 @@ const embedPaths = (select) => {
 const hideDeleted = (url, method) => {
   if (!SOFT_DELETE_ON || (method !== 'GET' && method !== 'HEAD')) return url;
   const m = url.match(/\/rest\/v1\/([^/?]+)(\?|$)/);
-  if (!m || NO_SOFT_DELETE.has(m[1])) return url;
+  if (!m || isNoSoftDelete(m[1])) return url;
   // A query that already filters on is_deleted itself (e.g. .in('is_deleted', [true, false]))
   // opts out, so callers can see deleted rows when they must (number sequences, audits).
   if (/[?&]is_deleted=/.test(url)) return url;

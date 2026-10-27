@@ -68,7 +68,7 @@ const DROPDOWN_PAGES = ['checklist', 'docs', 'whatsapp'];
 const Sidebar = ({ onClose }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
   const [openDropdowns, setOpenDropdowns] = useState(() =>
     Object.fromEntries(DROPDOWN_PAGES.map(id => [id, pathname.startsWith(`/${id}`)])),
