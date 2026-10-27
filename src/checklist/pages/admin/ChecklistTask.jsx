@@ -31,7 +31,16 @@ import {
 import { customDropdownDetails } from "../../redux/slice/settingSlice";
 import supabase from "../../SupabaseClient";
 import CalendarComponent from "../../components/CalendarComponent";
-import { sendTaskAssignmentNotification } from "../../services/whatsappService";
+import {
+  sendTaskAssignmentNotification,
+  sendUrgentTaskNotification,
+} from "../../services/whatsappService";
+import {
+  DEFAULT_PRIORITY,
+  PRIORITY_LEVELS,
+  PRIORITY_STYLES,
+} from "../../utils/taskPriority";
+import PriorityBadge from "../../components/PriorityBadge";
 import { useMagicToast } from "../../context/MagicToastContext";
 import { usePagePermission, READ_ONLY_TOOLTIP } from "../../utils/pagePermissionUtils";
 import ReadOnlyBanner from "../../components/ReadOnlyBanner";
@@ -96,6 +105,7 @@ const defaultTask = (isDelegation = false) => {
     showCalendar: false,
     references: [],
     reminderDaysBefore: 1,
+    priority: DEFAULT_PRIORITY,
   };
 };
 
@@ -601,6 +611,29 @@ function TaskCard({
                 MIN
               </span>
             </div>
+          </div>
+        </div>
+
+        {/* Priority / Urgency */}
+        <div>
+          <label className="block text-xs font-bold text-gray-600 mb-1.5 uppercase tracking-wide">
+            Priority / Urgency
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {PRIORITY_LEVELS.map((level) => {
+              const selected = (task.priority || DEFAULT_PRIORITY) === level;
+              return (
+                <button
+                  key={level}
+                  type="button"
+                  disabled={!canWrite}
+                  onClick={() => canWrite && onUpdate(task.id, { priority: level })}
+                  className={`px-3 py-2 rounded-lg border text-xs transition-all disabled:opacity-75 disabled:cursor-not-allowed ${selected ? `${PRIORITY_STYLES[level]} ring-2 ring-offset-1 ring-current` : "bg-gray-50 border-gray-200 text-gray-500 font-bold hover:bg-white"}`}
+                >
+                  {level}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -1371,6 +1404,7 @@ export default function ChecklistTask() {
                 formatDateISO(task.date) + `T${task.time || "18:00"}:00`,
               status: "pending",
               reminderDaysBefore: task.reminderDaysBefore || 1,
+              priority: task.priority || DEFAULT_PRIORITY,
             });
           }
         }
@@ -1425,7 +1459,7 @@ export default function ChecklistTask() {
                 t.frequency?.toLowerCase().includes("one-time") ||
                 t.frequency?.toLowerCase().includes("no recurrence");
 
-              await sendTaskAssignmentNotification({
+              const notification = {
                 doerName: t.name,
                 taskId: t.task_id || t.id,
                 description:
@@ -1443,7 +1477,13 @@ export default function ChecklistTask() {
                 duration: t.duration,
                 frequency: t.frequency,
                 taskType: isOneTime ? "delegation" : "checklist",
-              });
+              };
+              // Urgent tasks use the more prominent template; fall back to the
+              // regular one if it isn't approved or the send fails.
+              const sentUrgent =
+                t.priority === "Urgent" &&
+                (await sendUrgentTaskNotification(notification));
+              if (!sentUrgent) await sendTaskAssignmentNotification(notification);
             }
           }
         }
@@ -1681,7 +1721,8 @@ export default function ChecklistTask() {
                         )}
                       </div>
                     </div>
-                    <span className="ml-auto text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-500 uppercase font-black">
+                    <PriorityBadge priority={task.priority} className="ml-auto" />
+                    <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-500 uppercase font-black">
                       {task.frequency}
                     </span>
                   </div>

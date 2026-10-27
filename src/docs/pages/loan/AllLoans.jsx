@@ -12,11 +12,12 @@ import {
   IndianRupee,
   Wallet,
   Download,
+  Eye,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { loansApi } from "../../services/docsApi";
-import { downloadFileAttachment } from "../../utils/fileDownloader";
+import { openFileAttachment } from "../../utils/fileDownloader";
 import { formatCurrency } from "../../utils/dateFormatter";
 import { docsPath } from "../../utils/access";
 import {
@@ -268,15 +269,15 @@ export default function AllLoans() {
                   {loan.collateralDocument || "-"}
                 </td>
                 <td className={`${TD_CLASS} text-center`}>
-                  {loan.fileName ? (
+                  {loan.fileName || loan.fileUrl || (loan.attachments && loan.attachments.length > 0) ? (
                     <button
                       type="button"
-                      onClick={() => downloadFileAttachment(loan.attachments?.[0] || loan.fileName, loan)}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-100 hover:bg-blue-100 transition-colors"
-                      title={`Download ${loan.fileName}`}
+                      onClick={() => openFileAttachment(loan.attachments?.[0] || loan.fileUrl || loan.fileName, loan)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold text-primary hover:text-primary/80 bg-primary/5 hover:bg-primary/10 border border-primary/20 transition-colors"
+                      title={loan.fileName ? `View ${loan.fileName}` : "View Attached Document"}
                     >
-                      <FileText size={12} />
-                      <span className="truncate max-w-[110px]">{loan.fileName}</span>
+                      <Eye size={13} />
+                      <span>View</span>
                     </button>
                   ) : (
                     <span className="text-slate-300">-</span>

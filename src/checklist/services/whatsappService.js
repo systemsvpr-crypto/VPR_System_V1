@@ -15,6 +15,8 @@ export const CHECKLIST_TEMPLATES = {
   reassigned: "checklist_task_reassigned", // new doer, task id, original doer, description, start, given by
   rejected: "checklist_task_rejected", // doer, task id, task type, reason
   extended: "checklist_task_extended", // doer, task id, description, next date, reason, given by
+  // The daily to-do summary ("daily_task_reminder") is sent server-side by the
+  // checklist-daily-reminder edge function, not from here.
 };
 
 // Meta rejects newlines/tabs and 4+ consecutive spaces in template params.

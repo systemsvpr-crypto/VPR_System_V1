@@ -12,6 +12,7 @@ export const PAGES = [
     { id: 'purchase', label: 'Purchase' },
     { id: 'checklist', label: 'Checklist' },
     { id: 'docs', label: 'Docs & Subscriptions' },
+    { id: 'whatsapp', label: 'WhatsApp' },
     { id: 'settings', label: 'Global Settings' },
     { id: 'my-profile', label: 'My Profile' },
 ];
@@ -79,5 +80,10 @@ export const PAGE_TABS = {
     { id: 'docs_all_loans', label: 'All Loans', path: 'all-loans', section: 'Loans' },
     { id: 'docs_loan_foreclosure', label: 'Foreclosure', path: 'loan-foreclosure', section: 'Loans', badge: 'loanForeclosure' },
     { id: 'docs_loan_noc', label: 'NOC', path: 'loan-noc', section: 'Loans', badge: 'loanNoc' },
+  ],
+  // WhatsApp dashboard sub-pages; `path` is the route under /whatsapp.
+  whatsapp: [
+    { id: 'whatsapp_inbox', label: 'Chat Inbox', path: 'inbox' },
+    { id: 'whatsapp_scheduler', label: 'Broadcast Scheduler', path: 'scheduler' },
   ],
 };

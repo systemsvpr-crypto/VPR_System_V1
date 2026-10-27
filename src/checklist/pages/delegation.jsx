@@ -38,6 +38,8 @@ import PhotoLocationOverlay from "../components/PhotoLocationOverlay";
 import LocationPermissionModal from "../components/LocationPermissionModal";
 import WebCameraModal from "../components/WebCameraModal";
 import { usePagePermission, READ_ONLY_TOOLTIP } from "../utils/pagePermissionUtils";
+import PriorityBadge from "../components/PriorityBadge";
+import { comparePriority } from "../utils/taskPriority";
 import ReadOnlyBanner from "../components/ReadOnlyBanner";
 
 const getFilePreviewUrl = (file) => {
@@ -268,7 +270,6 @@ function DelegationDataPage() {
     { value: "all", label: "All Tasks" },
     { value: "overdue", label: "Overdue" },
     { value: "today", label: "Today" },
-    { value: "upcoming", label: "Upcoming" },
   ];
 
   // Debounced search term for better performance
@@ -432,9 +433,6 @@ function DelegationDataPage() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
     const roleLower = (userRole || "").toLowerCase();
     const isFullAdmin = isAdminOrSuperAdmin(roleLower, username);
     const allowedDepts = getUserAllowedDepartments({ role: roleLower, username });
@@ -487,10 +485,7 @@ function DelegationDataPage() {
               matchesDateFilter = plannedDate < today;
               break;
             case "today":
-              matchesDateFilter = plannedDate.getTime() === today.getTime();
-              break;
-            case "upcoming":
-              matchesDateFilter = plannedDate >= tomorrow;
+              matchesDateFilter = plannedDate >= today;
               break;
             default:
               matchesDateFilter = true;
@@ -505,10 +500,14 @@ function DelegationDataPage() {
         if (task.planned_date) {
           const pDate = new Date(task.planned_date);
           pDate.setHours(0, 0, 0, 0);
+          const isExtended = ["extend", "extended"].includes(
+            String(task.status || "").toLowerCase(),
+          );
 
           if (pDate < today) {
             timeStatus = "Overdue";
-          } else if (pDate.getTime() === today.getTime()) {
+          } else if (pDate.getTime() === today.getTime() || isExtended) {
+            // Extended tasks stay in today's list until their new date passes.
             timeStatus = "Today";
           } else {
             timeStatus = "Upcoming";
@@ -516,9 +515,15 @@ function DelegationDataPage() {
         }
         return { ...task, timeStatus };
       })
+      // Only overdue and today's work is listed; upcoming tasks appear on their day.
+      .filter((task) => task.timeStatus !== "Upcoming")
       .sort((a, b) => {
-        const priority = { Overdue: 0, Today: 1, Upcoming: 2 };
-        return (priority[a.timeStatus] ?? 3) - (priority[b.timeStatus] ?? 3);
+        const group = { Overdue: 0, Today: 1 };
+        return (
+          (group[a.timeStatus] ?? 2) - (group[b.timeStatus] ?? 2) ||
+          comparePriority(a.priority, b.priority) ||
+          String(a.planned_date || "").localeCompare(String(b.planned_date || ""))
+        );
       });
   }, [delegation, debouncedSearchTerm, dateFilter, userRole, username, doerFilter, assignFromFilter]);
 
@@ -2351,6 +2356,9 @@ function DelegationDataPage() {
                           Time Status
                         </th>
                         <th className="px-2 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                          Priority
+                        </th>
+                        <th className="px-2 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                           Task ID
                         </th>
                         <th className="px-2 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px]">
@@ -2407,7 +2415,7 @@ function DelegationDataPage() {
                             <Fragment key={index}>
                               {showHeader && (
                                 <tr className="bg-gray-100/50">
-                                  <td colSpan={14} className="px-6 py-2">
+                                  <td colSpan={16} className="px-6 py-2">
                                     <div className="flex items-center gap-2">
                                       <div
                                         className={`w-2 h-2 rounded-full ${
@@ -2462,6 +2470,9 @@ function DelegationDataPage() {
                                       {task.timeStatus}
                                     </span>
                                   </div>
+                                </td>
+                                <td className="px-2 sm:px-6 py-2 sm:py-4">
+                                  <PriorityBadge priority={task.priority} />
                                 </td>
                                 <td className="px-2 sm:px-6 py-2 sm:py-4">
                                   <div className="text-xs sm:text-sm text-gray-900 whitespace-normal break-words">
@@ -2774,7 +2785,7 @@ function DelegationDataPage() {
                       ) : (
                         <tr>
                           <td
-                            colSpan={14}
+                            colSpan={16}
                             className="px-4 sm:px-6 py-4 text-center text-gray-500 text-xs sm:text-sm"
                           >
                             {searchTerm
@@ -2899,6 +2910,7 @@ function DelegationDataPage() {
                                 <span className="text-xs font-bold text-blue-800 uppercase tracking-wider">
                                   #{task.id}
                                 </span>
+                                <PriorityBadge priority={task.priority} />
                               </div>
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${

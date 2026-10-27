@@ -1662,6 +1662,8 @@ export const getAawakDeliveries = async (statusFilter = null) => {
   // Splitting shares the original dispatch out between the parts, so summing
   // the family gives back the lift's original Qty (KG) / Qty (Bags) / total.
   const familyReceived = {};
+  const familyPending = {};
+  const familyAtTpt = {};
   const familyTotal = {};
   const liftNumberById = {};
   const addTo = (map, key, val) => {
@@ -1675,14 +1677,28 @@ export const getAawakDeliveries = async (statusFilter = null) => {
     addTo(familyTotal[rootId], 'qty', d.received_quantity);
     addTo(familyTotal[rootId], 'kg', d.dispatch_qty_kg);
     addTo(familyTotal[rootId], 'bag', d.dispatch_qty_bag);
-    if (d.status && d.status !== 'In Transit') addTo(familyReceived, rootId, d.received_quantity);
+
+    // Only 'Arrived' or 'Received' represent goods actually arrived into destination godown.
+    // 'In Transport Godown' is still pending delivery to destination godown.
+    if (d.status === 'Arrived' || d.status === 'Received') {
+      addTo(familyReceived, rootId, d.received_quantity);
+    } else {
+      addTo(familyPending, rootId, d.received_quantity);
+      if (d.status === 'In Transport Godown' || d.status === 'AT TPT GDN') {
+        addTo(familyAtTpt, rootId, d.received_quantity);
+      }
+    }
   });
   return rows.map(d => {
     const rootId = d.parent_delivery_id || d.delivery_id;
     const total = familyTotal[rootId] || {};
+    const pendingQty = familyPending[rootId] || 0;
     return {
       ...d,
       family_received_qty: familyReceived[rootId] || 0,
+      family_pending_qty: pendingQty,
+      family_at_tpt_qty: familyAtTpt[rootId] || 0,
+      family_has_pending: pendingQty > 0,
       family_total_qty: total.qty ?? null,
       family_dispatch_qty_kg: total.kg ?? null,
       family_dispatch_qty_bag: total.bag ?? null,
@@ -2406,7 +2422,15 @@ export const updatePendingDeliveryRowInfo = async ({ item_id, indent_id, indent_
 
   const itemFields = {};
   if (vendor_id !== undefined) itemFields.approved_vendor_id = vendor_id || null;
-  if (product_id !== undefined) itemFields.product_id = product_id;
+  if (product_id !== undefined) {
+    itemFields.product_id = product_id;
+    // The item's group follows its product — a stale group_id would label
+    // the product under the old group (e.g. in the delivery WhatsApp).
+    const { data: product, error } = await supabase
+      .from('products').select('group_id').eq('product_id', product_id).maybeSingle();
+    if (error) throw error;
+    if (product?.group_id) itemFields.group_id = product.group_id;
+  }
   if (quantity !== undefined) itemFields.quantity = Number(quantity);
   // Rate is shown as rate ?? approved_rate and messaged as approved_rate, so
   // keep both in step.

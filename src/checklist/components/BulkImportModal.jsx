@@ -17,6 +17,9 @@ import { useDispatch } from "react-redux";
 import { assignTaskInTable } from "../redux/slice/assignTaskSlice";
 import { fetchUniqueGivenByDataApi } from "../redux/api/assignTaskApi";
 import { sendTaskAssignmentNotification } from "../services/whatsappService";
+import { normalizePriority, PRIORITY_LEVELS } from "../utils/taskPriority";
+
+const PRIORITY_HEADER = "Priority (Urgent/High/Medium/Low)";
 
 const FREQUENCY_OPTIONS = [
   "One Time (No Recurrence)",
@@ -159,6 +162,7 @@ export default function BulkImportModal({ isOpen, onClose, onImportSuccess }) {
         "Duration (MIN)",
         "Enable Reminders (Yes/No)",
         "Require Attachment (Yes/No)",
+        PRIORITY_HEADER,
       ];
       // Generate one row per frequency option to show users all valid frequencies in the template
       dataRows = FREQUENCY_OPTIONS.map((freq, idx) => [
@@ -172,6 +176,7 @@ export default function BulkImportModal({ isOpen, onClose, onImportSuccess }) {
         "30",
         "Yes",
         "No",
+        PRIORITY_LEVELS[idx % PRIORITY_LEVELS.length],
       ]);
     } else {
       headers = [
@@ -184,6 +189,7 @@ export default function BulkImportModal({ isOpen, onClose, onImportSuccess }) {
         "Duration (MIN)",
         "Enable Reminders (Yes/No)",
         "Require Attachment (Yes/No)",
+        PRIORITY_HEADER,
       ];
       dataRows = [
         [
@@ -196,6 +202,7 @@ export default function BulkImportModal({ isOpen, onClose, onImportSuccess }) {
           "60",
           "Yes",
           "Yes",
+          "High",
         ],
       ];
     }
@@ -450,6 +457,16 @@ export default function BulkImportModal({ isOpen, onClose, onImportSuccess }) {
       const requireAttachmentRaw = (
         row["Require Attachment (Yes/No)"] || ""
       ).toLowerCase();
+      // Optional column — older templates without it import as Medium.
+      const priorityRaw = row[PRIORITY_HEADER] || "";
+      if (
+        priorityRaw &&
+        !PRIORITY_LEVELS.some((p) => p.toLowerCase() === priorityRaw.toLowerCase())
+      ) {
+        newErrors.push(
+          `Row ${rowNum}: Priority "${priorityRaw}" is invalid. Valid options are: ${PRIORITY_LEVELS.join(", ")}`,
+        );
+      }
 
       // Basic presence check
       if (!department) newErrors.push(`Row ${rowNum}: Department is required.`);
@@ -597,6 +614,7 @@ export default function BulkImportModal({ isOpen, onClose, onImportSuccess }) {
             enableRemindersRaw === "yes" || enableRemindersRaw === "true",
           requireAttachment:
             requireAttachmentRaw === "yes" || requireAttachmentRaw === "true",
+          priority: normalizePriority(priorityRaw),
           date: parsedDate,
           time: timeRaw,
           showCalendar: false,
@@ -852,6 +870,7 @@ export default function BulkImportModal({ isOpen, onClose, onImportSuccess }) {
         duration: t.duration,
         enableReminders: t.enableReminders,
         requireAttachment: t.requireAttachment,
+        priority: t.priority,
         originalStartDate: t.originalStartDate,
         status: selectedModule === "checklist" ? null : "pending",
       }));
@@ -1099,6 +1118,9 @@ export default function BulkImportModal({ isOpen, onClose, onImportSuccess }) {
                             <th className="p-2 font-bold text-gray-600 whitespace-nowrap">
                               Duration
                             </th>
+                            <th className="p-2 font-bold text-gray-600 whitespace-nowrap">
+                              Priority
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1128,6 +1150,9 @@ export default function BulkImportModal({ isOpen, onClose, onImportSuccess }) {
                             </td>
                             <td className="p-2 text-gray-500 whitespace-nowrap font-medium">
                               e.g. 30
+                            </td>
+                            <td className="p-2 text-blue-600 font-bold whitespace-nowrap">
+                              Urgent / High / Medium / Low (optional)
                             </td>
                           </tr>
                         </tbody>

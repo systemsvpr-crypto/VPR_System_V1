@@ -14,6 +14,7 @@
 // with leave/HOD fields).
 import supabase from "../../SupabaseClient";
 import { chunk, toYesNo } from "./taskApiUtils";
+import { normalizePriority } from "../../utils/taskPriority";
 
 const splitList = (value) =>
   String(value || "")
@@ -188,6 +189,7 @@ const toTaskRow = (t, table) => {
     task_start_date: t.originalStartDate || t.task_start_date || t.dueDate || null,
     planned_date: t.dueDate || t.planned_date || t.originalStartDate || null,
     reminder_days_before: Number(t.reminderDaysBefore ?? t.reminder_days_before) || 1,
+    priority: normalizePriority(t.priority),
   };
   if (t.status !== undefined) row.status = t.status;
   return row;

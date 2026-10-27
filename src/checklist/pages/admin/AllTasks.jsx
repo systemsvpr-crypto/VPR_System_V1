@@ -47,6 +47,10 @@ import LocationPermissionModal from "../../components/LocationPermissionModal";
 import WebCameraModal from "../../components/WebCameraModal";
 import { usePagePermission, READ_ONLY_TOOLTIP } from "../../utils/pagePermissionUtils";
 import ReadOnlyBanner from "../../components/ReadOnlyBanner";
+import PriorityBadge from "../../components/PriorityBadge";
+import DailyToDoSummary from "../../components/DailyToDoSummary";
+import { comparePriority } from "../../utils/taskPriority";
+import { localDateString } from "../../redux/api/taskApiUtils";
 
 const getFilePreviewUrl = (file) => {
   if (!file) return null;
@@ -504,6 +508,7 @@ const AllTasks = () => {
           completionField = "submission_date";
           headers = [
             { id: "time_status", label: "Time" },
+            { id: "priority", label: "Priority" },
             { id: "id", label: "ID" },
             { id: "task_description", label: "Description" },
             { id: "department", label: "Dept" },
@@ -523,6 +528,7 @@ const AllTasks = () => {
           completionField = "submission_date";
           headers = [
             { id: "time_status", label: "Time" },
+            { id: "priority", label: "Priority" },
             { id: "id", label: "ID" },
             { id: "task_description", label: "Description" },
             { id: "department", label: "Dept" },
@@ -588,68 +594,72 @@ const AllTasks = () => {
           activeTab === "maintenance")
       ) {
         // Pre-filter: Don't fetch absurdly old records, keep UI fast and avoid freezing.
-        // Today string for exact partition
-        const todayStr = new Date().toISOString().split("T")[0];
+        // planned_date is a zone-less local timestamp, so partition on the
+        // local calendar day (toISOString would roll back a day before 05:30 IST).
+        const todayStr = localDateString();
 
         // Overdue window: past 90 days
         const pastDate = new Date();
         pastDate.setDate(pastDate.getDate() - 90);
 
-        // Upcoming window: next 3 months
-        const futureDate = new Date();
-        futureDate.setMonth(futureDate.getMonth() + 3);
-
-        let baseQueryOverdue = supabase.from(tableName).select("*");
-        let baseQueryUpcoming = supabase.from(tableName).select("*");
-
-        if (!isAdminUser) {
-          if (isHODUser && allowedDepartments && allowedDepartments.length > 0) {
-            // checklist/delegation/maintenance always have a department column
-            baseQueryOverdue = baseQueryOverdue.in("department", allowedDepartments);
-            baseQueryUpcoming = baseQueryUpcoming.in("department", allowedDepartments);
-          } else {
-            baseQueryOverdue = baseQueryOverdue.in(nameField, reportingUsers);
-            baseQueryUpcoming = baseQueryUpcoming.in(nameField, reportingUsers);
+        const scopedQuery = () => {
+          let q = supabase.from(tableName).select("*");
+          if (!isAdminUser) {
+            if (isHODUser && allowedDepartments && allowedDepartments.length > 0) {
+              // checklist/delegation/maintenance always have a department column
+              q = q.in("department", allowedDepartments);
+            } else {
+              q = q.in(nameField, reportingUsers);
+            }
           }
-        }
+          return q;
+        };
 
-        if (activeTab === "checklist" || activeTab === "delegation") {
-          baseQueryOverdue = baseQueryOverdue.or(
-            `${completionField}.is.null,status.eq.extend,status.eq.extended`,
-          );
-          baseQueryUpcoming = baseQueryUpcoming.or(
-            `${completionField}.is.null,status.eq.extend,status.eq.extended`,
-          );
-        } else {
-          baseQueryOverdue = baseQueryOverdue.is(completionField, null);
-          baseQueryUpcoming = baseQueryUpcoming.is(completionField, null);
-        }
+        const isTaskTab = activeTab === "checklist" || activeTab === "delegation";
+        const todayEnd = `${todayStr}T23:59:59`;
 
         // 1. Most recent Overdue tasks (descending order so the latest overdue are prioritized)
-        const overduePromise = baseQueryOverdue
-          .gte("planned_date", pastDate.toISOString().split("T")[0] + "T00:00:00")
+        let overdueQuery = scopedQuery();
+        overdueQuery = isTaskTab
+          ? overdueQuery.or(`${completionField}.is.null,status.in.(extend,extended)`)
+          : overdueQuery.is(completionField, null);
+        const overduePromise = overdueQuery
+          .gte("planned_date", localDateString(pastDate) + "T00:00:00")
           .lt("planned_date", todayStr + "T00:00:00")
           .order("planned_date", { ascending: false })
           .limit(1000);
 
-        // 2. Today and Upcoming tasks (ascending order so today and immediate upcoming are guaranteed)
-        const upcomingPromise = baseQueryUpcoming
-          .gte("planned_date", todayStr + "T00:00:00")
-          .lte("planned_date", futureDate.toISOString().split("T")[0] + "T23:59:59")
+        // 2. Today's tasks. Upcoming occurrences are not listed for
+        // checklist/delegation; an extended task stays visible (as "Today")
+        // even when its new date is later. (open AND due today) OR extended
+        // is the same as (open OR extended) AND (due today OR extended).
+        let todayQuery = scopedQuery().gte("planned_date", todayStr + "T00:00:00");
+        if (isTaskTab) {
+          todayQuery = todayQuery.or(
+            `and(${completionField}.is.null,planned_date.lte.${todayEnd}),status.in.(extend,extended)`,
+          );
+        } else {
+          const futureDate = new Date();
+          futureDate.setMonth(futureDate.getMonth() + 3);
+          todayQuery = todayQuery
+            .is(completionField, null)
+            .lte("planned_date", localDateString(futureDate) + "T23:59:59");
+        }
+        const todayPromise = todayQuery
           .order("planned_date", { ascending: true })
           .limit(1000);
 
-        const [overdueRes, upcomingRes] = await Promise.all([
+        const [overdueRes, todayRes] = await Promise.all([
           overduePromise,
-          upcomingPromise,
+          todayPromise,
         ]);
 
         if (overdueRes.error) throw overdueRes.error;
-        if (upcomingRes.error) throw upcomingRes.error;
+        if (todayRes.error) throw todayRes.error;
 
         allFetchedData = [
           ...(overdueRes.data || []),
-          ...(upcomingRes.data || []),
+          ...(todayRes.data || []),
         ];
       } else {
         if (showHistory) {
@@ -734,7 +744,8 @@ const AllTasks = () => {
 
   // Filtering Logic
   const filteredPendingTasks = useMemo(() => {
-    // Multi-level sort: Priority Group (Overdue > Today > Upcoming) → Date
+    // Multi-level sort: Time Group (Overdue > Today > Upcoming) → Task
+    // Priority (Urgent > High > Medium > Low) → Date
     const sortedTasks = [...tasks].sort((a, b) => {
       const statusA = getTimeStatus(a[statusDateColumn], a.status);
       const statusB = getTimeStatus(b[statusDateColumn], b.status);
@@ -745,7 +756,10 @@ const AllTasks = () => {
 
       if (groupA !== groupB) return groupA - groupB;
 
-      // Same group, sort by date
+      const byPriority = comparePriority(a.priority, b.priority);
+      if (byPriority !== 0) return byPriority;
+
+      // Same group and priority, sort by date
       const dateA = a[sortDateColumn]
         ? new Date(a[sortDateColumn])
         : new Date(0);
@@ -788,14 +802,10 @@ const AllTasks = () => {
 
       // Apply the dropdown date filter
       if (taskDateValue && status) {
-        if (dateFilter === "all") {
-          // Show all: overdue + today + upcoming
-        } else if (dateFilter === "today") {
+        if (dateFilter === "today") {
           if (status !== "Today") return false;
         } else if (dateFilter === "overdue") {
           if (status !== "Overdue") return false;
-        } else if (dateFilter === "upcoming") {
-          if (status !== "Upcoming") return false;
         }
       }
 
@@ -1840,7 +1850,6 @@ const AllTasks = () => {
                         { id: "all", label: "All Tasks" },
                         { id: "overdue", label: "Overdue" },
                         { id: "today", label: "Today" },
-                        { id: "upcoming", label: "Upcoming" },
                       ].map((filter) => (
                         <button
                           key={filter.id}
@@ -1864,6 +1873,15 @@ const AllTasks = () => {
             </div>
           </div>
         </div>
+
+        {!showHistory && (
+          <DailyToDoSummary
+            username={username}
+            isAdmin={isAdminOrSuperAdmin((userRole || "").toLowerCase(), username)}
+            canWrite={canWrite}
+            refreshKey={tasks}
+          />
+        )}
 
         {/* Success Message */}
         {successMessage && (
@@ -2057,7 +2075,7 @@ const AllTasks = () => {
                                       ></div>
                                       <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.15em] text-gray-500">
                                         {currentStatus}{" "}
-                                        {(activeTab === "ea" || activeTab === "delegation") &&
+                                        {(activeTab === "ea" || activeTab === "delegation" || activeTab === "checklist") &&
                                         currentStatus === "Today"
                                           ? " & Extended"
                                           : ""}
@@ -2301,6 +2319,8 @@ const AllTasks = () => {
                                               task.status,
                                             )}
                                           </span>
+                                        ) : header.id === "priority" ? (
+                                          <PriorityBadge priority={task.priority} />
                                         ) : header.id === "task_start_date" ||
                                           header.id === "created_at" ||
                                           header.id === "planned_date" ||
@@ -3035,7 +3055,7 @@ const AllTasks = () => {
                                   className={`w-1 h-1 rounded-full ${currentStatus === "Overdue" ? "bg-red-500" : currentStatus === "Today" ? "bg-green-500" : "bg-blue-500"}`}
                                 ></div>
                                 {currentStatus}{" "}
-                                {(activeTab === "ea" || activeTab === "delegation") && currentStatus === "Today"
+                                {(activeTab === "ea" || activeTab === "delegation" || activeTab === "checklist") && currentStatus === "Today"
                                   ? " & Extended"
                                   : ""}
                               </span>
@@ -3075,6 +3095,9 @@ const AllTasks = () => {
                                   <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[9px] font-black rounded uppercase tracking-tighter border border-amber-200 animate-pulse">
                                     Extended
                                   </span>
+                                )}
+                                {activeTab !== "repair" && (
+                                  <PriorityBadge priority={task.priority} />
                                 )}
                               </div>
                               <span

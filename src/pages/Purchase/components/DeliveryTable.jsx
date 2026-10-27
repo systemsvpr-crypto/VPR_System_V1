@@ -432,6 +432,31 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
       if (fallbackTransporterId && fallbackLrNumber) break;
     }
 
+    // Rows that will silently borrow another row's LR / transporter. A row
+    // ticked by mistake would otherwise be dispatched under someone else's LR
+    // (with its full pending qty), so list them and ask first.
+    const borrowing = toSubmitIds
+      .map(id => items.find(i => i.item_id === id))
+      .filter(item => {
+        if (!item) return false;
+        const edit = rowEdits[item.item_id] || {};
+        return (!edit.lr_number && fallbackLrNumber) || (!edit.transporter_id && fallbackTransporterId);
+      });
+    if (borrowing.length > 0) {
+      const names = borrowing
+        .map(item => `• ${item.purchase_indents?.indent_number || '-'} — ${effectiveProduct(item)?.name || 'Product'}`)
+        .join('\n');
+      const ok = window.confirm(
+        `${borrowing.length} selected row(s) have no LR No. / Transporter of their own:\n\n${names}\n\n` +
+        `They will be dispatched with LR ${fallbackLrNumber || '-'} (${fallbackTransporterName}).\n\n` +
+        'Press OK to continue, or Cancel to untick / fill those rows.',
+      );
+      if (!ok) {
+        setSubmitting(false);
+        return;
+      }
+    }
+
     for (const itemId of toSubmitIds) {
       const item = items.find(i => i.item_id === itemId);
       if (!item) continue;
@@ -520,7 +545,12 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
         });
         successCount++;
         savedIds.add(itemId);
-        const groupName = getGroupNameFromItem(item, groups);
+        // Group of the product actually dispatched (the row's product may have
+        // been changed, leaving the indent item's own group_id stale).
+        const productGroup = product?.group_id
+          ? groups.find(g => String(g.group_id) === String(product.group_id))?.group_name
+          : null;
+        const groupName = productGroup || getGroupNameFromItem(item, groups);
         const itemRate = edit.info_rate !== undefined && edit.info_rate !== ''
           ? Number(edit.info_rate)
           : Number((Number(item.approved_rate) > 0 ? item.approved_rate : item.rate) || 0);

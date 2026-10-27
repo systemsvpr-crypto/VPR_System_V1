@@ -89,11 +89,16 @@ export const buildDeliveryMessages = (group, { maxChars = 600 } = {}) => {
     return acc;
   }, {});
 
-  const itemText = (i) => {
+  // The first product of a group keeps its full name; later ones drop the
+  // repeated group prefix ("… 10×13 (30.8 Kg) -57 | 13×16 (30.8 Kg) -22"),
+  // as in the sales / vendor-approval messages.
+  const itemText = (i, idx, gName) => {
     const r = Number(i.rate || 0);
     const rateStr = r ? (Number.isInteger(r) ? String(r) : r.toFixed(2)) : '0';
     // "5*10" -> "5×10": WhatsApp turns text between two "*" into bold.
-    return `${toWhatsappSafeName(i.productName)} -${i.delQty} -₹${rateStr}`;
+    const name = toWhatsappSafeName(i.productName);
+    const label = idx > 0 ? stripGroupPrefix(name, toWhatsappSafeName(gName)) : name;
+    return `${label} -${i.delQty} -₹${rateStr}`;
   };
   const sums = (items) => ({
     bag: round2(items.reduce((s, i) => s + (Number(i.dispatchQtyBag) || 0), 0)),
@@ -102,7 +107,7 @@ export const buildDeliveryMessages = (group, { maxChars = 600 } = {}) => {
   });
   const line = (idx, gName, items) => {
     const t = sums(items);
-    return `Product ${idx + 1} :- ${toWhatsappSafeName(gName)} | ${items.map(itemText).join(' | ')} | Total Bag - ${t.bag} | Total KG - ${t.kg} | Total Lot - ${t.lot}`;
+    return `Product ${idx + 1} :- ${toWhatsappSafeName(gName)} | ${items.map((i, n) => itemText(i, n, gName)).join(' | ')} | Total Bag - ${t.bag} | Total KG - ${t.kg} | Total Lot - ${t.lot}`;
   };
   const totalsStr = (t) => `${t.bag} bag, ${t.kg} KG, ${t.lot} Lot`;
 

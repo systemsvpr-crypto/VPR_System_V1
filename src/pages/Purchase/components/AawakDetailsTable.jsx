@@ -667,14 +667,49 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
             const masterUnit = (prod.unit || '').toLowerCase();
             const isBagUnit = masterUnit.includes('bag') || (del.dispatch_qty_bag != null && Number(del.dispatch_qty_bag) > 0);
             const unitLabel = isBagUnit ? 'Bags' : (prod.unit || 'Kg');
-            // Pending shows the whole lift's original dispatch (all partial parts summed).
-            const dispBag = isPending ? del.family_dispatch_qty_bag ?? del.dispatch_qty_bag : del.dispatch_qty_bag;
-            const dispKg = isPending ? del.family_dispatch_qty_kg ?? del.dispatch_qty_kg : del.dispatch_qty_kg;
+            // Check if this lift belongs to a family that was split or has pending remainder
+            const hasPartialFamily = Boolean(
+              del.parent_delivery_id ||
+              del.family_has_pending ||
+              (Number(del.family_total_qty || 0) > Number(del.received_quantity || 0))
+            );
+
+            // Shows the whole lift's original dispatch (all partial parts summed) when part of a family
+            const dispBag = (isPending || isTransporterGodown || hasPartialFamily)
+              ? del.family_dispatch_qty_bag ?? del.dispatch_qty_bag
+              : del.dispatch_qty_bag;
+            const dispKg = (isPending || isTransporterGodown || hasPartialFamily)
+              ? del.family_dispatch_qty_kg ?? del.dispatch_qty_kg
+              : del.dispatch_qty_kg;
             const dispatchQty = isBagUnit
               ? (dispBag != null ? Number(Number(dispBag).toFixed(2)) : (dispKg != null ? Number(Number(dispKg).toFixed(2)) : 0))
               : (dispKg != null ? Number(Number(dispKg).toFixed(2)) : (dispBag != null ? Number(Number(dispBag).toFixed(2)) : 0));
-            const recvQty = Number(getRowVal(del, 'received_quantity') || 0);
-            const percentReceived = dispatchQty > 0 ? Math.min(100, Math.round((recvQty / dispatchQty) * 100)) : (recvQty > 0 ? 100 : 0);
+
+            // A lift is still pending arrival at destination godown if it's In Transit or in Transporter Godown
+            const isAwaitingArrival = isPending || isTransporterGodown;
+            // In history, check if this lift was part of a split where other parts are still in transit/tpt godown
+            const isPartialHistoryWithPending = isHistory && Boolean(del.family_has_pending || (del.family_pending_qty > 0));
+
+            let recvQty;
+            let expectedQty;
+
+            if (isAwaitingArrival) {
+              // For lifts still in transit or at transporter godown, recvQty is only what has actually arrived at destination godown across the family
+              recvQty = Number(del.family_received_qty || 0);
+              expectedQty = Number(del.family_total_qty || dispatchQty);
+            } else if (isPartialHistoryWithPending) {
+              // In history, but other remainder parts are still pending
+              recvQty = Number(del.family_received_qty || del.received_quantity || 0);
+              expectedQty = Number(del.family_total_qty || dispatchQty);
+            } else {
+              // Fully arrived / completed lift
+              recvQty = Number(getRowVal(del, 'received_quantity') || dispatchQty);
+              expectedQty = dispatchQty;
+            }
+
+            const percentReceived = expectedQty > 0
+              ? Math.min(100, Math.round((recvQty / expectedQty) * 100))
+              : (recvQty > 0 ? 100 : 0);
 
             // Packaging spec display
             const pkgSize = prod.packaging_size || del.purchase_indent_items?.packaging_size;
@@ -683,7 +718,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
             const isReceived = uiStatus === 'Received' || uiStatus === 'Arrived';
             const isInTransit = uiStatus === 'In Transit';
 
-            const accentBorder = isReceived
+            const accentBorder = (isReceived && !isPartialHistoryWithPending)
               ? 'border-l-[3.5px] border-l-emerald-500'
               : isInTransit
                 ? 'border-l-[3.5px] border-l-blue-500'
@@ -708,9 +743,15 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                     <div className="flex flex-col gap-1">
                       <div>
                         {isReceived ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 leading-none">
-                            <Check size={11} className="stroke-[3]" /> Received
-                          </span>
+                          isPartialHistoryWithPending ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 leading-none">
+                              <Check size={11} className="stroke-[3]" /> Partial Received
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 leading-none">
+                              <Check size={11} className="stroke-[3]" /> Received
+                            </span>
+                          )
                         ) : isInTransit ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 leading-none">
                             <RotateCw size={10} className="stroke-[2.5]" /> In Transit
@@ -813,7 +854,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                   </div>
 
                   {/* Middle-Right: Quantities Box with Progress Bar */}
-                  <div className={`py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1.5 min-w-[200px] shrink-0 ${isReceived
+                  <div className={`py-1.5 px-3 rounded-lg border flex flex-col justify-between gap-1.5 min-w-[200px] shrink-0 ${(isReceived && !isPartialHistoryWithPending)
                     ? 'bg-emerald-50/50 border-emerald-200/70'
                     : isInTransit
                       ? 'bg-blue-50/50 border-blue-200/70'
@@ -822,22 +863,26 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5">
                         <div className="w-5 h-5 rounded-md bg-white/90 border border-slate-200/60 flex items-center justify-center shrink-0 shadow-2xs">
-                          <Package size={11} className={isReceived ? 'text-emerald-600' : isInTransit ? 'text-blue-600' : 'text-amber-600'} />
+                          <Package size={11} className={(isReceived && !isPartialHistoryWithPending) ? 'text-emerald-600' : isInTransit ? 'text-blue-600' : 'text-amber-600'} />
                         </div>
                         <span className="font-bold text-slate-900 text-xs">
                           {recvQty} / {dispatchQty} {unitLabel}
                         </span>
                       </div>
-                      <span className={`text-[10px] font-semibold ${isReceived ? 'text-emerald-700' : (recvQty === 0 ? 'text-amber-700' : 'text-blue-700')
+                      <span className={`text-[10px] font-semibold ${(isReceived && !isPartialHistoryWithPending) ? 'text-emerald-700' : (recvQty === 0 ? 'text-amber-700' : 'text-blue-700')
                         }`}>
-                        {recvQty === 0 ? 'Not received yet' : (percentReceived >= 100 ? '100% received' : `${percentReceived}% received`)}
+                        {recvQty === 0
+                          ? 'Not received yet'
+                          : ((percentReceived >= 100 && !isPartialHistoryWithPending)
+                            ? '100% received'
+                            : (isPartialHistoryWithPending ? `${percentReceived}% received (Partial)` : `${percentReceived}% received`))}
                       </span>
                     </div>
 
                     {/* Progress Bar */}
                     <div className="w-full h-1.5 rounded-full bg-slate-200/80 overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-300 ${isReceived ? 'bg-emerald-500' : isInTransit ? 'bg-blue-500' : 'bg-amber-500'
+                        className={`h-full rounded-full transition-all duration-300 ${(isReceived && !isPartialHistoryWithPending) ? 'bg-emerald-500' : isInTransit ? 'bg-blue-500' : 'bg-amber-500'
                           }`}
                         style={{ width: `${Math.min(100, Math.max(0, percentReceived))}%` }}
                       />
@@ -854,11 +899,13 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                         <span className="ml-1 font-bold text-emerald-700">{recvQty}</span>
                       </div>
                     </div>
-                    {(isPending || isTransporterGodown) && (
+                    {(isPending || isTransporterGodown || isPartialHistoryWithPending) && (
                       <div className="flex items-center justify-between text-[10px] text-slate-500">
                         <div>
                           <span>{isTransporterGodown ? 'At Tpt Gdn:' : 'Pending:'}</span>
-                          <span className="ml-1 font-semibold text-amber-600">{formatQty(getPendingQty(del))}</span>
+                          <span className="ml-1 font-semibold text-amber-600">
+                            {formatQty(isPartialHistoryWithPending ? del.family_pending_qty : getPendingQty(del))}
+                          </span>
                         </div>
                         <div>
                           <span>Total Recv:</span>
@@ -1350,9 +1397,14 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                   const prod = del.purchase_indent_items?.products || {};
                   const receivingDateVal = getRowVal(del, 'receiving_date')
                     || (locked && del.status_updated_at ? format(new Date(del.status_updated_at), 'yyyy-MM-dd') : '');
-                  // Pending shows the whole lift's original dispatch (all partial parts summed).
-                  const dispKg = isPending ? del.family_dispatch_qty_kg ?? del.dispatch_qty_kg : del.dispatch_qty_kg;
-                  const dispBag = isPending ? del.family_dispatch_qty_bag ?? del.dispatch_qty_bag : del.dispatch_qty_bag;
+                  const hasPartialFamily = Boolean(
+                    del.parent_delivery_id ||
+                    del.family_has_pending ||
+                    (Number(del.family_total_qty || 0) > Number(del.received_quantity || 0))
+                  );
+                  // Shows the whole lift's original dispatch (all partial parts summed).
+                  const dispKg = (isPending || isTransporterGodown || hasPartialFamily) ? del.family_dispatch_qty_kg ?? del.dispatch_qty_kg : del.dispatch_qty_kg;
+                  const dispBag = (isPending || isTransporterGodown || hasPartialFamily) ? del.family_dispatch_qty_bag ?? del.dispatch_qty_bag : del.dispatch_qty_bag;
                   const qtyKgVal = dispKg != null ? String(Number(Number(dispKg).toFixed(2))) : '';
                   const qtyBagVal = dispBag != null ? String(Number(Number(dispBag).toFixed(2))) : '';
                   const transporterName = del.transporters?.name || transporters.find(t => String(t.transporter_id) === String(del.transporter_id))?.name || '—';

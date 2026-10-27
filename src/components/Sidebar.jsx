@@ -36,6 +36,9 @@ import {
   Landmark,
   HandCoins,
   FileCheck2,
+  MessageCircle,
+  MessagesSquare,
+  Megaphone,
 } from 'lucide-react';
 import vprLogo from '../../assets/vpr_logo.png';
 import { DOCS_DATA_CHANGED_EVENT, fetchDocsSidebarBadgeCounts } from '../docs/services/docsApi';
@@ -54,11 +57,13 @@ const SUB_ICONS = {
   docs_all_loans: Landmark,
   docs_loan_foreclosure: HandCoins,
   docs_loan_noc: FileCheck2,
+  whatsapp_inbox: MessagesSquare,
+  whatsapp_scheduler: Megaphone,
 };
 
 // Pages whose sub-pages each get their own sidebar link (as a collapsible
 // group) instead of in-page tabs.
-const DROPDOWN_PAGES = ['checklist', 'docs'];
+const DROPDOWN_PAGES = ['checklist', 'docs', 'whatsapp'];
 
 const Sidebar = ({ onClose }) => {
   const navigate = useNavigate();
@@ -170,6 +175,7 @@ const Sidebar = ({ onClose }) => {
     'ultimate-ims': Boxes,
     'checklist': ListChecks,
     'docs': FolderLock,
+    'whatsapp': MessageCircle,
     'settings': Settings,
     'my-profile': User,
   };
