@@ -773,7 +773,7 @@ const ReceiveModal = ({
                             <td className="px-2.5 py-2 text-center font-medium text-slate-700">
                               {del.received_quantity}
                             </td>
-                            <td className="px-2.5 py-2 text-slate-500 max-w-[120px]">
+                            <td className="px-2.5 py-2 text-slate-500 max-w-30">
                               {del.purchase_delivery_godowns?.length > 0 ? (
                                 <span className="flex flex-wrap gap-0.5">
                                   {del.purchase_delivery_godowns.map((g) => (
@@ -790,7 +790,7 @@ const ReceiveModal = ({
                               )}
                             </td>
                             <td
-                              className="px-2.5 py-2 text-slate-600 max-w-[100px] truncate"
+                              className="px-2.5 py-2 text-slate-600 max-w-25 truncate"
                               title={del.transporters?.name || ""}
                             >
                               {del.transporters?.name || "—"}
