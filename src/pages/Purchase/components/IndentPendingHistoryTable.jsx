@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useOwnStockTotals, StockCell } from '@/components/ProductStockPanel';
 import ProductImsModal, { ImsButton } from '@/components/ProductImsModal';
 import { Search, Save, ShoppingCart, Clock, History as HistoryIcon, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, ChevronDown, Calendar, Package, User, Check, Trash2, LayoutGrid, LayoutList } from 'lucide-react';
 import { format } from 'date-fns';
@@ -73,6 +74,7 @@ const buildItemNoMap = (allItems) => {
  */
 const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarExtra, searchTerm = '', onSearchChange, onDelete, groups = [] }) => {
   const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
+  const stockTotals = useOwnStockTotals(); // Current Stock column
   const canDelete = canEditOrDelete(user);
 
   const [items, setItems] = useState([]);
@@ -806,6 +808,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Number</th>
                     <th className="sticky left-0 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">Product Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">IMS</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Current Stock</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Indent Qty</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[160px]">Vendor Name</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Rate</th>
@@ -821,7 +824,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                 <tbody className="divide-y divide-slate-100">
                   {isEmpty && (
                     <tr>
-                      <td colSpan="15" className="p-12 text-center">
+                      <td colSpan="16" className="p-12 text-center">
                         <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                           <ShoppingCart size={32} className="text-slate-300" />
                         </div>
@@ -879,6 +882,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                         <td className="px-3 py-3 text-center whitespace-nowrap">
                           {item.product_id ? <ImsButton onClick={() => setImsProduct({ productId: item.product_id, productName: item.products?.name })} /> : '—'}
                         </td>
+                        <StockCell totals={stockTotals} productId={item.product_id} />
                         <td className="px-4 py-3 text-center font-medium text-slate-800">
                           {item.indent_qty ?? item.quantity ?? '—'}
                         </td>

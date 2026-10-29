@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useOwnStockTotals, StockCell } from '@/components/ProductStockPanel';
 import ProductImsModal, { ImsButton } from '@/components/ProductImsModal';
 import { Search, Save, ShoppingCart, Clock, History, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, X, MessageCircle } from 'lucide-react';
 import { format } from 'date-fns';
@@ -38,6 +39,7 @@ const convertApproveQty = (qty, fromUnit, targetUnit, pkgSize) => {
 
 const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
   const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
+  const stockTotals = useOwnStockTotals(); // Current Stock column
   const canDelete = canEditOrDelete(user);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -175,6 +177,8 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
     if (field === 'godown_id') return item.approved_godown_id || item.purchase_indents?.godown_id || '';
     if (field === 'approval_action') return (item.approval_status === 'Approved' || item.approval_status === 'Rejected') ? item.approval_status : '';
     if (field === 'approval_remarks') return item.approved_remarks || '';
+    if (field === 'rate') return item.rate != null ? String(item.rate) : '';
+    if (field === 'planning_date') return item.planning_date ? String(item.planning_date).slice(0, 10) : '';
     // Approve Unit defaults to the product's master unit; Qty (raw, as typed
     // in that unit) defaults to whatever was saved before, falling back to
     // the item's current quantity for rows that predate this feature.
@@ -213,12 +217,10 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
     }));
   };
 
-  // Rate, Expected Delivery Date and Remarks were already locked in during
-  // planning (Indent tab) — this screen only lets the approver adjust the
-  // Approve Unit + Qty (Approve Qty is derived from those, see
-  // getApprovedQtyPreview), override the vendor, and record the
-  // Approved/Reject decision with its own remarks, so those other fields are
-  // passed through unchanged.
+  // The approver can adjust the Approve Unit + Qty (Approve Qty is derived
+  // from those, see getApprovedQtyPreview), Rate, Expected Delivery Date and
+  // the vendor, and records the Approved/Reject decision with its own
+  // remarks. Planning remarks are passed through unchanged.
   const buildSavePayload = (item, edit) => {
     const approveUnit = getValue(item, 'approve_unit');
     const approveUnitQty = getValue(item, 'approve_unit_qty');
@@ -226,12 +228,12 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
     return {
       vendor_id: edit.vendor_id !== undefined ? edit.vendor_id : (item.vendor_id || item.purchase_indents?.vendor_id || null),
       approved_godown_id: item.approved_godown_id || item.purchase_indents?.godown_id || null,
-      rate: Number(item.rate || 0),
+      rate: Number(getValue(item, 'rate')) || 0,
       quantity: approveQty,
       approve_unit: approveUnit,
       approve_unit_qty: Number(approveUnitQty) || 0,
       approve_qty: approveQty,
-      planning_date: item.planning_date,
+      planning_date: getValue(item, 'planning_date') || null,
       vendor_remarks: item.vendor_remarks,
       planning_status: 'Planned',
       approval_status: edit.approval_action,
@@ -955,6 +957,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                     <th className="sticky left-0 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">IMS</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Current Stock</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approve Unit</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty</th>
@@ -970,7 +973,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                 <tbody className="divide-y divide-slate-100">
                   {isEmpty && (
                     <tr>
-                      <td colSpan="15" className="p-12 text-center">
+                      <td colSpan="16" className="p-12 text-center">
                         <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                           <ShoppingCart size={32} className="text-slate-300" />
                         </div>
@@ -1029,6 +1032,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                         <td className="px-3 py-3 text-center whitespace-nowrap">
                           {item.product_id ? <ImsButton onClick={() => setImsProduct({ productId: item.product_id, productName: item.products?.name })} /> : '—'}
                         </td>
+                        <StockCell totals={stockTotals} productId={item.product_id} />
                         <td className="px-3 py-3 text-center text-xs text-slate-500 font-medium whitespace-nowrap">
                           {item.indent_qty ?? item.quantity ?? '—'}
                         </td>
@@ -1055,8 +1059,17 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                         <td className="px-3 py-3 text-center font-semibold text-emerald-600 tabular-nums">
                           {getApprovedQtyPreview(item) || <span className="text-slate-300">—</span>}
                         </td>
-                        <td className="px-3 py-3 text-center text-slate-600 text-xs whitespace-nowrap">
-                          ₹{Number(item.rate || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        <td className="px-3 py-3 min-w-[100px]">
+                          <Input type="text" inputMode="decimal" placeholder="0.00"
+                            disabled={subTab === 'history'}
+                            value={getValue(item, 'rate')}
+                            onChange={(e) => {
+                              let val = e.target.value.replace(/[^0-9.]/g, '');
+                              const parts = val.split('.');
+                              if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                              setEditValue(item.item_id, 'rate', val);
+                            }}
+                            className="h-8 text-xs font-semibold text-center w-24 mx-auto" />
                         </td>
                         <td className="px-3 py-3 min-w-[160px]">
                           <Dropdown value={getValue(item, 'vendor_id')}
@@ -1064,8 +1077,12 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                             options={vendorOptions} placeholder="Select vendor..."
                             searchPlaceholder="Search vendors..." align="start" />
                         </td>
-                        <td className="px-3 py-3 text-center text-slate-500 text-xs whitespace-nowrap">
-                          {item.planning_date ? format(new Date(item.planning_date), 'dd/MM/yyyy') : '—'}
+                        <td className="px-3 py-3 min-w-[150px]">
+                          <Input type="date"
+                            disabled={subTab === 'history'}
+                            value={getValue(item, 'planning_date')}
+                            onChange={(e) => setEditValue(item.item_id, 'planning_date', e.target.value)}
+                            className="h-8 text-xs text-center" />
                         </td>
                         <td className="px-3 py-3 text-center text-slate-600 text-xs min-w-[130px]">
                           {item.vendor_remarks || '—'}

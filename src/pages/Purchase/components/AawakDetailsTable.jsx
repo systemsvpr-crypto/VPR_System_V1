@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useOwnStockTotals, StockCell } from '@/components/ProductStockPanel';
 import ProductImsModal, { ImsButton } from '@/components/ProductImsModal';
 import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, Check, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Save, Phone, MessageSquare, Pencil, X } from 'lucide-react';
 import { format } from 'date-fns';
@@ -34,6 +35,7 @@ const IndentTypeBadge = ({ processType }) => (
 
 const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [], vendors = [], groups = [] }) => {
   const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
+  const stockTotals = useOwnStockTotals(); // Current Stock column
   const canModify = canEditOrDelete(user);
   // Product Name pins right after the pinned checkbox (3rem) + Action (5rem)
   // columns — or just the checkbox when Action is hidden for read-only users.
@@ -1370,6 +1372,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                   <th className={`sticky ${productLeft} z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap`}>Product Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">IMS</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Current Stock</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (KG)</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty (Bags)</th>
                   {(isPending || isTransporterGodown) && (
@@ -1394,7 +1397,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
               <tbody className="divide-y divide-slate-100">
                 {filteredDeliveries.length === 0 && (
                   <tr>
-                    <td colSpan={((isPending || isTransporterGodown) ? 21 : 19) - (canModify ? 0 : 1)} className="p-12 text-center text-slate-400">
+                    <td colSpan={((isPending || isTransporterGodown) ? 22 : 20) - (canModify ? 0 : 1)} className="p-12 text-center text-slate-400">
                       <PackageOpen size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">
                         {activeSubTab === 'pending' ? 'No pending lifts found.' : 'No arrived lifts found.'}
@@ -1478,6 +1481,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
                       <td className="px-3 py-3 text-center whitespace-nowrap">
                         {del.purchase_indent_items?.product_id ? <ImsButton onClick={() => setImsProduct({ productId: del.purchase_indent_items?.product_id, productName: prod.name })} /> : '—'}
                       </td>
+                      <StockCell totals={stockTotals} productId={del.purchase_indent_items?.product_id} />
                       <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
                         {qtyKgVal || '—'}
                       </td>

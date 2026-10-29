@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useOwnStockTotals, StockCell } from '@/components/ProductStockPanel';
 import ProductImsModal, { ImsButton } from '@/components/ProductImsModal';
 import { Search, History, Download, X, Eye, Zap, ArrowRightLeft, BadgeCheck, Truck, Timer, MapPin, CheckCircle2, ChevronLeft, ChevronRight, Calendar, Package, User, Clock, Check, Trash2, LayoutGrid, LayoutList, RotateCw, FileText, Phone, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
@@ -38,6 +39,7 @@ const IndentTypeBadge = ({ processType }) => (
 
 const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = [], groups = [] }) => {
   const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
+  const stockTotals = useOwnStockTotals(); // Current Stock column
   const canDelete = canEditOrDelete(user);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -726,6 +728,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Type</th>
                   <th className="sticky left-0 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Product Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">IMS</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Current Stock</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
@@ -741,7 +744,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
               <tbody className="divide-y divide-slate-100">
                 {filteredItems.length === 0 && (
                   <tr>
-                    <td colSpan={canDelete ? 16 : 15} className="p-12 text-center text-slate-400">
+                    <td colSpan={canDelete ? 17 : 16} className="p-12 text-center text-slate-400">
                       <BadgeCheck size={36} className="mx-auto mb-2 text-slate-300" />
                       <p className="text-sm font-medium">No purchase indent items found.</p>
                     </td>
@@ -796,6 +799,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
                       <td className="px-3 py-3 text-center whitespace-nowrap">
                         {item.product_id ? <ImsButton onClick={() => setImsProduct({ productId: item.product_id, productName: item.product_name })} /> : '—'}
                       </td>
+                      <StockCell totals={stockTotals} productId={item.product_id} />
                       <td className="px-3 py-3 text-center text-slate-700 font-medium whitespace-nowrap">
                         {item.vendor_name}
                       </td>

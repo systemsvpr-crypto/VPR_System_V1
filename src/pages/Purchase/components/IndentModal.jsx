@@ -38,6 +38,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     godown_id: '',
     vendor_id: '',
     remarks: '',
+    expected_delivery_date: '',
     items: [],
     process_type: 'direct',
   });
@@ -120,6 +121,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         godown_id: '',
         vendor_id: '',
         remarks: '',
+        expected_delivery_date: '',
         items: [],
         process_type: 'direct',
       });
@@ -133,6 +135,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         godown_id: editingIndent.purchase_indent_items?.[0]?.approved_godown_id || editingIndent.godown_id || '',
         vendor_id: editingIndent.purchase_indent_items?.[0]?.vendor_id || editingIndent.purchase_indent_items?.[0]?.approved_vendor_id || editingIndent.vendor_id || '',
         remarks: editingIndent.purchase_indent_items?.[0]?.vendor_remarks || editingIndent.remarks || '',
+        expected_delivery_date: (editingIndent.purchase_indent_items?.[0]?.planning_date || '').slice(0, 10),
         process_type: editingIndent.process_type || 'direct',
         items: (editingIndent.purchase_indent_items || []).map(item => {
           const prod = allProducts.find(p => p.product_id === item.product_id);
@@ -185,6 +188,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
     // Vendor and each item's Rate are required; Godown is still optional
     // and can be decided later, per item, on Vendor Approval.
     if (!form.vendor_id) { toast.error('Please select a vendor.'); return; }
+    if (!form.expected_delivery_date) { toast.error('Please select an expected delivery date.'); return; }
     if (form.items.length === 0) { toast.error('Add at least one product.'); return; }
     for (const [i, item] of form.items.entries()) {
       if (!item.product_id) { toast.error(`Item ${i + 1}: Select a product.`); return; }
@@ -206,6 +210,9 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         quantity: getComputedQty(item, product),
         direct_indent_unit: getItemUnit(item, product),
         direct_indent_qty: rawQty === '' ? null : Number(rawQty),
+        // Expected Delivery Date is picked once for the whole indent and
+        // stored per item (planning_date), where Vendor Approval reads it.
+        planning_date: form.expected_delivery_date || null,
       };
     });
     const headerGroupId = payloadItems.find(it => it.group_id)?.group_id || null;
@@ -451,7 +458,11 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                     options={vendorOptions} placeholder="Select vendor..." searchPlaceholder="Search vendors..." align="start"
                     onAddNew={() => setVendorQuickAddOpen(true)} addNewLabel="+ Add New Vendor" />
                 </div>
-                <div className="col-span-2">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Expected Delivery Date <span className="text-red-500">*</span></label>
+                  <DatePicker value={form.expected_delivery_date} onChange={(e) => setForm({ ...form, expected_delivery_date: e.target.value })} placeholder="Select date..." />
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
                   <Input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} placeholder="Remarks..." />
                 </div>

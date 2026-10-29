@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getAllProductStock } from '../services/masterService';
+import { getAllProductStock, getAllGodowns } from '../services/masterService';
 import { ImsButton } from './ProductImsModal';
 
 const fmtStock = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
@@ -25,6 +25,40 @@ export const useGodownStock = (isOpen) => {
     return () => { cancelled = true; };
   }, [isOpen]);
   return stockByProduct;
+};
+
+// Current stock per product = total across own godowns (Transporter godowns
+// left out — that stock hasn't arrived yet). Loaded once on mount; used by
+// the Current Stock column in the Purchase tables. Returns { [product_id]: qty }.
+export const useOwnStockTotals = () => {
+  const [totals, setTotals] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getAllProductStock(), getAllGodowns()])
+      .then(([rows, godownList]) => {
+        if (cancelled) return;
+        const own = new Set((godownList || []).filter(g => (g.godown_type || 'Own') === 'Own').map(g => g.godown_id));
+        const map = {};
+        (rows || []).forEach(s => {
+          if (!own.has(s.godown_id)) return;
+          map[s.product_id] = (map[s.product_id] || 0) + (Number(s.current_stock) || 0);
+        });
+        setTotals(map);
+      })
+      .catch(() => { if (!cancelled) setTotals({}); });
+    return () => { cancelled = true; };
+  }, []);
+  return totals;
+};
+
+// Current Stock table cell for one product (used next to the IMS column).
+export const StockCell = ({ totals, productId, className = 'px-3 py-3' }) => {
+  const qty = productId ? (totals[productId] || 0) : null;
+  return (
+    <td className={`${className} text-center whitespace-nowrap tabular-nums font-semibold ${qty == null ? 'text-slate-300' : qty <= 0 ? 'text-red-500' : 'text-slate-800'}`}>
+      {qty == null ? '—' : fmtStock(qty)}
+    </td>
+  );
 };
 
 /**

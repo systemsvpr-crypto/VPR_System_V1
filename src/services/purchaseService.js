@@ -259,6 +259,8 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
       approved_godown_id: targetGodownId,
       vendor_id: targetVendorId,
       vendor_remarks: targetRemarks,
+      // Expected Delivery Date (Create Indent) — read by Vendor Approval.
+      planning_date: item.planning_date || null,
       // reorder_unit/reorder_unit_qty are just a record of what was actually
       // picked/typed on Ultimate IMS's Reorder — quantity above is always the
       // converted, product-master-unit figure that drives the pipeline/stock.
@@ -362,6 +364,7 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
       direct_indent_unit: item.direct_indent_unit || null,
       direct_indent_qty: item.direct_indent_qty != null ? Number(item.direct_indent_qty) : null,
     };
+    if (item.planning_date !== undefined) baseItemPayload.planning_date = item.planning_date || null;
 
     if (isDirect) {
       baseItemPayload.approved_godown_id = godown_id || null;
