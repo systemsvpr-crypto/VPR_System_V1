@@ -8,6 +8,7 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@/comp
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
+import { Dropdown } from '@/components/ui/dropdown';
 import { canEditOrDelete } from '../../../lib/permissions';
 
 const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products = [], transporters = [], godowns = [], user, onSuccess }) => {
@@ -329,24 +330,22 @@ const EditAawakLiftModal = ({ isOpen, onClose, delivery, activeSubTab, products 
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
                   Transporter {!canEditTransporter && '(Locked)'}
                 </label>
-                <select
+                <Dropdown
                   disabled={!canEditTransporter}
-                  value={form.transporter_id}
-                  onChange={e => handleTransporterSelect(e.target.value)}
-                  className={`w-full h-9 text-xs px-2.5 rounded-md border border-slate-200 ${!canEditTransporter ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white focus:outline-none focus:ring-2 focus:ring-primary/30'}`}
-                >
-                  <option value="">Select transporter...</option>
-                  {transporters.map(t => (
-                    <option key={t.transporter_id} value={String(t.transporter_id)}>
-                      {t.name}
-                    </option>
-                  ))}
-                  {form.transporter_id && !transporters.some(t => String(t.transporter_id) === String(form.transporter_id)) && (
-                    <option value={form.transporter_id}>
-                      {delivery?.transporters?.name || 'Selected Transporter'}
-                    </option>
-                  )}
-                </select>
+                  value={form.transporter_id ? String(form.transporter_id) : ''}
+                  onValueChange={v => handleTransporterSelect(v)}
+                  options={[
+                    { value: '', label: 'Select transporter...' },
+                    ...transporters.map(t => ({ value: String(t.transporter_id), label: t.name })),
+                    ...(form.transporter_id && !transporters.some(t => String(t.transporter_id) === String(form.transporter_id))
+                      ? [{ value: String(form.transporter_id), label: delivery?.transporters?.name || 'Selected Transporter' }]
+                      : []),
+                  ]}
+                  placeholder="Select transporter..."
+                  searchPlaceholder="Search transporters..."
+                  align="start"
+                  className="h-9 text-xs w-full bg-white"
+                />
               </div>
 
               {/* Dispatch Qty KG & Bags (Hidden in History & Transporter Godown sections) */}

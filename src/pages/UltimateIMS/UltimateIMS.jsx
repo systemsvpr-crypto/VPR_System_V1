@@ -386,7 +386,7 @@ const UltimateIMS = () => {
                     </select>
                   </div>
                 </th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[110px]">Quantity</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[110px]">Indent Qty</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]">Reorder Qty</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-sky-600 uppercase tracking-wider whitespace-nowrap" title="Total dispatched qty ÷ days since first dispatch (incl. today)">AVG Daily Consumption</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]">Lead Time <span className="normal-case font-normal text-slate-400">(Days)</span></th>
@@ -455,7 +455,7 @@ const UltimateIMS = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="w-24 mx-auto">
-                          <Input type="text" inputMode="decimal" placeholder="Qty"
+                          <Input type="text" inputMode="decimal" placeholder="Indent Qty"
                             disabled={!selected}
                             value={reorderQty[row.key] ?? ''}
                             onChange={(e) => setReorderQtyValue(row.key, sanitizeQtyInput(e.target.value))}

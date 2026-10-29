@@ -29,7 +29,6 @@ const DEFAULT_LOW_QTY_THRESHOLD = 5;
 const UNIT_OPTIONS = [{ value: 'bag', label: 'BAG' }, { value: 'kg', label: 'KG' }];
 const unitLabel = (u) => (u ? String(u).toUpperCase() : '—');
 
-const todayStr = () => new Date().toISOString().split('T')[0];
 
 /* ─── order type badge — same convention as the Orders table ── */
 const OrderTypeBadge = ({ processType }) => (
@@ -519,7 +518,8 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
       // No godown at planning — it's picked in Dispatch Completed. An older
       // order that still carries one passes it on as the default there.
       godownId: item.godown_id || null,
-      dispatchDate: draft.dispatch_date || todayStr(),
+      // Mandatory — no fallback to today; validateDispatchPayload rejects a blank.
+      dispatchDate: draft.dispatch_date || '',
       unitPrice: Number(item.unit_price) || 0,
     };
   };
@@ -944,7 +944,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Date:</span>
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Date <span className="text-red-500">*</span>:</span>
                     <DatePicker
                       value={getDraft(item, 'dispatch_date')}
                       disabled={!selected}
@@ -1415,7 +1415,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
               { label: <span className="text-primary">Unit</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
               { label: <span className="text-primary">Qty</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
               { label: 'Dispatch Qty', className: 'min-w-[100px] !text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
-              { label: <span className="text-primary">Dispatch Date</span>, className: 'min-w-[150px] !text-xs !font-semibold !py-3 !px-4' },
+              { label: <span className="text-primary">Dispatch Date <span className="text-red-500">*</span></span>, className: 'min-w-[150px] !text-xs !font-semibold !py-3 !px-4' },
               { label: 'Unit Price', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Total Amount', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Order Type', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },

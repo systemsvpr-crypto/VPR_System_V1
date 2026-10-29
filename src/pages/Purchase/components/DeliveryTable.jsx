@@ -22,6 +22,7 @@ import { buildDeliveryMessages } from '../../../lib/whatsappFormat';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
+import { Dropdown } from '@/components/ui/dropdown';
 import { roundQty, formatQty } from '@/lib/qty';
 import EditDeliveryIndentModal from './EditDeliveryIndentModal';
 import DeletedIndentDetailsModal from './DeletedIndentDetailsModal';
@@ -263,6 +264,12 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
 
   // The row's product, following an unsaved Product pick so unit / Pkg/Bag
   // conversions match what's on screen.
+  // Searchable transporter picker options (Pending table + card view).
+  const transporterSelectOptions = useMemo(() => [
+    { value: '', label: 'Select transporter...' },
+    ...transporters.map(t => ({ value: String(t.transporter_id), label: t.name })),
+  ], [transporters]);
+
   const effectiveProduct = (item) => {
     const pid = rowEdits[item.item_id]?.info_product_id;
     return (pid && products.find(p => String(p.product_id) === String(pid))) || item.products;
@@ -1059,16 +1066,15 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
 
                     <div>
                       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Transporter</label>
-                      <select
-                        value={transpId}
-                        onChange={e => handleTransporterChange(item.item_id, e.target.value)}
-                        className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      >
-                        <option value="">-- Select Transporter --</option>
-                        {transporters.map(t => (
-                          <option key={t.transporter_id} value={t.transporter_id}>{t.name}</option>
-                        ))}
-                      </select>
+                      <Dropdown
+                        value={transpId ? String(transpId) : ''}
+                        onValueChange={v => handleTransporterChange(item.item_id, v)}
+                        options={transporterSelectOptions}
+                        placeholder="Select transporter..."
+                        searchPlaceholder="Search transporters..."
+                        align="start"
+                        className="h-8 text-xs w-full bg-white"
+                      />
                     </div>
 
                     <div>
@@ -1502,16 +1508,15 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
             ))}
           </select>
         ) : (
-          <select
+          <Dropdown
             value={vendorFilter}
-            onChange={e => setVendorFilter(e.target.value)}
-            className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[130px] max-w-[170px]"
-          >
-            <option value="">-- All Transporters --</option>
-            {transporters.map(t => (
-              <option key={t.transporter_id} value={t.name}>{t.name}</option>
-            ))}
-          </select>
+            onValueChange={setVendorFilter}
+            options={[{ value: '', label: '-- All Transporters --' }, ...transporters.map(t => ({ value: t.name, label: t.name }))]}
+            placeholder="-- All Transporters --"
+            searchPlaceholder="Search transporters..."
+            align="start"
+            className="h-9 text-xs shrink-0 w-44 bg-white"
+          />
         )}
 
         {(searchTerm || indentFilter || productFilter || vendorFilter) && (
@@ -1811,16 +1816,15 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                           {dispatchQtyKg ? Number(dispatchQtyKg.toFixed(2)) : '—'}
                         </td>
                         <td className="px-3 py-3 text-center">
-                          <select
-                            value={transpId}
-                            onChange={e => handleTransporterChange(item.item_id, e.target.value)}
-                            className="w-full h-8 text-xs px-2.5 rounded-md border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[140px]"
-                          >
-                            <option value="">Select transp...</option>
-                            {transporters.map(t => (
-                              <option key={t.transporter_id} value={t.transporter_id}>{t.name}</option>
-                            ))}
-                          </select>
+                          <Dropdown
+                            value={transpId ? String(transpId) : ''}
+                            onValueChange={v => handleTransporterChange(item.item_id, v)}
+                            options={transporterSelectOptions}
+                            placeholder="Select transporter..."
+                            searchPlaceholder="Search transporters..."
+                            align="start"
+                            className="h-8 text-xs min-w-[160px]"
+                          />
                         </td>
                         <td className="px-3 py-3 text-center">
                           <Input

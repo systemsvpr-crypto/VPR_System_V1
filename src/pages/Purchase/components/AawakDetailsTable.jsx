@@ -3,6 +3,7 @@ import { useOwnStockTotals, StockCell } from '@/components/ProductStockPanel';
 import ProductImsModal, { ImsButton } from '@/components/ProductImsModal';
 import { PackageOpen, Clock, Search, Zap, ArrowRightLeft, Loader2, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, Check, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Save, Phone, MessageSquare, Pencil, X } from 'lucide-react';
 import { format } from 'date-fns';
+import { Dropdown } from '@/components/ui/dropdown';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getAawakDeliveries, updateAawakLift, deleteDelivery, updateDeliveriesExpectedDeliveryDate, updateAawakLiftInfo, revertLiftToPending } from '../../../services/purchaseService';
@@ -1276,16 +1277,15 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         </select>
 
         {/* Transporter Filter Dropdown */}
-        <select
+        <Dropdown
           value={transporterFilter}
-          onChange={e => setTransporterFilter(e.target.value)}
-          className="h-9 px-2.5 rounded-md border border-slate-200 bg-white text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[130px] max-w-[170px]"
-        >
-          <option value="">Transporter (-- All --)</option>
-          {transporterOptions.map(t => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
+          onValueChange={setTransporterFilter}
+          options={[{ value: '', label: 'Transporter (-- All --)' }, ...transporterOptions.map(t => ({ value: t, label: t }))]}
+          placeholder="Transporter (-- All --)"
+          searchPlaceholder="Search transporters..."
+          align="start"
+          className="h-9 text-xs shrink-0 w-44 bg-white"
+        />
 
         {/* Godown Destination Dropdown */}
         <select

@@ -42,10 +42,12 @@ const addLift = (acc, l) => {
   return acc;
 };
 
+// Transaction Summary first — the page is mainly a transaction log; the two
+// summaries follow.
 const TABS = [
+  { id: 'lifts', label: 'Transaction Summary' },
   { id: 'transporters', label: 'Transporter Summary' },
   { id: 'products', label: 'Product Summary' },
-  { id: 'lifts', label: 'All Transactions' },
 ];
 
 /**
@@ -59,7 +61,7 @@ const TransporterTransactions = () => {
   const [lifts, setLifts] = useState([]);
   const [transporters, setTransporters] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('transporters');
+  const [tab, setTab] = useState('lifts');
   const [imsProduct, setImsProduct] = useState(null);
 
   const [transporterFilter, setTransporterFilter] = useState('');
@@ -76,12 +78,19 @@ const TransporterTransactions = () => {
         getAawakDeliveries(), getAllTransporters(), getLiftsMovedOutOfTransporterGodown(),
       ]);
       setTransporters(transporterList || []);
+      // A transporter's own godown has godown_id === transporter_id.
+      const transporterIds = new Set((transporterList || []).map(t => t.transporter_id));
       setLifts((deliveries || [])
         .filter(d => d.transporter_id && d.purchase_indent_items?.purchase_indents?.is_void !== true)
         .map(d => {
           const item = d.purchase_indent_items || {};
           const product = item.products || {};
-          const destinations = (d.purchase_delivery_godowns || []).map(g => g.godowns?.name).filter(Boolean);
+          // Our godown(s) the lift is going to / went to — each once; the
+          // transporter's own godown is shown separately (by stage), not here.
+          const destinations = [...new Set((d.purchase_delivery_godowns || [])
+            .filter(g => !transporterIds.has(g.godown_id))
+            .map(g => g.godowns?.name)
+            .filter(Boolean))];
           const liftNo = d.lifting_number || '';
           return {
             id: d.delivery_id,
@@ -99,7 +108,7 @@ const TransporterTransactions = () => {
             unit: (product.unit || '').toUpperCase(),
             qty: Number(d.received_quantity) || 0,
             stage: getStage(d.status, liftNo, movedOut),
-            destination: destinations.join(', ') || '—',
+            destinations,
           };
         }));
     } catch (err) {
@@ -423,7 +432,22 @@ const TransporterTransactions = () => {
                     <td className={td}>
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border ${STAGES[l.stage].pill}`}>{STAGES[l.stage].label}</span>
                     </td>
-                    <td className={`${td} text-slate-600`}>{l.destination}</td>
+                    <td className={td}>
+                      <div className="flex items-center justify-center gap-1 flex-wrap">
+                        {(l.stage === 'tpt' || l.stage === 'viaTpt') && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-amber-200 bg-amber-50 text-amber-700 text-[11px] font-medium"
+                            title={l.stage === 'tpt' ? "Waiting at the transporter's godown" : "Passed through the transporter's godown"}>
+                            {l.stage === 'tpt' ? 'At' : 'Via'} {l.transporterName} godown
+                          </span>
+                        )}
+                        {l.stage === 'viaTpt' && l.destinations.length > 0 && <ArrowRight size={11} className="text-slate-400" />}
+                        {l.destinations.length > 0 ? l.destinations.map(name => (
+                          <span key={name} className="inline-flex items-center px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 text-slate-700 text-[11px] font-semibold">
+                            {name}
+                          </span>
+                        )) : (l.stage !== 'tpt' && l.stage !== 'viaTpt' && <span className="text-slate-300">—</span>)}
+                      </div>
+                    </td>
                     <td className={`${td} text-slate-500`}>{l.stage === 'viaTpt' || l.stage === 'direct' ? formatDate(l.receivingDate) : '—'}</td>
                   </tr>
                 ))}
