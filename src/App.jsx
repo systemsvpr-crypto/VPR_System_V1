@@ -11,6 +11,7 @@ import Purchase from './pages/Purchase/Purchase';
 import Master from './pages/Master/Master';
 import Pricing from './pages/Pricing/Pricing';
 import StockManagement from './pages/StockManagement/StockManagement';
+import TransporterTransactions from './pages/TransporterTransactions/TransporterTransactions';
 import LiveStockDashboard from './pages/LiveStockDashboard/LiveStockDashboard';
 import UltimateIMS from './pages/UltimateIMS/UltimateIMS';
 import ChecklistApp from './checklist/ChecklistApp';
@@ -33,6 +34,7 @@ function App() {
             <Route index element={<Navigate to={`/${PAGES.find(p => p.id === 'live-stock-dashboard').id}`} replace />} />
             <Route path="live-stock-dashboard" element={<LiveStockDashboard />} />
             <Route path="stock-management" element={<StockManagement />} />
+            <Route path="transporter-transactions" element={<TransporterTransactions />} />
             <Route path="master" element={<Master />} />
             <Route path="pricing" element={<Pricing />} />
             <Route path="settings" element={<Settings />} />

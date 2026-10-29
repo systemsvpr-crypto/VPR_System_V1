@@ -12,6 +12,8 @@ import BulkIndentProductsModal from './BulkIndentProductsModal';
 import ProductModal from '../../Master/components/ProductModal';
 import VendorModal from '../../Master/components/VendorModal';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
+import ProductStockPanel, { useGodownStock } from '@/components/ProductStockPanel';
+import ProductImsModal from '@/components/ProductImsModal';
 
 // Bag <-> Kg conversion. Qty is entered in whichever unit the row's Unit
 // dropdown is set to (`fromUnit`, defaulting to the product's master unit)
@@ -62,6 +64,9 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   // without waiting for a full page reload.
   const [extraProducts, setExtraProducts] = useState([]);
   const [extraVendors, setExtraVendors] = useState([]);
+  // Godown-wise stock shown under each product row, plus its IMS popup.
+  const stockByProduct = useGodownStock(isOpen);
+  const [imsProduct, setImsProduct] = useState(null);
   const [productQuickAddOpen, setProductQuickAddOpen] = useState(false);
   const [vendorQuickAddOpen, setVendorQuickAddOpen] = useState(false);
   const [quickAddProductRow, setQuickAddProductRow] = useState(null); // items index that asked for a new product
@@ -177,11 +182,13 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.indent_number.trim()) { toast.error('Indent number is required.'); return; }
-    // Godown and Vendor are optional here — either can be decided later,
-    // per item, on Vendor Approval instead of upfront at indent creation.
+    // Vendor and each item's Rate are required; Godown is still optional
+    // and can be decided later, per item, on Vendor Approval.
+    if (!form.vendor_id) { toast.error('Please select a vendor.'); return; }
     if (form.items.length === 0) { toast.error('Add at least one product.'); return; }
     for (const [i, item] of form.items.entries()) {
       if (!item.product_id) { toast.error(`Item ${i + 1}: Select a product.`); return; }
+      if (!(Number(item.rate) > 0)) { toast.error(`Item ${i + 1}: Enter a rate.`); return; }
       const product = allProducts.find(p => p.product_id === item.product_id);
       if (!getComputedQty(item, product)) { toast.error(`Item ${i + 1}: Enter a valid quantity.`); return; }
     }
@@ -439,9 +446,9 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                     options={godownOptions} placeholder="Decide later..." searchPlaceholder="Search godowns..." align="start" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Vendor Name <span className="text-slate-400 font-normal">(optional)</span></label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Vendor Name <span className="text-red-500">*</span></label>
                   <Dropdown value={form.vendor_id} onValueChange={(v) => setForm({ ...form, vendor_id: v })}
-                    options={vendorOptions} placeholder="Decide later..." searchPlaceholder="Search vendors..." align="start"
+                    options={vendorOptions} placeholder="Select vendor..." searchPlaceholder="Search vendors..." align="start"
                     onAddNew={() => setVendorQuickAddOpen(true)} addNewLabel="+ Add New Vendor" />
                 </div>
                 <div className="col-span-2">
@@ -495,7 +502,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
 
                         {/* 4. Rate */}
                         <div className="col-span-2">
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Rate</label>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Rate <span className="text-red-500">*</span></label>
                           <Input
                             type="number"
                             step="0.01"
@@ -543,6 +550,12 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
                             <X size={18} />
                           </button>
                         </div>
+                        <ProductStockPanel
+                          product={selectedProduct}
+                          stockByProduct={stockByProduct}
+                          godowns={godowns}
+                          onShowIms={selectedProduct ? () => setImsProduct({ productId: selectedProduct.product_id, productName: selectedProduct.name }) : undefined}
+                        />
                       </div>
                     );
                   })}
@@ -611,6 +624,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         onSuccess={handleVendorQuickAdded}
         user={user}
       />
+      <ProductImsModal product={imsProduct} onClose={() => setImsProduct(null)} />
     </>
   );
 };

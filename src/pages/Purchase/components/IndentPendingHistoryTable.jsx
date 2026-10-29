@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import ProductImsModal, { ImsButton } from '@/components/ProductImsModal';
 import { Search, Save, ShoppingCart, Clock, History as HistoryIcon, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, ChevronDown, Calendar, Package, User, Check, Trash2, LayoutGrid, LayoutList } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -71,6 +72,7 @@ const buildItemNoMap = (allItems) => {
  * auto-approved/Planned right at creation, so they land straight in History).
  */
 const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarExtra, searchTerm = '', onSearchChange, onDelete, groups = [] }) => {
+  const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
   const canDelete = canEditOrDelete(user);
 
   const [items, setItems] = useState([]);
@@ -588,6 +590,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                                   <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={item.products?.name}>
                                     {item.products?.name || '—'}
                                   </span>
+                                  {item.product_id && <ImsButton compact onClick={() => setImsProduct({ productId: item.product_id, productName: item.products?.name })} />}
                                   {indent.process_type && (
                                     <IndentTypeBadge processType={indent.process_type} />
                                   )}
@@ -802,6 +805,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Date</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent Number</th>
                     <th className="sticky left-0 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">Product Name</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">IMS</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-slate-900 uppercase tracking-wider whitespace-nowrap">Indent Qty</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[160px]">Vendor Name</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider whitespace-nowrap min-w-[100px]">Rate</th>
@@ -817,7 +821,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                 <tbody className="divide-y divide-slate-100">
                   {isEmpty && (
                     <tr>
-                      <td colSpan="14" className="p-12 text-center">
+                      <td colSpan="15" className="p-12 text-center">
                         <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                           <ShoppingCart size={32} className="text-slate-300" />
                         </div>
@@ -871,6 +875,9 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
                         <td className={`sticky left-0 z-[4] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-4 py-3 text-center whitespace-nowrap ${selected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                           <span className="font-medium text-slate-800">{item.products?.name || '—'}</span>{' '}
                           <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
+                        </td>
+                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                          {item.product_id ? <ImsButton onClick={() => setImsProduct({ productId: item.product_id, productName: item.products?.name })} /> : '—'}
                         </td>
                         <td className="px-4 py-3 text-center font-medium text-slate-800">
                           {item.indent_qty ?? item.quantity ?? '—'}
@@ -997,6 +1004,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
           </div>
         </div>
       )}
+      <ProductImsModal product={imsProduct} onClose={() => setImsProduct(null)} />
     </div>
   );
 };

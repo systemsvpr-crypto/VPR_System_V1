@@ -176,9 +176,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
     return allProducts.map(p => ({ value: p.product_id, label: p.name }));
   }, [allProducts]);
 
-  const godownOptions = useMemo(() => {
-    return activeGodowns.map(g => ({ value: g.godown_id, label: g.name }));
-  }, [activeGodowns]);
 
   const customerOptions = useMemo(() => {
     return allCustomers.map(c => {
@@ -483,9 +480,9 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
   };
 
   const handleConfirmImport = async () => {
-    const invalidCount = rawRows.filter(r => !r.product_id || !r.customer_id || !r.godown_id || !Number(r.quantity)).length;
+    const invalidCount = rawRows.filter(r => !r.product_id || !r.customer_id || !Number(r.quantity)).length;
     if (invalidCount > 0) {
-      toast.error(`Please select a valid product, customer, and godown for all rows (${invalidCount} incomplete).`);
+      toast.error(`Please select a valid product and customer for all rows (${invalidCount} incomplete).`);
       return;
     }
 
@@ -518,7 +515,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
             const rawQty = getRowRawQty(item);
             return {
               product_id: item.product_id,
-              godown_id: item.godown_id,
               quantity: getRowComputedQty(item, product),
               unit_price: item.unit_price,
               Selected_Unit: getRowUnit(item, product),
@@ -539,7 +535,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
 
       toast.success(`Successfully generated and created ${groupedOrders.length} sales order(s) with ${rawRows.length} item(s)!`);
       if (planFailures.length > 0) {
-        toast.error(`${planFailures.length} item(s) could not be auto-dispatched (e.g. insufficient stock) and remain pending in Dispatch Planning.`);
+        toast.error(`${planFailures.length} item(s) could not be auto-planned and remain pending in Dispatch Planning.`);
       }
       if (onSuccess) onSuccess();
       handleClose();
@@ -553,8 +549,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
   const handleDownloadTemplate = () => {
     const sampleCustomer1 = customers[0]?.name || 'Acme Enterprises';
     const sampleCustomer2 = customers[1]?.name || customers[0]?.name || 'Global Logistics';
-    const sampleGodown1 = activeGodowns[0]?.name || 'Main Godown';
-    const sampleGodown2 = activeGodowns[1]?.name || activeGodowns[0]?.name || 'Factory Godown';
     const sampleProduct1 = products[0]?.name || 'Cement Grade A';
     const sampleProduct2 = products[1]?.name || 'Steel Rods 10mm';
     const sampleUnit1 = (products[0]?.unit || 'bag').toUpperCase();
@@ -564,7 +558,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
       {
         'Order Date': getTodayLocal(),
         'Customer Name': sampleCustomer1,
-        'Godown Name': sampleGodown1,
         'Product Name': sampleProduct1,
         'Quantity': 50,
         'Unit': sampleUnit1,
@@ -573,7 +566,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
       {
         'Order Date': getTodayLocal(),
         'Customer Name': sampleCustomer1,
-        'Godown Name': sampleGodown2,
         'Product Name': sampleProduct2,
         'Quantity': 100,
         'Unit': sampleUnit2,
@@ -582,7 +574,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
       {
         'Order Date': getTodayLocal(),
         'Customer Name': sampleCustomer2,
-        'Godown Name': sampleGodown1,
         'Product Name': sampleProduct1,
         'Quantity': 25,
         'Unit': sampleUnit1,
@@ -595,7 +586,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
   };
 
   const validRowsCount = useMemo(() => {
-    return rawRows.filter(r => r.product_id && r.customer_id && r.godown_id && Number(r.quantity) > 0).length;
+    return rawRows.filter(r => r.product_id && r.customer_id && Number(r.quantity) > 0).length;
   }, [rawRows]);
 
   return (
@@ -783,7 +774,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                           <tr>
                             <th className="px-3 py-1.5 whitespace-nowrap">#</th>
                             <th className="px-3 py-1.5 w-4/12">Product <span className="text-red-500">*</span></th>
-                            <th className="px-3 py-1.5 w-3/12">Godown <span className="text-red-500">*</span></th>
                             <th className="px-3 py-1.5 min-w-[84px] whitespace-nowrap">Unit Price</th>
                             <th className="px-3 py-1.5 min-w-[64px] whitespace-nowrap">Unit</th>
                             <th className="px-3 py-1.5 min-w-[72px] whitespace-nowrap text-right">Qty <span className="text-red-500">*</span></th>
@@ -794,7 +784,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                         <tbody className="divide-y divide-slate-100">
                           {group.items.map((row, i) => {
                             const origIdx = row.originalIndex;
-                            const isMatched = row.product_id && row.godown_id;
+                            const isMatched = !!row.product_id;
                             const rowProduct = allProducts.find(p => p.product_id === row.product_id);
                             const computedQty = getRowComputedQty(row, rowProduct);
                             return (
@@ -840,16 +830,6 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                                       </button>
                                     </div>
                                   )}
-                                </td>
-                                <td className="px-3 py-1.5">
-                                  <Dropdown
-                                    value={row.godown_id}
-                                    onValueChange={(val) => handleUpdateRow(origIdx, 'godown_id', val)}
-                                    options={godownOptions}
-                                    placeholder={row.rawGodownName ? `Match "${row.rawGodownName}"...` : "Select godown..."}
-                                    searchPlaceholder="Search godowns..."
-                                    align="start"
-                                  />
                                 </td>
                                 <td className="px-3 py-1.5">
                                   <input

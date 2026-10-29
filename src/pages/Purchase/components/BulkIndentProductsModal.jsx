@@ -281,9 +281,10 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
             id: idx,
             indent_date: parsedDate,
             rawVendorName: rawVendor,
-            // Vendor/Godown are optional — only pre-fill when the file's
-            // value actually matched one; otherwise leave it for later
-            // (Vendor Approval) rather than silently picking the first one.
+            // Only pre-fill Vendor/Godown when the file's value actually
+            // matched one — never silently pick the first one. Vendor is
+            // required before import (see handleConfirmImport); Godown stays
+            // optional and can be decided on Vendor Approval.
             vendor_id: matchedVendor ? matchedVendor.vendor_id : '',
             rawGodownName: rawGodown,
             godown_id: matchedGodown ? matchedGodown.godown_id : '',
@@ -413,12 +414,21 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
   };
 
   const handleConfirmImport = async () => {
-    // Vendor and Godown are optional — only Product + Quantity are required
-    // to raise an indent; vendor/godown can still be decided later, per
-    // item, on Vendor Approval.
+    // Product, Quantity, Vendor and Rate are required (same as Create
+    // Indent); Godown is optional and can be decided on Vendor Approval.
     const invalidCount = rawRows.filter(r => !r.product_id || !Number(r.quantity)).length;
     if (invalidCount > 0) {
       toast.error(`Please select a valid product and quantity for all rows (${invalidCount} incomplete).`);
+      return;
+    }
+    const noVendorCount = rawRows.filter(r => !r.vendor_id).length;
+    if (noVendorCount > 0) {
+      toast.error(`Select a vendor for every order group (${noVendorCount} row${noVendorCount !== 1 ? 's' : ''} without a vendor).`);
+      return;
+    }
+    const noRateCount = rawRows.filter(r => !(Number(r.rate) > 0)).length;
+    if (noRateCount > 0) {
+      toast.error(`Enter a rate for every row (${noRateCount} row${noRateCount !== 1 ? 's' : ''} without a rate).`);
       return;
     }
 
@@ -526,7 +536,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
   };
 
   const validRowsCount = useMemo(() => {
-    return rawRows.filter(r => r.product_id && Number(r.quantity) > 0).length;
+    return rawRows.filter(r => r.product_id && Number(r.quantity) > 0 && r.vendor_id && Number(r.rate) > 0).length;
   }, [rawRows]);
 
   return (
@@ -658,12 +668,12 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                           />
                         </div>
                         <div>
-                          <label className="block text-slate-500 font-medium mb-1">Vendor <span className="text-slate-400 font-normal">(optional)</span></label>
+                          <label className="block text-slate-500 font-medium mb-1">Vendor <span className="text-red-500">*</span></label>
                           <Dropdown
                             value={group.vendor_id}
                             onValueChange={(val) => handleGroupHeaderChange(group.key, 'vendor_id', val)}
                             options={vendorOptions}
-                            placeholder={group.vendor_name ? `Match "${group.vendor_name}"...` : "Decide later..."}
+                            placeholder={group.vendor_name ? `Match "${group.vendor_name}"...` : "Select vendor..."}
                             searchPlaceholder="Search vendors..."
                             align="start"
                             onAddNew={() => { setQuickAddVendorGroup(group.key); setVendorQuickAddOpen(true); }}
@@ -700,7 +710,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                             <tr>
                               <th className="px-3 py-1.5">#</th>
                               <th className="px-3 py-1.5 w-4/12">Product <span className="text-red-500">*</span></th>
-                              <th className="px-3 py-1.5 w-2/12">Rate</th>
+                              <th className="px-3 py-1.5 w-2/12">Rate <span className="text-red-500">*</span></th>
                               <th className="px-3 py-1.5 w-2/12">Unit</th>
                               <th className="px-3 py-1.5 w-2/12 text-right">Qty <span className="text-red-500">*</span></th>
                               <th className="px-3 py-1.5 w-2/12 text-right text-emerald-700">Indent Qty</th>
@@ -710,7 +720,7 @@ const BulkIndentProductsModal = ({ isOpen, onClose, user, products = [], godowns
                           <tbody className="divide-y divide-slate-100">
                             {group.items.map((row, i) => {
                               const origIdx = row.id;
-                              const isMatched = !!row.product_id;
+                              const isMatched = !!row.product_id && Number(row.rate) > 0;
                               const rowProduct = allProducts.find(p => p.product_id === row.product_id);
                               const computedQty = getRowComputedQty(row, rowProduct);
                               return (

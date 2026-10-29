@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import ProductImsModal, { ImsButton } from '@/components/ProductImsModal';
 import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Phone, MessageSquare, Pencil, X, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -82,6 +83,7 @@ const toDeletedHistoryRow = (d) => ({
 });
 
 const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], products = [], vendors = [] }) => {
+  const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
   const canModify = canEditOrDelete(user);
   // Product Name pins right after the pinned checkbox (3rem) + Action (5rem)
   // columns — or just the checkbox when Action is hidden for read-only users.
@@ -867,6 +869,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                           <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={item.products?.name}>
                             {item.products?.name || '—'}
                           </span>
+                                  {item.product_id && <ImsButton compact onClick={() => setImsProduct({ productId: item.product_id, productName: item.products?.name })} />}
                           {indent.process_type && (
                             <IndentTypeBadge processType={indent.process_type} />
                           )}
@@ -1634,6 +1637,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
                     <th className={`sticky ${productLeft} z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap`}>Product Name</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">IMS</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Pending Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
@@ -1655,7 +1659,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                 <tbody className="divide-y divide-slate-100">
                   {currentList.length === 0 && (
                     <tr>
-                      <td colSpan={canModify ? 22 : 21} className="p-12 text-center text-slate-400">
+                      <td colSpan={canModify ? 23 : 22} className="p-12 text-center text-slate-400">
                         <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                         <p className="text-sm font-medium">No approved deliveries available.</p>
                       </td>
@@ -1732,6 +1736,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         <td className={`sticky ${productLeft} z-[4] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-3 py-3 text-center whitespace-nowrap ${isSelected ? 'bg-sky-50' : 'bg-white group-hover:bg-slate-50'}`}>
                           <span className="text-slate-800 font-medium">{product?.name || '—'}</span>
                           <span className="text-slate-500 ml-1">({product?.unit || '—'})</span>
+                        </td>
+                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                          {item.product_id ? <ImsButton onClick={() => setImsProduct({ productId: product?.product_id || item.product_id, productName: product?.name })} /> : '—'}
                         </td>
                         <td className="px-3 py-3 text-center font-semibold text-slate-700">
                           {item.quantity ?? '—'}
@@ -1879,6 +1886,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Vendor Name</th>
                     <th className={`sticky ${productLeft} z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap`}>Product Name</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">IMS</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in BAG</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in KG</th>
@@ -1895,7 +1903,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                 <tbody className="divide-y divide-slate-100">
                   {currentList.length === 0 && (
                     <tr>
-                      <td colSpan={canModify ? 18 : 17} className="p-12 text-center text-slate-400">
+                      <td colSpan={canModify ? 19 : 18} className="p-12 text-center text-slate-400">
                         <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                         <p className="text-sm font-medium">No delivery history found.</p>
                       </td>
@@ -1935,6 +1943,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                           <td className={`sticky ${productLeft} z-[4] bg-red-50 group-hover:bg-red-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap`}>
                             {prod.name || '—'}
                             <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
+                          </td>
+                          <td className="px-3 py-3 text-center whitespace-nowrap">
+                            {del.purchase_indent_items?.product_id ? <ImsButton onClick={() => setImsProduct({ productId: del.purchase_indent_items?.product_id, productName: prod.name })} /> : '—'}
                           </td>
                           <td className="px-3 py-3 text-center text-slate-400">—</td>
                           <td className="px-3 py-3 text-center text-slate-400">—</td>
@@ -1998,6 +2009,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         <td className={`sticky ${productLeft} z-[4] bg-white group-hover:bg-slate-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-3 py-3 text-center font-medium text-slate-800 whitespace-nowrap`}>
                           {prod.name || '—'}
                           <span className="text-slate-500 ml-1">({prod.unit || '—'})</span>
+                        </td>
+                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                          {del.purchase_indent_items?.product_id ? <ImsButton onClick={() => setImsProduct({ productId: del.purchase_indent_items?.product_id, productName: prod.name })} /> : '—'}
                         </td>
                         <td className="px-3 py-3 text-center font-bold text-emerald-700">
                           {qtyKg}
@@ -2096,6 +2110,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
         user={user}
         onSuccess={loadData}
       />
+      <ProductImsModal product={imsProduct} onClose={() => setImsProduct(null)} />
     </div>
   );
 };

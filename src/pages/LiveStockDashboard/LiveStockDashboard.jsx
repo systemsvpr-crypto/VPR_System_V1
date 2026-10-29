@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { BarChart3, Package, Warehouse, Truck, Store, Users, ChevronLeft, ChevronRight, Search, Download, FileText, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getDashboardData, getGodownSummary } from '../../services/dashboardService';
@@ -6,6 +6,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import GodownSummaryTable from './components/GodownSummaryTable';
+import GodownProductsModal from './components/GodownProductsModal';
 import ProductStockCard from './components/ProductStockCard';
 import TransportGodownStock from './components/TransportGodownStock';
 import VendorDashboard from './components/VendorDashboard';
@@ -61,12 +62,28 @@ const LiveStockDashboard = () => {
   const [godownTypeFilter, setGodownTypeFilter] = useState('Own');
   const abortRef = useRef(null);
 
+  // Godown Summary row click -> popup with that godown's products. Uses the
+  // same full product list as Export (every product, per-godown figures),
+  // fetched once per date and reused for every godown clicked.
+  const [selectedGodown, setSelectedGodown] = useState(null);
+  const allProductsCacheRef = useRef({});
+  const loadAllProducts = useCallback((forDate) => {
+    if (!allProductsCacheRef.current[forDate]) {
+      allProductsCacheRef.current[forDate] = getDashboardData(forDate, null, { all: true })
+        .then(res => res.data)
+        .catch(err => { delete allProductsCacheRef.current[forDate]; throw err; });
+    }
+    return allProductsCacheRef.current[forDate];
+  }, []);
+
   useEffect(() => {
     if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === 'live')) {
       setLoading(false);
       return;
     }
     abortRef.current?.abort();
+    // Fresh dashboard load — drop cached popup data so it isn't stale.
+    allProductsCacheRef.current = {};
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
@@ -305,7 +322,7 @@ const LiveStockDashboard = () => {
                 <p className="text-sm text-slate-400">Add products and transactions to see stock data here.</p>
               </div>
             ) : (
-              <GodownSummaryTable godowns={filteredSummaryGodowns} totals={filteredSummaryTotals} />
+              <GodownSummaryTable godowns={filteredSummaryGodowns} totals={filteredSummaryTotals} onGodownClick={setSelectedGodown} />
             )}
           </div>
 
@@ -395,6 +412,13 @@ const LiveStockDashboard = () => {
           )}
         </>
       )}
+
+      <GodownProductsModal
+        godown={selectedGodown}
+        date={date}
+        loadAllProducts={loadAllProducts}
+        onClose={() => setSelectedGodown(null)}
+      />
     </div>
   );
 };

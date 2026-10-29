@@ -1,7 +1,9 @@
 const formatNum = (n) => Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 import TableScrollSync from '@/components/TableScrollSync';
 
-const GodownSummaryTable = ({ godowns, totals }) => (
+// `onGodownClick` (optional) makes each godown row clickable — the dashboard
+// opens that godown's product-wise popup from it.
+const GodownSummaryTable = ({ godowns, totals, onGodownClick }) => (
   <TableScrollSync>
     <table className="w-full text-xs">
       <thead>
@@ -16,8 +18,11 @@ const GodownSummaryTable = ({ godowns, totals }) => (
       </thead>
       <tbody className="divide-y divide-slate-100">
         {godowns.map((g) => (
-          <tr key={g.godownId} className="hover:bg-slate-50">
-            <td className="px-4 py-3 font-medium text-slate-700 text-center">{g.godownName}</td>
+          <tr key={g.godownId}
+            onClick={onGodownClick ? () => onGodownClick(g) : undefined}
+            title={onGodownClick ? `View all products in ${g.godownName}` : undefined}
+            className={`hover:bg-slate-50 ${onGodownClick ? 'cursor-pointer' : ''}`}>
+            <td className={`px-4 py-3 font-medium text-center ${onGodownClick ? 'text-primary hover:underline' : 'text-slate-700'}`}>{g.godownName}</td>
             <td className="px-4 py-3 text-center">
               {g.godownType && (
                 <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{g.godownType}</span>

@@ -176,7 +176,7 @@ export const createOrder = async ({ order_date, order_number, customer_id, items
     const itemRows = items.map(item => ({
       order_id: order.order_id,
       product_id: item.product_id,
-      godown_id: item.godown_id,
+      godown_id: item.godown_id || null,
       unit_price: Number(item.unit_price),
       quantity: Number(item.quantity),
       // Selected_Unit/sales_qty are just a record of what was actually
@@ -207,10 +207,10 @@ export const createOrder = async ({ order_date, order_number, customer_id, items
 // saveDispatchPlan, instead of leaving the order sitting in Dispatch
 // Planning's Pending list for someone to plan later — that's the whole point
 // of "Direct": one popup takes it from order straight to a planned dispatch
-// (dispatch_plans row + the stock-ledger transaction that comes with it),
-// same as checking a row and clicking "Dispatch" there, just skipping the
-// separate trip.
-// A per-item planning failure (e.g. insufficient stock) never rolls back the
+// (dispatch_plans row), same as checking a row and clicking "Dispatch"
+// there, just skipping the separate trip. Like every plan, it waits in
+// Dispatch Completed, where the godown is picked and stock goes out.
+// A per-item planning failure never rolls back the
 // order/item itself — that item is simply left pending, exactly like any
 // other order item, and can still be planned normally from Dispatch
 // Planning later. Failures are returned (not thrown) so the caller can
@@ -230,7 +230,7 @@ export const createDirectOrder = async ({ order_date, order_number, customer_id,
     const itemRows = items.map(item => ({
       order_id: order.order_id,
       product_id: item.product_id,
-      godown_id: item.godown_id,
+      godown_id: item.godown_id || null,
       unit_price: Number(item.unit_price),
       quantity: Number(item.quantity),
       Selected_Unit: item.Selected_Unit || null,
@@ -254,7 +254,7 @@ export const createDirectOrder = async ({ order_date, order_number, customer_id,
         quantity: item.quantity,
         unit: item.Selected_Unit,
         converted_qty: item.sales_qty,
-        godown_id: item.godown_id,
+        godown_id: item.godown_id || null,
         unit_price: item.unit_price,
         dispatch_date: order_date,
         created_by,
@@ -264,10 +264,8 @@ export const createDirectOrder = async ({ order_date, order_number, customer_id,
     }
   }
 
-  // Only confirm the items that actually got dispatched — an item that
-  // failed to plan (e.g. insufficient stock) never left the godown, so
-  // telling the customer it did would be false. If every item failed, no
-  // WhatsApp message goes out at all.
+  // Only confirm the items that actually got planned. If every item
+  // failed, no WhatsApp message goes out at all.
   const failedItemIds = new Set(planErrors.map(e => e.item_id));
   const dispatchedItems = createdItems.filter(item => !failedItemIds.has(item.item_id));
 
@@ -396,7 +394,7 @@ export const updateOrder = async (order_id, { order_date, order_number, customer
         .from('sales_order_items')
         .update({
           product_id: item.product_id,
-          godown_id: item.godown_id,
+          godown_id: item.godown_id || null,
           unit_price: Number(item.unit_price),
           quantity: Number(item.quantity),
           Selected_Unit: item.Selected_Unit || null,
@@ -410,7 +408,7 @@ export const updateOrder = async (order_id, { order_date, order_number, customer
         .insert({
           order_id,
           product_id: item.product_id,
-          godown_id: item.godown_id,
+          godown_id: item.godown_id || null,
           unit_price: Number(item.unit_price),
           quantity: Number(item.quantity),
           Selected_Unit: item.Selected_Unit || null,
@@ -608,18 +606,31 @@ export const getAllDispatchPlans = async () => {
   return plansData.map(plan => ({ ...plan, already_dispatched: 0 }));
 };
 
-// Every live (non-void) dispatch stock-out, in the product's master unit —
-// both Sales dispatch plans (dispatch_plan_id set) and Stock Management's
-// manual Dispatch Out entries (no plan), which all post as OUT_GODOWN.
-// txn_date is never in the future for either (saveDispatchPlan caps it at
-// today; manual dispatch rejects future dates).
+// Every live (non-void) dispatch that has actually gone out, in the
+// product's master unit — Sales dispatch plans (dispatch_plan_id set) and
+// Stock Management's manual Dispatch Out entries (no plan), which all post
+// as OUT_GODOWN. txn_date is never in the future for either.
+// A plan not yet completed (Pending/Planned) can still carry the OUT_GODOWN
+// entry older plans made at planning time — that's a reservation, not a
+// dispatch, so it's left out (it would otherwise inflate Total Dispatched /
+// AVG Daily Consumption in Ultimate IMS).
 export const getDispatchTransactions = async () => {
-  return fetchAllRows(() => supabase
+  const txns = await fetchAllRows(() => supabase
     .from('transactions')
-    .select('txn_id, product_id, godown_id, qty, txn_date')
+    .select('txn_id, product_id, godown_id, qty, txn_date, dispatch_plan_id')
     .eq('txn_type', 'OUT_GODOWN')
     .eq('is_void', false)
     .order('txn_id', { ascending: true }));
+
+  const planIds = [...new Set(txns.map(t => t.dispatch_plan_id).filter(Boolean))];
+  if (planIds.length === 0) return txns;
+  const plans = await fetchInChunks(planIds, (chunk) =>
+    supabase.from('dispatch_plans').select('plan_id, dispatch_status').in('plan_id', chunk)
+  );
+  const completed = new Set(
+    plans.filter(p => p.dispatch_status === 'Dispatch Done' || p.dispatch_status === 'Partially Dispatched').map(p => p.plan_id)
+  );
+  return txns.filter(t => !t.dispatch_plan_id || completed.has(t.dispatch_plan_id));
 };
 
 export const generateNextDispatchNumber = async () => {
@@ -657,7 +668,12 @@ export const generateNextDispatchNumbers = async (count) => {
 
 const PG_UNIQUE_VIOLATION = '23505';
 
-export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit, converted_qty, godown_id, unit_price, dispatch_date, created_by, dispatch_status }) => {
+// `stock_out` — false (default) only books the plan: no stock check and no
+// stock-ledger entry; godown stock is checked and deducted later, when the
+// plan is completed (completeDispatchWithStockOut), which is also where the
+// godown is chosen — so godown_id may be null here. true checks stock and
+// posts the OUT_GODOWN transaction right away (needs a godown_id).
+export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit, converted_qty, godown_id, unit_price, dispatch_date, created_by, dispatch_status, stock_out = false }) => {
   // `quantity` is already the master-unit dispatch amount (the caller
   // converts it before calling this) — it keeps its original,
   // pre-conversion-feature meaning and is what drives stock deduction and
@@ -696,21 +712,37 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit,
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
   const back_dated = new Date(dispatch_date) < new Date(getTodayLocal());
-  // Stock is deducted the moment a dispatch is PLANNED, not on the day it
-  // actually leaves — so the stock-ledger transaction always has to post on
-  // (at latest) today. A future dispatch_date is kept as-is on the plan
-  // itself (drives the "Dispatch Date" column/planning), but the linked
-  // transaction's txn_date is capped at today so the deduction shows up
-  // immediately in Stock Management / Live Stock Dashboard instead of
+  // When stock goes out here (stock_out), the stock-ledger transaction
+  // always posts on (at latest) today. A future dispatch_date is kept as-is
+  // on the plan itself (drives the "Dispatch Date" column/planning), but the
+  // linked transaction's txn_date is capped at today so the deduction shows
+  // up immediately in Stock Management / Live Stock Dashboard instead of
   // sitting invisible on a future date nobody's looking at yet. A
   // back-dated dispatch_date (in the past) still posts on that same past
   // date, unchanged from before.
   const txnDate = dispatch_date > getTodayLocal() ? getTodayLocal() : dispatch_date;
 
   if (plan_id) {
-    const { data: existing } = await supabase.from('dispatch_plans').select('dispatch_number, quantity, godown_id').eq('plan_id', plan_id).single();
+    const { data: existing } = await supabase.from('dispatch_plans').select('dispatch_number, quantity, godown_id, dispatch_status').eq('plan_id', plan_id).single();
     payload.dispatch_number = existing?.dispatch_number;
     if (existing) payload.created_by = created_by;
+
+    // Editing a plan that hasn't been completed yet: just update the plan.
+    // Plans made before stock moved to the completion step still carry
+    // their planning-time OUT_GODOWN entry — remove it so the stock comes
+    // back now and is checked/deducted again on completion.
+    if (!stock_out && existing?.dispatch_status !== 'Dispatch Done') {
+      const { data, error } = await supabase
+        .from('dispatch_plans')
+        .update(payload)
+        .eq('plan_id', plan_id)
+        .select()
+        .single();
+      if (error) throw error;
+      const { error: txnErr } = await supabase.from('transactions').delete().eq('dispatch_plan_id', plan_id).eq('is_void', false);
+      if (txnErr) throw txnErr;
+      return data;
+    }
 
     const { data: stockRow } = await supabase.from('godown_stock').select('current_stock').eq('product_id', product_id).eq('godown_id', godown_id).maybeSingle();
     const available = stockRow?.current_stock ?? 0;
@@ -759,10 +791,12 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit,
     return data;
   }
 
-  const { data: stockRow } = await supabase.from('godown_stock').select('current_stock').eq('product_id', product_id).eq('godown_id', godown_id).maybeSingle();
-  const available = stockRow?.current_stock ?? 0;
-  if (available < stockQty && !product?.allow_negative_stock) {
-    throw new Error(`Insufficient stock. Available: ${available}, Required: ${stockQty}.`);
+  if (stock_out) {
+    const { data: stockRow } = await supabase.from('godown_stock').select('current_stock').eq('product_id', product_id).eq('godown_id', godown_id).maybeSingle();
+    const available = stockRow?.current_stock ?? 0;
+    if (available < stockQty && !product?.allow_negative_stock) {
+      throw new Error(`Insufficient stock. Available: ${available}, Required: ${stockQty}.`);
+    }
   }
 
   payload.dispatch_number = await generateNextDispatchNumber();
@@ -790,6 +824,8 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit,
   if (!planData) {
     throw new Error('Failed to save dispatch plan after multiple attempts');
   }
+
+  if (!stock_out) return planData;
 
   await supabase.from('transactions').insert([{
     product_id,
@@ -825,7 +861,7 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit,
 // cancellation runs as exactly 2 round trips (insert + update) instead of 4,
 // and the whole batch can run in parallel. Omit either and this falls back
 // to fetching them itself, for standalone/single-row use.
-export const cancelPendingQty = async ({ order_item_id, cancel_qty, godown_id, unit_price, created_by, dispatch_number, current_cancelled_quantity }) => {
+export const cancelPendingQty = async ({ order_item_id, cancel_qty, godown_id, unit_price, created_by, dispatch_number, current_cancelled_quantity, reason }) => {
   const qty = roundQty(cancel_qty);
   if (!qty || qty <= 0) throw new Error('Enter a valid cancel quantity.');
 
@@ -851,7 +887,7 @@ export const cancelPendingQty = async ({ order_item_id, cancel_qty, godown_id, u
     created_by,
     cancelled_at: new Date().toISOString(),
     cancelled_by: created_by,
-    cancelled_reason: 'Cancelled from Dispatch Planning (pending quantity)',
+    cancelled_reason: reason || 'Cancelled from Dispatch Planning (pending quantity)',
     converted_value: qty,
   };
 
@@ -886,7 +922,10 @@ export const batchUpdateInformBeforeDispatch = async (planIds, inform_before_dis
   return data;
 };
 
-export const batchUpdateInformAfterDispatch = async (planIds, inform_after_dispatch) => {
+// `qtyByPlan` ({ [plan_id]: qty }, optional) — the qty that actually went
+// out in this dispatch, used in the WhatsApp message instead of the plan's
+// full qty (a partial dispatch only reports what was sent this time).
+export const batchUpdateInformAfterDispatch = async (planIds, inform_after_dispatch, qtyByPlan = {}) => {
   if (!planIds || planIds.length === 0) return { plans: [], notifyResults: [] };
   const { data, error } = await supabase
     .from('dispatch_plans')
@@ -901,7 +940,7 @@ export const batchUpdateInformAfterDispatch = async (planIds, inform_after_dispa
   // received. One result per plan.
   let notifyResults = [];
   if (inform_after_dispatch === 'Informed') {
-    notifyResults = await notifyDispatchConfirmations(planIds);
+    notifyResults = await notifyDispatchConfirmations(planIds, qtyByPlan);
   }
 
   return { plans: data, notifyResults };
@@ -1079,14 +1118,99 @@ export const deleteOrderItemsBulk = async (itemIds) => {
 // touches sales_order_items/sales_orders, so the order item itself is
 // untouched and simply becomes pending/re-plannable again once its plan
 // (and the stock that plan took out) is gone.
+//
+// A Partially Dispatched plan isn't removed: what already went out stays a
+// real dispatch (its stock entries are kept) — the plan is closed at that
+// qty as Dispatch Done, and only the undispatched rest is dropped, which
+// sends it back to Dispatch Planning's Pending list like any deleted plan.
 export const deleteDispatchPlansBulk = async (planIds) => {
   const ids = [...new Set(planIds)].filter(Boolean);
-  if (ids.length === 0) return { deletedCount: 0 };
+  if (ids.length === 0) return { deletedCount: 0, closedCount: 0 };
 
-  await fetchInChunks(ids, (chunk) => supabase.from('transactions').delete().in('dispatch_plan_id', chunk));
-  await fetchInChunks(ids, (chunk) => supabase.from('dispatch_plans').delete().in('plan_id', chunk));
+  const plans = await fetchInChunks(ids, (chunk) =>
+    supabase.from('dispatch_plans').select('plan_id, dispatch_status').in('plan_id', chunk)
+  );
+  const partialIds = plans.filter(p => p.dispatch_status === 'Partially Dispatched').map(p => p.plan_id);
+  const partialSet = new Set(partialIds);
+  const deleteIds = ids.filter(id => !partialSet.has(id));
 
-  return { deletedCount: ids.length };
+  if (partialIds.length > 0) {
+    const txns = await fetchInChunks(partialIds, (chunk) =>
+      supabase.from('transactions').select('dispatch_plan_id, qty').in('dispatch_plan_id', chunk).eq('is_void', false)
+    );
+    const dispatchedMap = {};
+    txns.forEach(t => { dispatchedMap[t.dispatch_plan_id] = (dispatchedMap[t.dispatch_plan_id] || 0) + Number(t.qty); });
+    for (const plan_id of partialIds) {
+      const { error } = await supabase
+        .from('dispatch_plans')
+        .update({
+          quantity: roundQty(dispatchedMap[plan_id] || 0),
+          dispatch_status: 'Dispatch Done',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('plan_id', plan_id);
+      if (error) throw error;
+    }
+  }
+
+  if (deleteIds.length > 0) {
+    await fetchInChunks(deleteIds, (chunk) => supabase.from('transactions').delete().in('dispatch_plan_id', chunk));
+    await fetchInChunks(deleteIds, (chunk) => supabase.from('dispatch_plans').delete().in('plan_id', chunk));
+  }
+
+  return { deletedCount: deleteIds.length, closedCount: partialIds.length };
+};
+
+// Dispatch Completed's "Close Dispatch" — for a Partially Dispatched plan the
+// customer won't take the rest of. What already went out stays a real
+// dispatch (its stock entries are kept) and the plan is closed at that qty
+// as Dispatch Done; the undispatched rest is CANCELLED on the order item
+// (cancelPendingQty: cancelled_quantity + a Cancelled history row), so it
+// does not come back to Dispatch Planning. Unlike Delete, which sends the
+// rest back to Dispatch Planning. Only Partially Dispatched plans qualify.
+export const closePartialDispatches = async (planIds, created_by) => {
+  const ids = [...new Set(planIds)].filter(Boolean);
+  if (ids.length === 0) return { closedCount: 0 };
+
+  const plans = await fetchInChunks(ids, (chunk) =>
+    supabase.from('dispatch_plans')
+      .select('plan_id, order_item_id, quantity, godown_id, unit_price, dispatch_status')
+      .in('plan_id', chunk)
+  );
+  const notPartial = plans.filter(p => p.dispatch_status !== 'Partially Dispatched');
+  if (notPartial.length > 0) {
+    throw new Error('Close Dispatch is only for Partially Dispatched plans.');
+  }
+
+  const txns = await fetchInChunks(ids, (chunk) =>
+    supabase.from('transactions').select('dispatch_plan_id, qty').in('dispatch_plan_id', chunk).eq('is_void', false)
+  );
+  const dispatchedMap = {};
+  txns.forEach(t => { dispatchedMap[t.dispatch_plan_id] = (dispatchedMap[t.dispatch_plan_id] || 0) + Number(t.qty); });
+
+  for (const plan of plans) {
+    const dispatched = roundQty(dispatchedMap[plan.plan_id] || 0);
+    const leftover = roundQty(Number(plan.quantity) - dispatched);
+
+    const { error } = await supabase
+      .from('dispatch_plans')
+      .update({ quantity: dispatched, dispatch_status: 'Dispatch Done', updated_at: new Date().toISOString() })
+      .eq('plan_id', plan.plan_id);
+    if (error) throw error;
+
+    if (leftover > 0) {
+      await cancelPendingQty({
+        order_item_id: plan.order_item_id,
+        cancel_qty: leftover,
+        godown_id: plan.godown_id,
+        unit_price: plan.unit_price,
+        created_by,
+        reason: 'Closed from Dispatch Completed (rest of a partial dispatch)',
+      });
+    }
+  }
+
+  return { closedCount: plans.length };
 };
 
 export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown_id, quantity, dispatch_date, dispatch_number, created_by }) => {
@@ -1106,56 +1230,88 @@ export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown
   // Dashboard right away instead of sitting on an unreached future date.
   const txnDate = dispatch_date > todayLocal ? todayLocal : dispatch_date;
 
-  // Stock deduction is now handled in saveDispatchPlan during planning.
-  // Here we only need to adjust the existing transaction if the actual dispatched quantity is different.
-  const { data: existingTxn } = await supabase
-    .from('transactions')
-    .select('txn_id, qty')
-    .eq('dispatch_plan_id', plan_id)
-    .eq('is_void', false)
-    .maybeSingle();
+  // Godown stock is checked and deducted here, at completion — planning
+  // only books the dispatch. `quantity` is what actually leaves now, and may
+  // be less than the plan (partial dispatch): each completion posts its own
+  // OUT_GODOWN entry for just that qty, so stock only ever drops by what was
+  // really dispatched. The plan stays "Partially Dispatched" (still listed
+  // under Dispatch Completed → Pending) until its full qty has gone out.
+  const qty = roundQty(quantity);
+  if (!qty || qty <= 0) throw new Error('Enter a valid dispatch quantity.');
 
-  if (existingTxn && existingTxn.qty !== Number(quantity)) {
-     await supabase.from('transactions').update({
-        qty: Number(quantity),
-        txn_date: txnDate
-     }).eq('txn_id', existingTxn.txn_id);
-  } else if (!existingTxn) {
-     // Fallback if somehow there is no transaction (e.g. legacy plan)
-     await supabase.from('transactions').insert([{
-       product_id,
-       godown_id,
-       txn_date: txnDate,
-       txn_type: 'OUT_GODOWN',
-       qty: Number(quantity),
-       is_void: false,
-       created_by,
-       back_dated: new Date(dispatch_date) < new Date(new Date().toDateString()),
-       dispatch_plan_id: plan_id,
-       dispatch_number,
-     }]);
+  const [{ data: plan, error: planFetchErr }, { data: txns, error: txnFetchErr }] = await Promise.all([
+    supabase.from('dispatch_plans').select('quantity, dispatch_status').eq('plan_id', plan_id).single(),
+    supabase.from('transactions').select('txn_id, qty, godown_id').eq('dispatch_plan_id', plan_id).eq('is_void', false),
+  ]);
+  if (planFetchErr) throw planFetchErr;
+  if (txnFetchErr) throw txnFetchErr;
+
+  // A plan that hasn't been completed even once can still carry an
+  // OUT_GODOWN entry made when it was planned (Direct orders, and plans made
+  // before stock moved to this step). That entry was only a reservation —
+  // it's replaced below by the real dispatched qty, and counts as available
+  // again for the stock check. Once a plan is Partially Dispatched, its
+  // entries are real dispatches.
+  const isFirstCompletion = plan.dispatch_status !== 'Partially Dispatched';
+  const reservedTxns = isFirstCompletion ? (txns || []) : [];
+  const dispatchedSoFar = isFirstCompletion ? 0 : (txns || []).reduce((s, t) => s + Number(t.qty), 0);
+  const planQty = Number(plan.quantity) || 0;
+  const remaining = roundQty(planQty - dispatchedSoFar);
+  if (qty > remaining) {
+    throw new Error(`Dispatch qty (${qty}) is more than the qty still to dispatch on this plan (${remaining}).`);
   }
 
-  const updateFields = {
-    dispatch_status: 'Dispatch Done',
-    quantity: Number(quantity),
-    updated_at: new Date().toISOString(),
-  };
+  const [{ data: stockRow }, { data: product }] = await Promise.all([
+    supabase.from('godown_stock').select('current_stock').eq('product_id', product_id).eq('godown_id', godown_id).maybeSingle(),
+    supabase.from('products').select('allow_negative_stock').eq('product_id', product_id).maybeSingle(),
+  ]);
+  const reservedHere = reservedTxns
+    .filter(t => t.godown_id === godown_id)
+    .reduce((s, t) => s + Number(t.qty), 0);
+  const available = roundQty((Number(stockRow?.current_stock) || 0) + reservedHere);
+  if (qty > available && !product?.allow_negative_stock) {
+    throw new Error(`Not enough stock in selected godown. Available: ${available}, Required: ${qty}.`);
+  }
 
+  if (reservedTxns.length > 0) {
+    const { error: delErr } = await supabase.from('transactions').delete().in('txn_id', reservedTxns.map(t => t.txn_id));
+    if (delErr) throw delErr;
+  }
+
+  const { data: transaction, error: txnErr } = await supabase.from('transactions').insert([{
+    product_id,
+    godown_id,
+    txn_date: txnDate,
+    txn_type: 'OUT_GODOWN',
+    qty,
+    is_void: false,
+    created_by,
+    back_dated: new Date(dispatch_date) < new Date(new Date().toDateString()),
+    dispatch_plan_id: plan_id,
+    dispatch_number,
+  }]).select().single();
+  if (txnErr) throw txnErr;
+
+  const totalDispatched = roundQty(dispatchedSoFar + qty);
+  const isFullyDone = totalDispatched >= planQty;
   const { error: planErr } = await supabase
     .from('dispatch_plans')
-    .update(updateFields)
+    .update({
+      dispatch_status: isFullyDone ? 'Dispatch Done' : 'Partially Dispatched',
+      godown_id,
+      updated_at: new Date().toISOString(),
+    })
     .eq('plan_id', plan_id);
   if (planErr) throw planErr;
 
-  return { transaction: existingTxn, plan_id };
+  return { transaction, plan_id, dispatched_qty: qty, total_dispatched: totalDispatched, is_fully_done: isFullyDone };
 };
 
 // One "dispatch_confirmation" WhatsApp per customer + dispatch date, listing
 // every product dispatched to them that day grouped by product group.
 // Returns one { plan_id, sent, reason? } per plan.
-const notifyDispatchConfirmations = async (planIds) => {
-  const { data: plans, error } = await supabase
+const notifyDispatchConfirmations = async (planIds, qtyByPlan = {}) => {
+  const { data: rawPlans, error } = await supabase
     .from('dispatch_plans')
     .select(`
       plan_id, quantity, dispatch_date,
@@ -1169,6 +1325,9 @@ const notifyDispatchConfirmations = async (planIds) => {
     console.error('WhatsApp dispatch confirmation failed:', error.message);
     return planIds.map(plan_id => ({ plan_id, sent: false, reason: error.message }));
   }
+  const plans = (rawPlans || []).map(p =>
+    qtyByPlan[p.plan_id] != null ? { ...p, quantity: qtyByPlan[p.plan_id] } : p
+  );
 
   const byCustomerDate = new Map();
   (plans || []).forEach(plan => {

@@ -74,8 +74,13 @@ const comparePriority = (a, b) => {
    Allocation engine — pure, so the same logic backs the
    on-screen plan and the "Export All Locations" file.
 ────────────────────────────────────────────────────────── */
+// Orders no longer carry a godown (it's picked in Dispatch Completed), so a
+// line without one is a candidate at every location; older orders that still
+// have a godown stay with that one.
+const lineAtLocation = (line, locationId) => !line.godownId || line.godownId === locationId;
+
 const computePlan = ({ lines, locationId, locationName, stockMap, inTransitMap = new Map(), overrides, partyTypes }) => {
-  const locLines = lines.filter(l => l.godownId === locationId);
+  const locLines = lines.filter(l => lineAtLocation(l, locationId));
   const planned = [];
   const excluded = [];
   locLines.forEach(l => ((partyTypes[l.partyName] || 'planned') === 'planned' ? planned : excluded).push(l));
@@ -492,12 +497,11 @@ const SmartDispatchPlanning = ({ godowns }) => {
 
   const locationOrderCounts = useMemo(() => {
     const counts = {};
-    pendingLines.forEach(l => {
-      if (!counts[l.godownId]) counts[l.godownId] = new Set();
-      counts[l.godownId].add(l.orderNumber);
+    locations.forEach(loc => {
+      counts[loc.godown_id] = new Set(pendingLines.filter(l => lineAtLocation(l, loc.godown_id)).map(l => l.orderNumber)).size;
     });
-    return Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, v.size]));
-  }, [pendingLines]);
+    return counts;
+  }, [pendingLines, locations]);
 
   useEffect(() => {
     if (locations.length > 0 && !locations.some(l => l.godown_id === activeLocation)) {
@@ -563,7 +567,7 @@ const SmartDispatchPlanning = ({ godowns }) => {
   const resetLine = (itemId) => setOverrides(prev => { const { [itemId]: _, ...rest } = prev; return rest; });
 
   const resetLocation = () => {
-    const ids = new Set(pendingLines.filter(l => l.godownId === activeLocation).map(l => l.itemId));
+    const ids = new Set(pendingLines.filter(l => lineAtLocation(l, activeLocation)).map(l => l.itemId));
     const count = Object.keys(overrides).filter(id => ids.has(Number(id)) || ids.has(id)).length;
     if (count === 0) { toast('No manual edits to reset.'); return; }
     if (!window.confirm(`Discard ${count} manual edit${count !== 1 ? 's' : ''} at ${activeLocationName} and restore the suggested plan?`)) return;

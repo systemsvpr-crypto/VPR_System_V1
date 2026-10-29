@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { supabase, fetchAllRows } from '../supabase';
 
 export const getAllTransporters = async () => {
   const { data, error } = await supabase
@@ -114,3 +114,19 @@ export const bulkImportTransporters = async (rows) => {
   return results;
 };
 
+
+// Lifting numbers of lifts that sat in a transporter's godown and were then
+// moved on to our own godown. Leaving "In Transport Godown" for Arrived voids
+// the lift's stock-in at the transporter godown with exactly this reason
+// (see purchaseService), so that voided entry is the record of the lift
+// having passed through the transporter godown. Used by Transporter
+// Transactions for its Inward / Outward / Remaining figures.
+export const getLiftsMovedOutOfTransporterGodown = async () => {
+  const rows = await fetchAllRows(() => supabase
+    .from('transactions')
+    .select('lifting_number, godown_id')
+    .eq('txn_type', 'PURCHASE_IN')
+    .eq('is_void', true)
+    .eq('void_reason', 'Moved to destination godown on Arrived'));
+  return new Set((rows || []).map(r => r.lifting_number).filter(Boolean));
+};

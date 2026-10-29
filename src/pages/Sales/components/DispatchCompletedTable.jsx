@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   CheckCircle, Square, CheckSquare, Save, Lock, AlertTriangle, ChevronLeft, ChevronRight, Trash2,
-  LayoutGrid, LayoutList, Calendar, MapPin, User, Package, Clock, RotateCw, Check, Ban, Search, X
+  LayoutGrid, LayoutList, Calendar, MapPin, User, Package, Clock, RotateCw, Check, Ban, Search, X, Boxes, PackageCheck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getAllDispatchPlans, completeDispatchWithStockOut, batchUpdateInformAfterDispatch, deleteDispatchPlansBulk } from '../../../services/salesService';
+import { getAllDispatchPlans, completeDispatchWithStockOut, batchUpdateInformAfterDispatch, deleteDispatchPlansBulk, closePartialDispatches } from '../../../services/salesService';
 import { getAllProductStock } from '../../../services/masterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -14,8 +14,23 @@ import { format } from 'date-fns';
 
 import { canEditOrDelete } from '../../../lib/permissions';
 import TableScrollSync from '@/components/TableScrollSync';
+import { sanitizeQtyInput } from '@/lib/qty';
+import ProductImsModal from '@/components/ProductImsModal';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
+
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+// Qty already sent out against a plan. A plan that hasn't been completed
+// even once may still carry a planning-time stock entry (Direct orders /
+// older plans) — that's a reservation, not a dispatch, so it counts as 0.
+const getDispatchedQty = (plan) =>
+  plan.dispatch_status === 'Partially Dispatched' || plan.dispatch_status === 'Dispatch Done'
+    ? Number(plan.already_dispatched || 0)
+    : 0;
+
+// Qty still to go out on a plan — the default "Dispatch Now" figure.
+const getRemainingQty = (plan) => Math.max(0, round2(Number(plan.quantity || 0) - getDispatchedQty(plan)));
 
 const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, onFilterChange, onSave, products, godowns, user }) => {
   const canDelete = canEditOrDelete(user);
@@ -33,7 +48,9 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
   const [editValues, setEditValues] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
+  const [closingSelected, setClosingSelected] = useState(false);
   const [stockMap, setStockMap] = useState({});
+  const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
 
   const [orderFilter, setOrderFilter] = useState('');
   const [godownFilter, setGodownFilter] = useState('');
@@ -48,6 +65,14 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, completeFilter, orderFilter, godownFilter, customerFilter, productFilter]);
+
+  // The Dispatch Done tab is history only — nothing there can be ticked,
+  // completed or deleted (a partial plan is dispatched from Pending).
+  const isHistoryView = completeFilter === 'dispatch-done';
+  const isLocked = (plan) =>
+    isHistoryView || plan.dispatch_status === 'Dispatch Done' || plan.dispatch_status === 'Cancelled';
+
+  useEffect(() => { setCheckedRows(new Set()); }, [completeFilter]);
 
   const loadStock = async () => {
     try {
@@ -70,7 +95,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
         initial[plan.plan_id] = {
           dispatch_date: plan.dispatch_date || '',
           godown_id: plan.godown_id || '',
-          quantity: plan.quantity ? String(plan.quantity) : '',
+          quantity: getRemainingQty(plan) ? String(getRemainingQty(plan)) : '',
         };
       });
       setEditValues(initial);
@@ -129,7 +154,9 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
     if (completeFilter === 'pending') {
       result = result.filter(plan => plan.dispatch_status === 'Pending' || plan.dispatch_status === 'Planned' || plan.dispatch_status === 'Partially Dispatched');
     } else if (completeFilter === 'dispatch-done') {
-      result = result.filter(plan => plan.dispatch_status === 'Dispatch Done');
+      // Partially dispatched plans show here too (for what's already gone
+      // out) as well as under Pending (for the rest still to dispatch).
+      result = result.filter(plan => plan.dispatch_status === 'Dispatch Done' || plan.dispatch_status === 'Partially Dispatched');
     }
 
     if (orderFilter) {
@@ -148,7 +175,17 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
       result = result.filter(plan => plan.sales_order_items?.products?.name === productFilter);
     }
 
-    return result;
+    // Latest order first (order date, then order number), newest plan first
+    // within the same order.
+    return [...result].sort((a, b) => {
+      const oa = a.sales_order_items?.sales_orders;
+      const ob = b.sales_order_items?.sales_orders;
+      const dateDiff = new Date(ob?.order_date || 0) - new Date(oa?.order_date || 0);
+      if (dateDiff !== 0) return dateDiff;
+      const noDiff = String(ob?.order_number || '').localeCompare(String(oa?.order_number || ''), undefined, { numeric: true });
+      if (noDiff !== 0) return noDiff;
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
   }, [plans, searchTerm, completeFilter, orderFilter, godownFilter, customerFilter, productFilter, godowns]);
 
   const totalPages = Math.ceil(filteredPlans.length / pageSize);
@@ -172,7 +209,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
     if (e.target.checked) {
       const newChecked = new Set(checkedRows);
       currentPlans.forEach(plan => {
-        const isDone = plan.dispatch_status === 'Dispatch Done' || plan.dispatch_status === 'Cancelled';
+        const isDone = isLocked(plan);
         if (!isDone) newChecked.add(plan.plan_id);
       });
       setCheckedRows(newChecked);
@@ -202,6 +239,8 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
     setIsSaving(true);
     const errors = [];
     const completedPlanIds = [];
+    const qtyByPlan = {};
+    let partialCount = 0;
     for (const planId of checkedRows) {
       const plan = plans.find(p => p.plan_id === planId);
       if (!plan) continue;
@@ -209,21 +248,24 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
       if (!vals) continue;
       if (!vals.godown_id) { errors.push(`${plan.dispatch_number || 'Plan'}: Select a godown.`); continue; }
       if (!vals.quantity || Number(vals.quantity) <= 0) { errors.push(`${plan.dispatch_number || 'Plan'}: Enter a valid quantity.`); continue; }
-      if (Number(vals.quantity) > Number(plan.sales_order_items?.quantity)) {
-        errors.push(`${plan.dispatch_number || 'Plan'}: Dispatch quantity (${vals.quantity}) cannot exceed total order quantity (${plan.sales_order_items?.quantity}).`);
+      // Less than the remaining qty = partial dispatch; the rest stays
+      // pending on this plan. More than it isn't allowed.
+      const remaining = getRemainingQty(plan);
+      if (Number(vals.quantity) > remaining) {
+        errors.push(`${plan.dispatch_number || 'Plan'}: Dispatch quantity (${vals.quantity}) cannot exceed the qty still to dispatch (${remaining}).`);
         continue;
       }
 
-      // Dispatch Planning already allows a future dispatch_date (stock is
-      // reduced immediately at planning time regardless of date), so
-      // Complete & Notify has to accept that same future date rather than
-      // reject it here.
+      // Dispatch Planning already allows a future dispatch_date, so Complete
+      // & Notify has to accept that same future date rather than reject it
+      // here. Godown stock is checked and deducted by
+      // completeDispatchWithStockOut — a shortage comes back as an error.
       const dispatchDate = vals.dispatch_date || getTodayLocal();
 
       const productId = plan.sales_order_items?.product_id;
 
       try {
-        await completeDispatchWithStockOut({
+        const result = await completeDispatchWithStockOut({
           plan_id: planId,
           product_id: productId,
           godown_id: vals.godown_id,
@@ -233,6 +275,8 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
           created_by: plan.created_by,
         });
         completedPlanIds.push(planId);
+        qtyByPlan[planId] = result.dispatched_qty;
+        if (!result.is_fully_done) partialCount++;
       } catch (err) {
         errors.push(`${plan.dispatch_number || 'Plan'}: ${err.message}`);
       }
@@ -246,7 +290,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
       // separate manual visit to the Inform After Dispatch tab.
       let notifyResults = [];
       try {
-        const result = await batchUpdateInformAfterDispatch(completedPlanIds, 'Informed');
+        const result = await batchUpdateInformAfterDispatch(completedPlanIds, 'Informed', qtyByPlan);
         notifyResults = result.notifyResults || [];
       } catch (err) {
         errors.push(`Completed, but failed to mark as informed: ${err.message}`);
@@ -257,6 +301,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
       const failedCount = notifyResults.length - sentCount - noPhoneCount;
 
       let message = `Completed ${completedPlanIds.length} dispatch(es) with stock out`;
+      if (partialCount > 0) message += ` (${partialCount} partial — rest still pending)`;
       if (sentCount > 0) message += ` — ${sentCount} customer(s) notified via WhatsApp`;
       if (noPhoneCount > 0) message += `, ${noPhoneCount} skipped (no phone number on file)`;
       if (failedCount > 0) message += `, ${failedCount} WhatsApp message(s) failed to send`;
@@ -286,16 +331,21 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
     }
     if (checkedRows.size === 0) return;
     const planIds = [...checkedRows];
-    const confirmMsg = planIds.length === 1
+    const hasPartial = planIds.some(id => plans.find(p => p.plan_id === id)?.dispatch_status === 'Partially Dispatched');
+    const confirmMsg = (planIds.length === 1
       ? 'Permanently delete this dispatch plan and its stock transaction? This cannot be undone.'
-      : `Permanently delete ${planIds.length} selected dispatch plans and their stock transactions? This cannot be undone.`;
+      : `Permanently delete ${planIds.length} selected dispatch plans and their stock transactions? This cannot be undone.`)
+      + (hasPartial ? '\n\nPartially dispatched plans: the qty already dispatched stays as Dispatch Done, and the rest goes back to Dispatch Planning. To close the rest instead, use Close Dispatch.' : '');
     if (!window.confirm(confirmMsg)) return;
 
     setDeletingSelected(true);
     try {
-      const { deletedCount } = await deleteDispatchPlansBulk(planIds);
+      const { deletedCount, closedCount } = await deleteDispatchPlansBulk(planIds);
       setCheckedRows(new Set());
-      toast.success(`Deleted ${deletedCount} dispatch plan${deletedCount !== 1 ? 's' : ''}.`);
+      const parts = [];
+      if (deletedCount > 0) parts.push(`Deleted ${deletedCount} dispatch plan${deletedCount !== 1 ? 's' : ''}`);
+      if (closedCount > 0) parts.push(`${closedCount} partial plan${closedCount !== 1 ? 's' : ''} sent back to Dispatch Planning for the rest`);
+      toast.success(`${parts.join(', ')}.`);
       await loadPlans();
       await loadStock();
       onSave?.();
@@ -305,8 +355,61 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
     setDeletingSelected(false);
   };
 
-  const activeGodowns = godowns?.filter(g => g.is_active) || [];
-  const godownOptions = activeGodowns.map(g => ({ value: g.godown_id, label: g.name }));
+  // Close Dispatch — for Partially Dispatched plans the customer won't take
+  // the rest of: closes the plan at the qty already dispatched (Dispatch
+  // Done) and cancels the rest on the order, so it does NOT go back to
+  // Dispatch Planning (unlike Delete).
+  const handleCloseSelected = async () => {
+    if (!canDelete) {
+      toast.error('You do not have permission to close dispatches');
+      return;
+    }
+    const selected = plans.filter(p => checkedRows.has(p.plan_id));
+    const partial = selected.filter(p => p.dispatch_status === 'Partially Dispatched');
+    if (partial.length === 0) {
+      toast.error('Close Dispatch is only for Partially Dispatched plans. Select at least one.');
+      return;
+    }
+    if (partial.length !== selected.length) {
+      toast.error('Only Partially Dispatched plans can be closed. Untick the other rows first.');
+      return;
+    }
+    const lines = partial.map(p => `• ${p.dispatch_number || 'Plan'} — ${getRemainingQty(p)} left will be cancelled`).join('\n');
+    if (!window.confirm(`Close ${partial.length} partial dispatch${partial.length !== 1 ? 'es' : ''}? The qty already dispatched stays as Dispatch Done; the rest is cancelled and will not go back to Dispatch Planning.\n\n${lines}`)) return;
+
+    setClosingSelected(true);
+    try {
+      const { closedCount } = await closePartialDispatches(partial.map(p => p.plan_id), user?.user_id);
+      setCheckedRows(new Set());
+      toast.success(`Closed ${closedCount} dispatch${closedCount !== 1 ? 'es' : ''}.`);
+      await loadPlans();
+      onSave?.();
+    } catch (err) {
+      toast.error(err.message || 'Failed to close the selected dispatches.');
+    }
+    setClosingSelected(false);
+  };
+
+  // The godown a dispatch leaves from is picked here (not on the order or
+  // in Dispatch Planning). Own godowns only (no Transporters), alphabetical,
+  // with this product's stock in each shown alongside.
+  const ownGodowns = (godowns || [])
+    .filter(g => g.is_active && (g.godown_type || 'Own') === 'Own')
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const getGodownOptions = (productId, selectedGodownId) => {
+    const list = [...ownGodowns];
+    // An older plan may still point at a Transporter / inactive godown —
+    // keep it in its own row's list so the selection doesn't vanish.
+    if (selectedGodownId && !list.some(g => g.godown_id === selectedGodownId)) {
+      const current = (godowns || []).find(g => g.godown_id === selectedGodownId);
+      if (current) list.unshift(current);
+    }
+    return list.map(g => ({
+      value: g.godown_id,
+      label: `${g.name} (Stock: ${round2(getCurrentStock(productId, g.godown_id))})`,
+    }));
+  };
+  const getGodownName = (godownId) => godowns?.find(g => String(g.godown_id) === String(godownId))?.name || '';
 
   if (loading) {
     return (
@@ -339,7 +442,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
         <div className="flex flex-col gap-2">
           {currentPlans.map(plan => {
             const vals = editValues[plan.plan_id] || {};
-            const isDone = plan.dispatch_status === 'Dispatch Done' || plan.dispatch_status === 'Cancelled';
+            const isDone = isLocked(plan);
             const isPartiallyDone = plan.dispatch_status === 'Partially Dispatched';
             const isChecked = checkedRows.has(plan.plan_id);
 
@@ -353,8 +456,12 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
 
             const orderQty = Number(plan.sales_order_items?.quantity || 0);
             const dispatchQty = Number(plan.quantity || 0);
-            const pct = orderQty > 0 ? Math.min(100, Math.round((dispatchQty / orderQty) * 100)) : 0;
-            const godownName = godowns?.find(g => String(g.godown_id) === String(plan.godown_id))?.name || '—';
+            const dispatchedQty = round2(getDispatchedQty(plan));
+            const remainingQty = getRemainingQty(plan);
+            const pct = dispatchQty > 0 ? Math.min(100, Math.round((dispatchedQty / dispatchQty) * 100)) : 0;
+            const selectedGodownId = isDone ? plan.godown_id : vals.godown_id;
+            const godownName = getGodownName(selectedGodownId) || '—';
+            const currentStock = getCurrentStock(plan.sales_order_items?.product_id, selectedGodownId);
 
             return (
               <div
@@ -430,6 +537,10 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 leading-none">
                             Order: {plan.sales_order_items?.sales_orders?.order_number || '—'}
                           </span>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setImsProduct({ productId: plan.sales_order_items?.product_id, productName: plan.sales_order_items?.products?.name }); }}
+                            title="View Ultimate IMS details" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-primary/30 bg-primary/5 text-primary text-[10px] font-semibold hover:bg-primary/10 transition-colors">
+                            <Boxes size={11} /> IMS
+                          </button>
                         </div>
                         <div className="text-[11px] text-slate-400 font-medium leading-tight">
                           Unit: {plan.sales_order_items?.products?.unit ? String(plan.sales_order_items.products.unit).toUpperCase() : '—'}
@@ -488,7 +599,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
                           } />
                         </div>
                         <span className="font-bold text-slate-900 text-xs">
-                          {dispatchQty} / {orderQty} {plan.sales_order_items?.products?.unit ? String(plan.sales_order_items.products.unit).toUpperCase() : ''}
+                          {dispatchedQty} / {dispatchQty} {plan.sales_order_items?.products?.unit ? String(plan.sales_order_items.products.unit).toUpperCase() : ''}
                         </span>
                       </div>
                       <span className={`text-[10px] font-semibold ${
@@ -519,12 +630,16 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
 
                     <div className="flex items-center justify-between text-[10px] text-slate-500">
                       <div>
-                        <span>Order Qty:</span>
+                        <span>Order:</span>
                         <span className="ml-1 font-semibold text-slate-800">{orderQty}</span>
                       </div>
                       <div>
-                        <span>Disp Qty:</span>
-                        <span className="ml-1 font-bold text-emerald-700">{dispatchQty}</span>
+                        <span>Plan:</span>
+                        <span className="ml-1 font-semibold text-slate-800">{dispatchQty}</span>
+                      </div>
+                      <div>
+                        <span>Dispatched:</span>
+                        <span className="ml-1 font-bold text-emerald-700">{dispatchedQty}</span>
                       </div>
                     </div>
                   </div>
@@ -535,7 +650,18 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
                   <div className={`border-t border-slate-100 px-3.5 py-2 flex items-center gap-2.5 flex-wrap transition-colors ${
                     isChecked ? 'bg-primary/5' : 'bg-slate-50/70'
                   }`}>
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Dispatch Date:</span>
+                    <span className="text-[10px] font-semibold text-primary uppercase tracking-wider">Godown:</span>
+                    <Dropdown
+                      value={vals.godown_id || ''}
+                      onValueChange={(v) => updateEditValue(plan.plan_id, 'godown_id', v)}
+                      options={getGodownOptions(plan.sales_order_items?.product_id, vals.godown_id)}
+                      placeholder="Select godown..."
+                      searchPlaceholder="Search godowns..."
+                      align="start"
+                      disabled={!isChecked}
+                      className="h-8 text-xs w-56 bg-white"
+                    />
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider ml-2">Dispatch Date:</span>
                     <DatePicker
                       value={vals.dispatch_date || ''}
                       onChange={(e) => updateEditValue(plan.plan_id, 'dispatch_date', e.target.value)}
@@ -544,6 +670,20 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
                       className="h-8 text-xs w-36 bg-white"
                       disabled={!isChecked}
                     />
+                    <span className="text-[10px] font-semibold text-primary uppercase tracking-wider ml-2">Dispatch Now:</span>
+                    <Input type="text" inputMode="decimal" placeholder="Qty"
+                      value={vals.quantity ?? ''}
+                      onChange={(e) => updateEditValue(plan.plan_id, 'quantity', sanitizeQtyInput(e.target.value))}
+                      disabled={!isChecked}
+                      className="h-8 text-xs w-20 text-center bg-white" />
+                    <span className="text-[11px] text-slate-500">
+                      of {remainingQty} left
+                    </span>
+                    {vals.godown_id && (
+                      <span className={`text-[11px] font-medium ml-2 ${currentStock <= 0 ? 'text-red-500' : currentStock < (Number(vals.quantity) || remainingQty) ? 'text-amber-600' : 'text-emerald-600'}`}>
+                        Stock in {godownName}: {round2(currentStock)}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -633,13 +773,25 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
           </Button>
         )}
 
-        <Button onClick={handleSave} disabled={checkedRows.size === 0 || isSaving}
-          className="gap-2 px-4 font-medium h-9 w-full sm:w-auto text-xs sm:ml-auto shrink-0">
-          <Save size={16} />
-          {isSaving ? 'Completing...' : 'Complete'}
-        </Button>
+        {!isHistoryView && (
+          <Button onClick={handleSave} disabled={checkedRows.size === 0 || isSaving}
+            className="gap-2 px-4 font-medium h-9 w-full sm:w-auto text-xs sm:ml-auto shrink-0">
+            <Save size={16} />
+            {isSaving ? 'Completing...' : 'Complete'}
+          </Button>
+        )}
 
-        {canDelete && (
+        {canDelete && !isHistoryView && (
+          <Button variant="outline" onClick={handleCloseSelected}
+            disabled={closingSelected || !plans.some(p => checkedRows.has(p.plan_id) && p.dispatch_status === 'Partially Dispatched')}
+            title="Close a partially dispatched plan: keep what was dispatched, cancel the rest"
+            className="gap-2 px-4 font-medium h-9 w-full sm:w-auto text-xs shrink-0 border-amber-300 text-amber-700 hover:bg-amber-50">
+            <PackageCheck size={16} />
+            {closingSelected ? 'Closing...' : 'Close Dispatch'}
+          </Button>
+        )}
+
+        {canDelete && !isHistoryView && (
           <Button variant="destructive" onClick={handleDeleteSelected} disabled={checkedRows.size === 0 || deletingSelected}
             className="gap-2 px-4 font-medium h-9 w-full sm:w-auto text-xs shrink-0">
             <Trash2 size={16} />
@@ -647,7 +799,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
           </Button>
         )}
 
-        <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
+        <div className={`flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0 ${isHistoryView ? 'sm:ml-auto' : ''}`}>
           <button
             type="button"
             onClick={() => handleViewModeChange('card')}
@@ -678,13 +830,15 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
       <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0 overflow-hidden shadow-sm">
         {/* Sub-header */}
         <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-400 flex-wrap shrink-0">
-          <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
-            <input type="checkbox"
-              checked={currentPlans.length > 0 && currentPlans.filter(p => p.dispatch_status !== 'Dispatch Done' && p.dispatch_status !== 'Cancelled').length > 0 && currentPlans.filter(p => p.dispatch_status !== 'Dispatch Done' && p.dispatch_status !== 'Cancelled').every(p => checkedRows.has(p.plan_id))}
-              onChange={toggleSelectAll}
-              className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-            Select All
-          </label>
+          {!isHistoryView && (
+            <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
+              <input type="checkbox"
+                checked={currentPlans.length > 0 && currentPlans.filter(p => !isLocked(p)).length > 0 && currentPlans.filter(p => !isLocked(p)).every(p => checkedRows.has(p.plan_id))}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+              Select All
+            </label>
+          )}
           <span className="ml-auto font-medium text-slate-500">
             {filteredPlans.length} item{filteredPlans.length !== 1 ? 's' : ''}
           </span>
@@ -698,22 +852,28 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
             <thead className="sticky top-0 z-10 shadow-sm">
               <tr className="bg-blue-50 border-b border-slate-200">
                 <th className="w-10 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center whitespace-nowrap">
-                  <div className="flex items-center justify-center gap-2">
-                    <input type="checkbox"
-                      checked={currentPlans.length > 0 && currentPlans.filter(p => p.dispatch_status !== 'Dispatch Done' && p.dispatch_status !== 'Cancelled').length > 0 && currentPlans.filter(p => p.dispatch_status !== 'Dispatch Done' && p.dispatch_status !== 'Cancelled').every(p => checkedRows.has(p.plan_id))}
-                      onChange={toggleSelectAll}
-                      className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
-                  </div>
+                  {!isHistoryView && (
+                    <div className="flex items-center justify-center gap-2">
+                      <input type="checkbox"
+                        checked={currentPlans.length > 0 && currentPlans.filter(p => !isLocked(p)).length > 0 && currentPlans.filter(p => !isLocked(p)).every(p => checkedRows.has(p.plan_id))}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+                    </div>
+                  )}
                 </th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[120px] whitespace-nowrap">Dispatch No.</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[180px] whitespace-nowrap">Dispatch Date</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[130px] whitespace-nowrap">Order No.</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[150px] whitespace-nowrap">Customer Name</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[260px] whitespace-nowrap">Product Name</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[90px] whitespace-nowrap">IMS</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[100px] whitespace-nowrap">Unit</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[220px] whitespace-nowrap">Godown Name</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[220px] whitespace-nowrap"><span className="text-primary">Godown Name</span></th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[90px] whitespace-nowrap">Order Qty</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[110px] whitespace-nowrap">Dispatch Qty</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[110px] whitespace-nowrap">Current Stock</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[90px] whitespace-nowrap">Plan Qty</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[100px] whitespace-nowrap">Dispatched</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-primary uppercase tracking-wider w-[120px] whitespace-nowrap">Dispatch Now</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[130px] whitespace-nowrap">Dispatch Status</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px] whitespace-nowrap">Person Name</th>
               </tr>
@@ -721,7 +881,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
             <tbody className="divide-y divide-slate-100">
               {currentPlans.map(plan => {
                 const vals = editValues[plan.plan_id] || {};
-                const isDone = plan.dispatch_status === 'Dispatch Done' || plan.dispatch_status === 'Cancelled';
+                const isDone = isLocked(plan);
                 const isPartiallyDone = plan.dispatch_status === 'Partially Dispatched';
                 const isChecked = checkedRows.has(plan.plan_id);
                 return (
@@ -755,6 +915,14 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
                     <td className="px-4 py-3 text-center text-slate-700 w-[260px] whitespace-nowrap">
                       {plan.sales_order_items?.products?.name || '—'}
                     </td>
+                    <td className="px-4 py-3 text-center w-[90px] whitespace-nowrap">
+                      {plan.sales_order_items?.product_id ? (
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setImsProduct({ productId: plan.sales_order_items.product_id, productName: plan.sales_order_items?.products?.name }); }}
+                            title="View Ultimate IMS details" className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-primary/30 bg-primary/5 text-primary text-xs font-semibold hover:bg-primary/10 transition-colors">
+                            <Boxes size={13} /> IMS
+                          </button>
+                      ) : '—'}
+                    </td>
                     <td className="px-4 py-3 text-center w-[100px] whitespace-nowrap">
                       {plan.sales_order_items?.products?.unit ? (
                         <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">
@@ -763,13 +931,57 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
                       ) : '—'}
                     </td>
                     <td className="px-4 py-3 text-center text-slate-700 w-[220px] whitespace-nowrap">
-                      {godowns?.find(g => String(g.godown_id) === String(plan.godown_id))?.name || '—'}
+                      {isDone ? (getGodownName(plan.godown_id) || '—') : (
+                        <Dropdown
+                          value={vals.godown_id || ''}
+                          onValueChange={(v) => updateEditValue(plan.plan_id, 'godown_id', v)}
+                          options={getGodownOptions(plan.sales_order_items?.product_id, vals.godown_id)}
+                          placeholder="Select godown..."
+                          searchPlaceholder="Search godowns..."
+                          align="start"
+                          disabled={!isChecked}
+                          className="h-8 text-xs min-w-[190px]"
+                        />
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center font-medium text-slate-700 w-[90px] whitespace-nowrap">
                       {plan.sales_order_items?.quantity}
                     </td>
-                    <td className="px-4 py-3 text-center font-medium text-slate-700 w-[120px] whitespace-nowrap">
+                    {(() => {
+                      const godownId = isDone ? plan.godown_id : vals.godown_id;
+                      if (!godownId) {
+                        return <td className="px-4 py-3 text-center text-slate-300 w-[110px] whitespace-nowrap">—</td>;
+                      }
+                      const stock = getCurrentStock(plan.sales_order_items?.product_id, godownId);
+                      const need = Number(vals.quantity) || getRemainingQty(plan);
+                      const color = isDone ? 'text-slate-500' : stock <= 0 ? 'text-red-500' : stock < need ? 'text-amber-600' : 'text-emerald-600';
+                      return (
+                        <td className={`px-4 py-3 text-center font-semibold tabular-nums w-[110px] whitespace-nowrap ${color}`}>
+                          {round2(stock)}
+                        </td>
+                      );
+                    })()}
+                    <td className="px-4 py-3 text-center font-medium text-slate-700 w-[90px] whitespace-nowrap">
                       {plan.quantity || '0'}
+                    </td>
+                    <td className="px-4 py-3 text-center w-[100px] whitespace-nowrap">
+                      <span className={`font-medium tabular-nums ${getDispatchedQty(plan) > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                        {round2(getDispatchedQty(plan))}
+                      </span>
+                      {plan.dispatch_status === 'Partially Dispatched' && (
+                        <span className="block text-[10px] text-amber-600">{getRemainingQty(plan)} left</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center w-[120px] whitespace-nowrap">
+                      {isDone ? (
+                        <span className="text-slate-300">—</span>
+                      ) : (
+                        <Input type="text" inputMode="decimal" placeholder="Qty"
+                          value={vals.quantity ?? ''}
+                          onChange={(e) => updateEditValue(plan.plan_id, 'quantity', sanitizeQtyInput(e.target.value))}
+                          disabled={!isChecked}
+                          className="h-8 w-20 mx-auto text-xs text-center" />
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center w-[130px] whitespace-nowrap">
                       {plan.dispatch_status === 'Dispatch Done' ? (
@@ -798,7 +1010,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
               })}
               {currentPlans.length === 0 && (
                 <tr>
-                  <td colSpan="12" className="p-12 text-center">
+                  <td colSpan="16" className="p-12 text-center">
                     <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                       <CheckCircle size={32} className="text-slate-300" />
                     </div>
@@ -854,6 +1066,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
             </div>
           </div>
       </div>
+      <ProductImsModal product={imsProduct} onClose={() => setImsProduct(null)} />
     </div>
   );
 };

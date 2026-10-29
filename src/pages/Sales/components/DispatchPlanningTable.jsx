@@ -3,7 +3,7 @@ import {
   ClipboardList, Package, Truck, Search, Trash2, Ban,
   AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Zap,
-  LayoutGrid, LayoutList, Calendar, MapPin, User, Check, Clock, RotateCw, Warehouse, X
+  LayoutGrid, LayoutList, Calendar, MapPin, User, Check, Clock, RotateCw, Warehouse, X, Boxes
 } from 'lucide-react';
 import { format, differenceInCalendarDays } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -21,6 +21,7 @@ import DataTable from '@/components/DataTable';
 import { sanitizeQtyInput } from '@/lib/qty';
 import { canEditOrDelete } from '@/lib/permissions';
 import DirectOrderModal from './DirectOrderModal';
+import ProductImsModal from '@/components/ProductImsModal';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 const HISTORY_PAGE_SIZE_OPTIONS = [50, 100, 200];
@@ -60,6 +61,16 @@ const comparePriority = (a, b, threshold) => {
   const bLow = b.remaining > 0 && b.remaining <= threshold;
   if (aLow !== bLow) return aLow ? -1 : 1;
   return b.daysPending - a.daysPending;
+};
+
+/* Latest order first: order date, then order number (both newest first),
+   then each order's products in their own 1..n order. */
+const compareLatestOrder = (a, b) => {
+  const dateDiff = new Date(b.sales_orders?.order_date || 0) - new Date(a.sales_orders?.order_date || 0);
+  if (dateDiff !== 0) return dateDiff;
+  const noDiff = String(b.sales_orders?.order_number || '').localeCompare(String(a.sales_orders?.order_number || ''), undefined, { numeric: true });
+  if (noDiff !== 0) return noDiff;
+  return (Number(a.productNo) || 0) - (Number(b.productNo) || 0);
 };
 
 // One product line's position within its own order ("1, 2, 3...n" when an
@@ -107,6 +118,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   const [dispatchingAll, setDispatchingAll] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
   const [directModalOpen, setDirectModalOpen] = useState(false);
+  const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
 
   // Cancel Order (pending view only) shares the same Qty/Unit draft as
   // Dispatch (dispatchDraft) — no separate Cancel Qty input. Checking a row
@@ -116,7 +128,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   const [cancellingAll, setCancellingAll] = useState(false);
 
   // smart dispatch planning controls (pending view only)
-  const [sortBy, setSortBy] = useState('priority');
+  const [sortBy, setSortBy] = useState('latest');
   const [productFilter, setProductFilter]   = useState('');
   const [stockStatusFilter, setStockStatusFilter] = useState('');
   const [pendingCustomerFilter, setPendingCustomerFilter] = useState('');
@@ -178,15 +190,19 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     setLoading(false);
   };
 
-  /* ── stock lookup map (total stock per product, across all godowns) ── */
+  /* ── stock lookup map (total stock per product, across own godowns) ── */
+  // Transporter godowns are left out: stock there is a lift still on its
+  // way (not Arrived yet), and dispatch only ever leaves from own godowns.
   const stockByProduct = useMemo(() => {
+    const transporterIds = new Set((godowns || []).filter(g => (g.godown_type || 'Own') !== 'Own').map(g => g.godown_id));
     const byProduct = {};
     stockRows.forEach(s => {
+      if (transporterIds.has(s.godown_id)) return;
       const qty = Number(s.current_stock) || 0;
       byProduct[s.product_id] = (byProduct[s.product_id] || 0) + qty;
     });
     return byProduct;
-  }, [stockRows]);
+  }, [stockRows, godowns]);
 
   /* ── stock per product per godown: { [product_id]: { [godown_id]: qty } } ── */
   const stockByProductAndGodown = useMemo(() => {
@@ -200,17 +216,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   }, [stockRows]);
 
   const productNoMap = useMemo(() => buildProductNoMap(items), [items]);
-
-  // Own godowns first (a dispatch normally leaves from one of these), then
-  // Transporter stock-tracking godowns below — each group alphabetical.
-  const activeGodownOptions = useMemo(() => {
-    const active = (godowns || []).filter(g => g.is_active);
-    const isOwn = (g) => (g.godown_type || 'Own') === 'Own';
-    const byName = (a, b) => a.name.localeCompare(b.name);
-    const own = active.filter(isOwn).sort(byName);
-    const transporter = active.filter(g => !isOwn(g)).sort(byName);
-    return [...own, ...transporter].map(g => ({ value: g.godown_id, label: g.name }));
-  }, [godowns]);
 
 
   /* ── computed per-item quantities ─────────────────────── */
@@ -237,16 +242,12 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
         const productName  = item.products?.name || '—';
         const productStock = stockByProduct[item.product_id] ?? 0;
 
-        // Stock in the specific godown this order is assigned to
-        const orderGodownStock = stockByProductAndGodown[item.product_id]?.[item.godown_id] ?? 0;
-        const orderGodownName  = item.godowns?.name || godowns?.find(g => g.godown_id === item.godown_id)?.name || '';
-
         // Every godown currently holding this product (non-zero only),
-        // highest first — shown on the card so the dispatch godown can be
-        // picked without leaving the page.
+        // highest first — shown on the card as a guide for which godown it
+        // can go from (the godown itself is picked in Dispatch Completed).
         const productGodownStock = stockByProductAndGodown[item.product_id] || {};
         const godownStocks = (godowns || [])
-          .filter(g => (productGodownStock[g.godown_id] || 0) !== 0)
+          .filter(g => (g.godown_type || 'Own') === 'Own' && (productGodownStock[g.godown_id] || 0) !== 0)
           .map(g => ({
             godownId: g.godown_id,
             name: g.name,
@@ -257,14 +258,15 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
 
         let stockStatus = null;
         if (remaining > 0) {
-          if (orderGodownStock <= 0) stockStatus = 'waiting';
-          else if (orderGodownStock >= remaining) stockStatus = 'ready';
+          // Total stock across godowns — no godown is chosen at this stage.
+          if (productStock <= 0) stockStatus = 'waiting';
+          else if (productStock >= remaining) stockStatus = 'ready';
           else stockStatus = 'partial';
         }
 
         return {
           ...item, activePlans, cancelledQty, effectiveQty, totalPlanned, totalDispatched, remaining,
-          daysPending, isOverdue, partyName, productName, productStock, orderGodownStock, orderGodownName, godownStocks, stockStatus,
+          daysPending, isOverdue, partyName, productName, productStock, godownStocks, stockStatus,
           productNo: productNoMap.get(item.item_id) || '—',
         };
       }),
@@ -371,6 +373,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
         case 'product':      return a.productName.localeCompare(b.productName);
         case 'pending_qty':  return b.remaining - a.remaining;
         case 'stock':        return b.productStock - a.productStock;
+        case 'latest':       return compareLatestOrder(a, b);
         case 'priority':
         default:             return comparePriority(a, b, lowQtyThreshold);
       }
@@ -424,7 +427,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
       return converted ? String(roundQty(converted)) : '';
     }
     if (field === 'dispatch_date') return ''; // no auto-fill — stays blank until the user picks one
-    if (field === 'godown_id') return item.godown_id || '';
     return '';
   };
 
@@ -469,26 +471,13 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     });
   };
 
-  // Same idea for Godown — picking it on one row fills it into every other
-  // currently checkbox-selected row too, so setting it once on a multi-row
-  // selection applies it to all of them.
-  const setGodownForSelected = (item, value) => {
-    setDispatchDraft(prev => {
-      const next = { ...prev };
-      const targets = new Set(selectedForDispatch);
-      targets.add(item.item_id);
-      targets.forEach(id => { next[id] = { ...next[id], godown_id: value }; });
-      return next;
-    });
-  };
-
   const ensureDraft = (item) => {
     setDispatchDraft(prev => {
       if (prev[item.item_id]) return prev;
       const masterUnit = (item.products?.unit || '').toLowerCase();
       return {
         ...prev,
-        [item.item_id]: { quantity: String(item.remaining || ''), unit: masterUnit, dispatch_date: '', godown_id: item.godown_id || '' },
+        [item.item_id]: { quantity: String(item.remaining || ''), unit: masterUnit, dispatch_date: '' },
       };
     });
   };
@@ -527,7 +516,9 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     const convertedQty = roundQty(convertQtyToMasterUnit(quantity, unit, item.products));
     return {
       quantity, unit, convertedQty,
-      godownId: draft.godown_id || item.godown_id,
+      // No godown at planning — it's picked in Dispatch Completed. An older
+      // order that still carries one passes it on as the default there.
+      godownId: item.godown_id || null,
       dispatchDate: draft.dispatch_date || todayStr(),
       unitPrice: Number(item.unit_price) || 0,
     };
@@ -537,16 +528,11 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     if (!payload.quantity || payload.quantity <= 0) return 'Enter a valid dispatch quantity.';
     // Dispatching more than the order's own pending qty is allowed on
     // purpose (e.g. order is for 2, but 4 is dispatched because stock is
-    // available) — the only hard limit left is actual godown stock, checked
-    // just below. saveDispatchPlan itself never looked at "remaining" either,
+    // available). saveDispatchPlan itself never looked at "remaining" either,
     // so this was purely a UI cap; removing it doesn't touch any other flow.
-    if (!payload.godownId) return 'Select a dispatch godown.';
-
-    // Check available stock (in the product's master unit)
-    const availableStock = stockByProductAndGodown[item.product_id]?.[payload.godownId] || 0;
-    if (payload.convertedQty > availableStock) {
-      return `Not enough stock in selected godown. Available: ${availableStock}, Requested: ${payload.convertedQty}`;
-    }
+    // No godown or stock check here — planning only books the dispatch. The
+    // godown is picked, and its stock checked and deducted, in Dispatch
+    // Completed.
 
     if (!payload.dispatchDate) return 'Select a dispatch date.';
     if (!payload.unitPrice) return 'This item has no unit price on record.';
@@ -800,6 +786,10 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                             {item.productName || '—'}
                           </span>
                           <OrderTypeBadge processType={item.sales_orders?.process_type} />
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setImsProduct({ productId: item.product_id, productName: item.productName }); }}
+                            title="View Ultimate IMS details" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-primary/30 bg-primary/5 text-primary text-[10px] font-semibold hover:bg-primary/10 transition-colors">
+                            <Boxes size={11} /> IMS
+                          </button>
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 leading-none">
                             #{item.productNo}
                           </span>
@@ -819,15 +809,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                           {item.sales_orders?.customers?.name || '—'}
                         </span>
                       </div>
-                      {item.orderGodownName && (
-                        <div className="flex items-center gap-1 text-slate-600">
-                          <MapPin size={12} className="text-slate-400 shrink-0" />
-                          <span className="text-slate-400">Order Godown:</span>
-                          <span className="font-semibold text-slate-800 truncate max-w-[150px]" title={item.orderGodownName}>
-                            {item.orderGodownName}
-                          </span>
-                        </div>
-                      )}
                       {item.unit_price ? (
                         <div className="flex items-center gap-1 text-slate-600">
                           <span className="text-slate-400">Price:</span>
@@ -856,14 +837,11 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                       ) : (
                         <div className="flex items-center gap-1 flex-wrap min-w-0">
                           {item.godownStocks.map(gs => {
-                            const isOrderGodown = gs.godownId === item.godown_id;
                             return (
                               <span key={gs.godownId}
-                                title={isOrderGodown ? 'Order godown' : gs.isTransporter ? 'Transporter godown' : undefined}
+                                title={gs.isTransporter ? 'Transporter godown' : undefined}
                                 className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border leading-none ${
-                                  isOrderGodown
-                                    ? 'bg-primary/5 border-primary/40 text-primary'
-                                    : gs.isTransporter
+                                  gs.isTransporter
                                     ? 'bg-amber-50 border-amber-200 text-amber-700'
                                     : 'bg-slate-50 border-slate-200 text-slate-600'
                                 }`}>
@@ -973,20 +951,6 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                       onChange={e => setDispatchDateForSelected(item, e.target.value)}
                       placeholder="Select date..."
                       className="h-8 text-xs w-32 bg-white"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0 flex-1 min-w-[170px]">
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Godown:</span>
-                    <Dropdown
-                      value={getDraft(item, 'godown_id')}
-                      onValueChange={v => setGodownForSelected(item, v)}
-                      options={activeGodownOptions}
-                      placeholder="Godown..."
-                      searchPlaceholder="Search godowns..."
-                      align="start"
-                      disabled={!selected}
-                      className="h-8 text-xs w-full bg-white"
                     />
                   </div>
                 </div>
@@ -1444,8 +1408,8 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
               { label: 'Order No', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Customer Name', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Product Name', className: 'min-w-[160px] !text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
-              { label: <span className="text-primary">Godown Name</span>, className: 'min-w-[150px] !text-xs !font-semibold !py-3 !px-4' },
-              { label: 'Order Godown', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
+              { label: 'IMS', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
+              { label: 'Current Stock', className: 'min-w-[110px] !text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Total Qty', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: <span className="text-amber-600">Pending Qty</span>, className: '!text-xs !font-semibold !py-3 !px-4' },
               { label: <span className="text-primary">Unit</span>, className: 'min-w-[110px] !text-xs !font-semibold !py-3 !px-4' },
@@ -1483,15 +1447,25 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                     <span className="font-semibold text-slate-800">{item.productName}</span>{' '}
                     <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
                   </td>
-                  <td className="px-4 py-3 min-w-[150px]">
-                    <Dropdown value={getDraft(item, 'godown_id')}
-                      onValueChange={v => setGodownForSelected(item, v)}
-                      options={activeGodownOptions} placeholder="Godown..."
-                      searchPlaceholder="Search godowns..." align="start"
-                      disabled={!selected}
-                      className="h-8 text-xs text-center" />
+                  <td className="px-4 py-3 text-center">
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setImsProduct({ productId: item.product_id, productName: item.productName }); }}
+                            title="View Ultimate IMS details" className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-primary/30 bg-primary/5 text-primary text-xs font-semibold hover:bg-primary/10 transition-colors">
+                            <Boxes size={13} /> IMS
+                          </button>
                   </td>
-                  <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">{item.orderGodownName || '—'}</td>
+                  {(() => {
+                    // Total stock across all godowns (hover for each godown).
+                    const stock = item.productStock;
+                    const color = stock <= 0 ? 'text-red-500' : stock < item.remaining ? 'text-amber-600' : 'text-emerald-600';
+                    const breakdown = item.godownStocks.length
+                      ? item.godownStocks.map(gs => `${gs.name}: ${gs.qty}`).join('\n')
+                      : 'No stock in any godown';
+                    return (
+                      <td className={`px-4 py-3 text-center font-semibold tabular-nums whitespace-nowrap ${color}`} title={breakdown}>
+                        {`${Number(stock).toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${unitLabel(item.products?.unit)}`}
+                      </td>
+                    );
+                  })()}
                   <td className="px-4 py-3 text-center font-semibold text-slate-900 tabular-nums whitespace-nowrap">{item.effectiveQty}</td>
                   <td className="px-4 py-3 text-center whitespace-nowrap">
                     <span className="inline-flex items-center gap-1 font-semibold text-amber-600 tabular-nums">
@@ -1688,6 +1662,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
         onImportCustomers={onImportCustomers}
         onSuccess={async () => { await loadItems(); onSave?.(); }}
       />
+      <ProductImsModal product={imsProduct} onClose={() => setImsProduct(null)} />
     </div>
   );
 };

@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { ShoppingCart, X, Plus, Truck, ArrowRightCircle, Lock, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createOrder, updateOrder, generateNextOrderNumber, convertQtyToMasterUnit, convertQtyFromMasterUnit } from '../../../services/salesService';
+import ProductStockPanel, { useGodownStock } from '@/components/ProductStockPanel';
+import ProductImsModal from '@/components/ProductImsModal';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -34,6 +36,11 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
   const [productQuickAddOpen, setProductQuickAddOpen] = useState(false);
   const [customerQuickAddOpen, setCustomerQuickAddOpen] = useState(false);
   const [quickAddProductRow, setQuickAddProductRow] = useState(null); // items index that asked for a new product
+
+  // Live godown stock, shown under each product row so the chance of
+  // dispatching it can be judged while the order is being taken.
+  const stockByProduct = useGodownStock(isOpen);
+  const [imsProduct, setImsProduct] = useState(null); // IMS popup for a row's product
 
   // De-duplicated by id — see BulkOrderProductsModal for why this matters:
   // once the parent syncs its own list back down as an updated prop, the same
@@ -128,7 +135,6 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     if (form.items.length === 0) { toast.error('Add at least one product.'); return; }
     for (const [i, item] of form.items.entries()) {
       if (!item.product_id) { toast.error(`Item ${i + 1}: Select a product.`); return; }
-      if (!item.godown_id) { toast.error(`Item ${i + 1}: Select a godown.`); return; }
       const product = allProducts.find(p => p.product_id === item.product_id);
       if (!getComputedQty(item, product)) { toast.error(`Item ${i + 1}: Enter a valid quantity.`); return; }
     }
@@ -333,18 +339,6 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
     return allProducts.map(p => ({ value: p.product_id, label: p.name }));
   }, [allProducts]);
 
-  // Own godowns first (an order normally fulfills from one of these), then
-  // Transporter stock-tracking godowns below — each group alphabetical. Same
-  // convention as Dispatch Planning's own Godown dropdown.
-  const activeGodowns = useMemo(() => {
-    const active = godowns.filter(g => g.is_active);
-    const isOwn = (g) => (g.godown_type || 'Own') === 'Own';
-    const byName = (a, b) => a.name.localeCompare(b.name);
-    const own = active.filter(isOwn).sort(byName);
-    const transporter = active.filter(g => !isOwn(g)).sort(byName);
-    return [...own, ...transporter];
-  }, [godowns]);
-
   return (
     <>
       <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -432,7 +426,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                     const computedQty = getComputedQty(item, selectedProduct);
                     return (
                     <div key={i} className="grid grid-cols-[repeat(14,minmax(0,1fr))] gap-2 items-end">
-                      <div className="col-span-3">
+                      <div className="col-span-5">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
                         <Dropdown value={item.product_id} onValueChange={(v) => handleProductChange(i, v)}
                           options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
@@ -451,13 +445,6 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                           <option value="bag">BAG</option>
                           <option value="kg">KG</option>
                         </select>
-                      </div>
-                      <div className="col-span-2">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Godown <span className="text-red-500">*</span></label>
-                        <Dropdown value={item.godown_id} onValueChange={(v) => updateItem(i, 'godown_id', v)}
-                          options={activeGodowns.map(g => ({ value: g.godown_id, label: g.name }))}
-                          placeholder="Select godown..." searchPlaceholder="Search godowns..."
-                          align="start" disabled={itemLocked} />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Unit Price</label>
@@ -497,6 +484,8 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
                           <X size={18} />
                         </button>
                       </div>
+                      <ProductStockPanel product={selectedProduct} stockByProduct={stockByProduct} godowns={godowns} requiredQty={computedQty}
+                        onShowIms={selectedProduct ? () => setImsProduct({ productId: selectedProduct.product_id, productName: selectedProduct.name }) : undefined} />
                     </div>
                     );
                   })}
@@ -571,6 +560,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
         onSuccess={handleCustomerQuickAdded}
         user={user}
       />
+      <ProductImsModal product={imsProduct} onClose={() => setImsProduct(null)} />
     </>
   );
 };

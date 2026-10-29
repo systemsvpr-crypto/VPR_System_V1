@@ -39,6 +39,7 @@ import {
   MessageCircle,
   MessagesSquare,
   Megaphone,
+  Truck,
 } from 'lucide-react';
 import vprLogo from '../../assets/vpr_logo.png';
 import { DOCS_DATA_CHANGED_EVENT, fetchDocsSidebarBadgeCounts } from '../docs/services/docsApi';
@@ -168,6 +169,7 @@ const Sidebar = ({ onClose }) => {
   const iconMap = {
     'live-stock-dashboard': BarChart3,
     'stock-management': ArrowLeftRight,
+    'transporter-transactions': Truck,
     'master': Package,
     'pricing': IndianRupee,
     'sales': DollarSign,

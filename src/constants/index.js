@@ -6,6 +6,7 @@ export const PAGES = [
     { id: 'live-stock-dashboard', label: 'Live Stock Dashboard' },
     { id: 'ultimate-ims', label: 'Ultimate IMS' },
     { id: 'stock-management', label: 'Stock Management' },
+    { id: 'transporter-transactions', label: 'Transporter Transactions' },
     { id: 'master', label: 'Master' },
     { id: 'pricing', label: 'Pricing' },
     { id: 'sales', label: 'Sales' },

@@ -171,16 +171,17 @@ export const getAllIndents = async () => {
 };
 
 export const createIndent = async ({ indent_date, indent_number, godown_id, vendor_id, remarks, items, created_by, process_type, group_id }) => {
-  // Direct indents skip the Dispatch Day / Vendor Approval workflow entirely —
-  // the vendor is already fixed at indent creation, so items go straight to
-  // Delivery's Pending list instead of waiting to be planned/approved first.
+  // Direct indents already carry their vendor, rate and godown, so they're
+  // Planned right away (skipping the Indent page's own planning step) — but
+  // like every indent they still wait in Vendor Approval for sign-off before
+  // reaching Delivery / Aawak.
   const isDirect = (process_type || 'process') === 'direct';
 
   // total_amount only ever counts items that are actually Planned — Direct
   // items are Planned immediately (see below), so their rate*qty counts right
   // away; Process items start Pending and contribute 0 until each is planned
-  // individually on Vendor Approval (updateVendorSelection recomputes this
-  // the same way from there on).
+  // individually (updateVendorSelection recomputes this the same way from
+  // there on).
   const total = isDirect
     ? items.reduce((sum, item) => sum + (Number(item.rate) || 0) * (Number(item.quantity) || 0), 0)
     : 0;
@@ -269,13 +270,7 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
       // already hold the converted master-unit figure.
       direct_indent_unit: item.direct_indent_unit || null,
       direct_indent_qty: item.direct_indent_qty != null ? Number(item.direct_indent_qty) : null,
-      ...(isDirect ? {
-        approval_status: 'Approved',
-        planning_status: 'Planned',
-        approved_by: created_by || null,
-        approved_vendor_id: targetVendorId,
-        approved_rate: Number(item.rate) || 0,
-      } : {}),
+      ...(isDirect ? { planning_status: 'Planned' } : {}),
     }));
     const { error: itemErr } = await supabase
       .from('purchase_indent_items')
@@ -373,10 +368,7 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
       baseItemPayload.vendor_id = vendor_id || null;
       baseItemPayload.approved_vendor_id = vendor_id || null;
       baseItemPayload.vendor_remarks = remarks || null;
-      baseItemPayload.approved_rate = Number(item.rate) || 0;
-      baseItemPayload.approval_status = 'Approved';
       baseItemPayload.planning_status = 'Planned';
-      if (user_id) baseItemPayload.approved_by = user_id;
     }
 
     if (item.item_id && incomingIds.has(item.item_id)) {
@@ -406,18 +398,16 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
   }
 
   // Make sure every remaining item under this indent — including ones
-  // untouched by this edit — reflects Direct's "already approved" status and godown,
-  // so they all show up in Delivery's Pending list right away.
+  // untouched by this edit — carries Direct's vendor/godown and is Planned,
+  // so it waits in Vendor Approval. Approval itself is never set here — an
+  // item already approved there stays approved.
   if (isDirect) {
     const directFields = {
       approved_godown_id: godown_id || null,
       vendor_id: vendor_id || null,
-      approved_vendor_id: vendor_id || null,
       vendor_remarks: remarks || null,
-      approval_status: 'Approved',
       planning_status: 'Planned',
     };
-    if (user_id) directFields.approved_by = user_id;
     const { error: directErr } = await supabase
       .from('purchase_indent_items')
       .update(directFields)
@@ -725,7 +715,7 @@ export const getAllIndentItemsForVendorSelection = async () => {
         indent_id, indent_date, indent_number, process_type, group_id, product_groups:group_id(group_name)
       )
     `)
-    .eq('purchase_indents.process_type', 'process')
+    .in('purchase_indents.process_type', ['process', 'direct'])
     .order('created_at', { ascending: false }));
 };
 
@@ -1022,7 +1012,8 @@ export const getDirectItemsForAawak = async () => {
       };
     })
     .filter(item => {
-      const isDirect = item.purchase_indents?.process_type === 'direct';
+      // Direct items reach Aawak only once signed off in Vendor Approval.
+      const isDirect = item.purchase_indents?.process_type === 'direct' && item.approval_status === 'Approved';
       const isSubmittedFromTransit = item.purchase_indents?.process_type === 'process' && item.allocated_qty > 0;
       return (isDirect || isSubmittedFromTransit) && item.remaining_qty > 0;
     });
@@ -1824,6 +1815,7 @@ export const getPurchaseDashboardItems = async () => {
       indent_date: indent.indent_date,
       indent_number: indent.indent_number,
       indent_type: indent.process_type === 'direct' ? 'Direct' : 'Process',
+      product_id: item.product_id,
       product_name: item.products?.name || '—',
       unit: item.products?.unit || '—',
       group_id: item.group_id || item.products?.group_id || null,

@@ -2,9 +2,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { Search, Boxes, ChevronLeft, ChevronRight, Save, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
-import { getAllProductStock, getAllProducts, getAllGodowns, updateProductPlanning } from '../../services/masterService';
-import { getReorderStatusItems, createIndent, generateNextIndentNumber, getPackagingSize } from '../../services/purchaseService';
-import { getDispatchTransactions } from '../../services/salesService';
+import { updateProductPlanning } from '../../services/masterService';
+import { createIndent, generateNextIndentNumber } from '../../services/purchaseService';
+import { fetchImsRows, sumImsStats, getMaxLevel, getStockLevel, STOCK_LEVEL_STYLES } from '@/lib/imsData';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -24,18 +24,6 @@ const formatNum = (n) => {
   return val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 
-// Deliveries land here once the transporter/vendor has actually dropped the
-// stock at a godown — anything else (In Transit, At TPT Gdn, ...) is still
-// moving, so it counts toward "In Transit Qty" instead of "received".
-const isReceivedStatus = (status) => status === 'Arrived' || status === 'Received';
-
-// Avg Dispatch = total dispatched qty / days from the first dispatch through
-// today, counting both ends (a first dispatch today = 1 day, not 0).
-const getAvgDispatch = (totalQty, firstDate) => {
-  if (!firstDate || !totalQty) return null;
-  const days = Math.round((Date.parse(getTodayLocal()) - Date.parse(firstDate)) / 86400000) + 1;
-  return totalQty / Math.max(1, days);
-};
 
 // Bag <-> Kg conversion. Reorder Qty is entered in whichever unit the row's
 // Reorder Unit dropdown is set to (`fromUnit`, defaulting to the product's
@@ -52,32 +40,6 @@ const convertReorderQty = (qty, fromUnit, targetUnit, pkgSize) => {
   return amount;
 };
 
-// Max Level = Lead Time × Safety Factor × AVG Daily Consumption (product's
-// master unit). Blank until both Lead Time and Safety Factor are set.
-const getMaxLevel = (leadTime, safetyFactor, avgDaily) => {
-  if (leadTime === '' || leadTime == null || safetyFactor === '' || safetyFactor == null) return null;
-  return (Number(leadTime) || 0) * (Number(safetyFactor) || 0) * (Number(avgDaily) || 0);
-};
-
-// Current Stock colour code, judged against the row's Max Level:
-// red = out of stock / below half of Max Level, amber = below Max Level,
-// green = at or above Max Level. Without a Max Level only "out" is flagged.
-const STOCK_LEVEL_STYLES = {
-  // Soft (dimmed) cell tints — the whole Current Stock cell is shaded.
-  critical: { className: 'bg-red-50/70 text-red-600', label: 'Critical — out of stock or below 50% of Max Level' },
-  low: { className: 'bg-amber-50/70 text-amber-600', label: 'Low — below Max Level' },
-  healthy: { className: 'bg-emerald-50/70 text-emerald-600', label: 'Healthy — at or above Max Level' },
-  neutral: { className: 'text-slate-900', label: 'Set Lead Time and Safety Factor to get a Max Level' },
-};
-
-const getStockLevel = (stock, maxLevel) => {
-  const qty = Number(stock) || 0;
-  if (qty <= 0) return 'critical';
-  if (maxLevel == null || maxLevel <= 0) return 'neutral';
-  if (qty < maxLevel * 0.5) return 'critical';
-  if (qty < maxLevel) return 'low';
-  return 'healthy';
-};
 
 /**
  * Live purchase-pipeline view, one row per Product + Godown: current stock
@@ -122,137 +84,8 @@ const UltimateIMS = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [stockRows, products, godownList, indentItems, dispatchTxns] = await Promise.all([
-        getAllProductStock(),
-        getAllProducts(),
-        getAllGodowns(),
-        getReorderStatusItems(),
-        getDispatchTransactions(),
-      ]);
+      const { rows: built, godowns: godownList } = await fetchImsRows();
       setGodowns(godownList);
-
-      const productMap = new Map(products.map((p) => [p.product_id, p]));
-      const godownMap = new Map(godownList.map((g) => [g.godown_id, g]));
-
-      // One group per Product
-      const groups = new Map();
-
-      for (const p of products) {
-        groups.set(p.product_id, {
-          key: p.product_id,
-          productId: p.product_id,
-          godownStats: new Map(),
-        });
-      }
-
-      const getGodownStats = (productId, godownId) => {
-        if (!groups.has(productId)) {
-          groups.set(productId, {
-            key: productId, productId,
-            godownStats: new Map(),
-          });
-        }
-        const group = groups.get(productId);
-        if (!group.godownStats.has(godownId)) {
-          group.godownStats.set(godownId, {
-            godownId,
-            currentStock: 0, pendingApprovalQty: 0, approvedQty: 0,
-            inTransitQty: 0, totalOrderedQty: 0, totalReceivedQty: 0,
-            orderPendingQty: 0, dispatchedQty: 0, firstDispatchDate: null
-          });
-        }
-        return group.godownStats.get(godownId);
-      };
-
-      for (const s of stockRows) {
-        if (!s.product_id || !s.godown_id) continue;
-        getGodownStats(s.product_id, s.godown_id).currentStock += Number(s.current_stock) || 0;
-      }
-
-      for (const t of dispatchTxns) {
-        if (!t.product_id || !t.godown_id) continue;
-        const s = getGodownStats(t.product_id, t.godown_id);
-        s.dispatchedQty += Number(t.qty) || 0;
-        const date = String(t.txn_date || '').slice(0, 10);
-        if (date && (!s.firstDispatchDate || date < s.firstDispatchDate)) s.firstDispatchDate = date;
-      }
-
-      for (const item of indentItems) {
-        if (!item.product_id) continue;
-        // Items still awaiting a godown pick (e.g. sitting in Vendor
-        // Approval before approval, or a Reorder raised with "All Godowns")
-        // have no approved_godown_id yet — bucket those under "Unassigned"
-        // instead of dropping them, or their qty would never appear in any
-        // pipeline column (Approval Pending/Approved/In Transit/Order
-        // Pending), no matter what happens to the item afterward.
-        const indentGodownId = item.approved_godown_id || 'unassigned';
-
-        const isDirect = item.purchase_indents?.process_type === 'direct';
-        // Direct items are Planned + Approved right at creation (see
-        // createIndent), so they skip both Pending stages entirely.
-        const isPlanned = isDirect || item.planning_status === 'Planned';
-        const isApproved = isDirect || item.approval_status === 'Approved';
-
-        const qty = Number(item.quantity) || 0;
-        let totalDeliveredForThisItem = 0;
-
-        for (const d of item.purchase_deliveries || []) {
-          const dq = Number(d.received_quantity) || 0;
-          totalDeliveredForThisItem += dq;
-          const isRecv = isReceivedStatus(d.status);
-
-          const allocations = d.purchase_delivery_godowns || [];
-          if (allocations.length > 0) {
-            for (const alloc of allocations) {
-              const allocQty = Number(alloc.qty) || 0;
-              const s = getGodownStats(item.product_id, alloc.godown_id);
-              if (isRecv) s.totalReceivedQty += allocQty;
-              else s.inTransitQty += allocQty;
-            }
-          } else {
-            const s = getGodownStats(item.product_id, indentGodownId);
-            if (isRecv) s.totalReceivedQty += dq;
-            else s.inTransitQty += dq;
-          }
-        }
-
-        const stats = getGodownStats(item.product_id, indentGodownId);
-        stats.totalOrderedQty += qty;
-
-        // Order Pending Qty == same items as Purchase > Indent > Pending
-        // (not yet vendor/rate/qty/date planned). Approval Pending Purchase
-        // Qty == same items as Vendor Approval > Pending (already planned,
-        // still awaiting sign-off). Once approved, it's all Approval Qty.
-        if (!isPlanned) {
-          stats.orderPendingQty += qty;
-        } else if (!isApproved) {
-          stats.pendingApprovalQty += qty;
-        } else {
-          stats.approvedQty += Math.max(0, qty - totalDeliveredForThisItem);
-        }
-      }
-
-
-      const built = Array.from(groups.values()).map((g) => {
-        const prod = productMap.get(g.productId);
-        const statsArray = Array.from(g.godownStats.values()).map(st => ({
-          ...st,
-          godownName: godownMap.get(st.godownId)?.name || 'Unassigned Godown',
-          godownType: godownMap.get(st.godownId)?.godown_type || 'Own',
-        }));
-        return {
-          key: g.productId,
-          productId: g.productId,
-          groupId: prod?.group_id || null,
-          productName: prod?.name || 'Unassigned Product',
-          unit: prod?.unit || '—',
-          packagingSize: getPackagingSize(prod),
-          leadTime: prod?.lead_time ?? '',
-          safetyFactor: prod?.safety_factor ?? '',
-          stats: statsArray
-        };
-      }).sort((a, b) => a.productName.localeCompare(b.productName));
-
       setRows(built);
     } catch (err) {
       console.error(err);
@@ -281,30 +114,14 @@ const UltimateIMS = () => {
         r.filteredStats.some(st => st.godownName.toLowerCase().includes(term));
       return matchSearch;
     }).map(r => {
-      const totals = {
-        currentStock: 0, pendingApprovalQty: 0, approvedQty: 0,
-        inTransitQty: 0, totalOrderedQty: 0, totalReceivedQty: 0,
-        orderPendingQty: 0, dispatchedQty: 0, firstDispatchDate: null
-      };
-      for (const st of r.filteredStats) {
-        totals.dispatchedQty += st.dispatchedQty || 0;
-        if (st.firstDispatchDate && (!totals.firstDispatchDate || st.firstDispatchDate < totals.firstDispatchDate)) {
-          totals.firstDispatchDate = st.firstDispatchDate;
-        }
-        totals.currentStock += st.currentStock;
-        totals.pendingApprovalQty += st.pendingApprovalQty;
-        totals.approvedQty += st.approvedQty;
-        totals.inTransitQty += st.inTransitQty;
-        totals.totalOrderedQty += st.totalOrderedQty;
-        totals.totalReceivedQty += st.totalReceivedQty;
-        totals.orderPendingQty += (st.orderPendingQty || 0);
-      }
-      return {
-        ...r,
-        ...totals,
-        avgDispatch: getAvgDispatch(totals.dispatchedQty, totals.firstDispatchDate),
-      };
-    });
+      return { ...r, ...sumImsStats(r.filteredStats) };
+    })
+      // With a godown picked, list only products that have stock there or
+      // stock on its way there (order pending, approval pending, approved
+      // or in transit) — products with nothing at all in that godown are
+      // left out.
+      .filter(r => !godownFilter || r.currentStock !== 0 ||
+        r.orderPendingQty > 0 || r.pendingApprovalQty > 0 || r.approvedQty > 0 || r.inTransitQty > 0);
   }, [rows, searchTerm, godownFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));

@@ -93,7 +93,6 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
     if (form.items.length === 0) { toast.error('Add at least one product.'); return; }
     for (const [i, item] of form.items.entries()) {
       if (!item.product_id) { toast.error(`Item ${i + 1}: Select a product.`); return; }
-      if (!item.godown_id) { toast.error(`Item ${i + 1}: Select a godown.`); return; }
       const product = allProducts.find(p => p.product_id === item.product_id);
       if (!getComputedQty(item, product)) { toast.error(`Item ${i + 1}: Enter a valid quantity.`); return; }
     }
@@ -124,9 +123,9 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
         notify_customer: false,
       });
       if (planErrors.length > 0) {
-        toast.error(`Order created, but ${planErrors.length} item(s) could not be auto-dispatched (${planErrors[0].message}). They remain pending in Dispatch Planning.`);
+        toast.error(`Order created, but ${planErrors.length} item(s) could not be auto-planned (${planErrors[0].message}). They remain pending in Dispatch Planning.`);
       } else {
-        toast.success('Direct order created and dispatched.');
+        toast.success('Direct order created — complete it in Dispatch Completed.');
       }
       onClose();
       onSuccess();
@@ -245,18 +244,6 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
     return allProducts.map(p => ({ value: p.product_id, label: p.name }));
   }, [allProducts]);
 
-  // Own godowns first (a direct dispatch normally leaves from one of these),
-  // then Transporter stock-tracking godowns below — each group alphabetical.
-  // Same convention as Dispatch Planning's own Godown dropdown.
-  const activeGodowns = useMemo(() => {
-    const active = godowns.filter(g => g.is_active);
-    const isOwn = (g) => (g.godown_type || 'Own') === 'Own';
-    const byName = (a, b) => a.name.localeCompare(b.name);
-    const own = active.filter(isOwn).sort(byName);
-    const transporter = active.filter(g => !isOwn(g)).sort(byName);
-    return [...own, ...transporter];
-  }, [godowns]);
-
   return (
     <>
       <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -270,7 +257,7 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
                 <h2 className="text-xl font-bold text-slate-800">Direct Order</h2>
               </div>
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-violet-50 text-violet-700 border border-violet-100">
-                <Zap size={13} /> Auto-dispatched on save
+                <Zap size={13} /> Auto-planned on save
               </span>
             </div>
           </ModalHeader>
@@ -321,7 +308,7 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
                     const computedQty = getComputedQty(item, selectedProduct);
                     return (
                     <div key={i} className="grid grid-cols-[repeat(14,minmax(0,1fr))] gap-2 items-end">
-                      <div className="col-span-3">
+                      <div className="col-span-5">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Product <span className="text-red-500">*</span></label>
                         <Dropdown value={item.product_id} onValueChange={(v) => handleProductChange(i, v)}
                           options={productOptions} placeholder="Select product..." searchPlaceholder="Search products..."
@@ -339,13 +326,6 @@ const DirectOrderModal = ({ isOpen, onClose, user, onSuccess, products, godowns,
                           <option value="bag">BAG</option>
                           <option value="kg">KG</option>
                         </select>
-                      </div>
-                      <div className="col-span-2">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Godown <span className="text-red-500">*</span></label>
-                        <Dropdown value={item.godown_id} onValueChange={(v) => updateItem(i, 'godown_id', v)}
-                          options={activeGodowns.map(g => ({ value: g.godown_id, label: g.name }))}
-                          placeholder="Select godown..." searchPlaceholder="Search godowns..."
-                          align="start" />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Unit Price</label>

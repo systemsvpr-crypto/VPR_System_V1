@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import ProductImsModal, { ImsButton } from '@/components/ProductImsModal';
 import { Search, Save, ShoppingCart, Clock, History, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, X, MessageCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -36,6 +37,7 @@ const convertApproveQty = (qty, fromUnit, targetUnit, pkgSize) => {
 };
 
 const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
+  const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
   const canDelete = canEditOrDelete(user);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -145,7 +147,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
 
   const pendingItems = useMemo(() => {
     return filteredBySearch.filter(i =>
-      i.purchase_indents?.process_type === 'process' &&
+      // Every indent needs this sign-off — Process and Direct alike.
       i.planning_status === 'Planned' &&
       i.approval_status !== 'Approved' &&
       i.approval_status !== 'Rejected'
@@ -738,6 +740,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                                   <span className="font-bold text-slate-900 text-xs sm:text-sm truncate" title={item.products?.name}>
                                     {item.products?.name || '—'}
                                   </span>
+                                  {item.product_id && <ImsButton compact onClick={() => setImsProduct({ productId: item.product_id, productName: item.products?.name })} />}
                                   {indent.process_type && (
                                     <IndentTypeBadge processType={indent.process_type} />
                                   )}
@@ -951,6 +954,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Indent No.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
                     <th className="sticky left-0 z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">IMS</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Total Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Approve Unit</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Qty</th>
@@ -966,7 +970,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                 <tbody className="divide-y divide-slate-100">
                   {isEmpty && (
                     <tr>
-                      <td colSpan="14" className="p-12 text-center">
+                      <td colSpan="15" className="p-12 text-center">
                         <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                           <ShoppingCart size={32} className="text-slate-300" />
                         </div>
@@ -1021,6 +1025,9 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
                         <td className={`sticky left-0 z-[4] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] px-3 py-3 text-center whitespace-nowrap ${selected ? 'bg-sky-50' : hasDecision ? 'bg-green-50 group-hover:bg-slate-50' : 'bg-white group-hover:bg-slate-50'}`}>
                           <span className="text-slate-700 font-medium">{item.products?.name || '—'}</span>{' '}
                           <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase font-medium">{item.products?.unit || '—'}</span>
+                        </td>
+                        <td className="px-3 py-3 text-center whitespace-nowrap">
+                          {item.product_id ? <ImsButton onClick={() => setImsProduct({ productId: item.product_id, productName: item.products?.name })} /> : '—'}
                         </td>
                         <td className="px-3 py-3 text-center text-xs text-slate-500 font-medium whitespace-nowrap">
                           {item.indent_qty ?? item.quantity ?? '—'}
@@ -1122,6 +1129,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
             </div>
           </div>
         </div>
+      <ProductImsModal product={imsProduct} onClose={() => setImsProduct(null)} />
       </div>
       );
 };
