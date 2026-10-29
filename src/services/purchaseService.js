@@ -1951,12 +1951,15 @@ const applyAawakLiftUpdate = async ({ delivery_id, godown_id, lr_number, driver_
   const { data: existing, error: fetchErr } = await supabase
     .from('purchase_deliveries')
     .select(`
-      delivery_id, status, item_id, delivery_date, receiving_date, lifting_number, lr_number, vehicle_number, received_quantity, transporter_id, group_id,
-      purchase_indent_items(product_id, approved_godown_id, group_id, products(group_id, unit))
+      delivery_id, status, item_id, delivery_date, receiving_date, lifting_number, lr_number, vehicle_number, received_quantity, transporter_id, group_id, is_deleted,
+      purchase_indent_items(product_id, approved_godown_id, group_id, is_deleted, products(group_id, unit))
     `)
     .eq('delivery_id', delivery_id)
     .single();
   if (fetchErr) throw new Error('Delivery not found.');
+  if (existing.is_deleted || existing.purchase_indent_items?.is_deleted) {
+    throw new Error('Cannot update or receive a delivery that has been deleted.');
+  }
   const oldStatus = existing.status;
   const item = existing.purchase_indent_items;
   const product_id = item?.product_id;
@@ -2257,14 +2260,17 @@ export const updateAawakLift = async (params) => {
   const { data: existing, error: fetchErr } = await supabase
     .from('purchase_deliveries')
     .select(`
-      delivery_id, status, item_id, indent_id, delivery_date, receiving_date, lifting_number, received_quantity, parent_delivery_id,
+      delivery_id, status, item_id, indent_id, delivery_date, receiving_date, lifting_number, received_quantity, parent_delivery_id, is_deleted,
       transporter_id, lr_number, vehicle_number, driver_phone_number, remarks, group_id,
       expected_delivery_date, expected_dispatch_date, packaging_size, dispatch_unit,
-      purchase_indent_items(product_id, approved_godown_id, group_id, products(name, unit, mux, group_id))
+      purchase_indent_items(product_id, approved_godown_id, group_id, is_deleted, products(name, unit, mux, group_id))
     `)
     .eq('delivery_id', delivery_id)
     .single();
   if (fetchErr) throw new Error('Delivery not found.');
+  if (existing.is_deleted || existing.purchase_indent_items?.is_deleted) {
+    throw new Error('Cannot update or receive a delivery that has been deleted.');
+  }
 
   const oldStatus = existing.status;
   const targetStatus = status !== undefined ? (status === 'AT TPT GDN' ? 'In Transport Godown' : status) : oldStatus;

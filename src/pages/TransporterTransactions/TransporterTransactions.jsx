@@ -81,7 +81,7 @@ const TransporterTransactions = () => {
       // A transporter's own godown has godown_id === transporter_id.
       const transporterIds = new Set((transporterList || []).map(t => t.transporter_id));
       setLifts((deliveries || [])
-        .filter(d => d.transporter_id && d.purchase_indent_items?.purchase_indents?.is_void !== true)
+        .filter(d => d.transporter_id && d.purchase_indent_items && d.purchase_indent_items.purchase_indents?.is_void !== true)
         .map(d => {
           const item = d.purchase_indent_items || {};
           const product = item.products || {};
