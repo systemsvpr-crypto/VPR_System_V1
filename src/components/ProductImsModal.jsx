@@ -71,7 +71,7 @@ const ProductImsModal = ({ product, onClose }) => {
   // qty whose godown isn't picked yet (shown last).
   const godownRows = row
     ? row.stats
-      .filter(g => g.currentStock !== 0 || g.pendingApprovalQty > 0 || g.approvedQty > 0 || g.inTransitQty > 0 || g.orderPendingQty > 0 || g.dispatchedQty > 0)
+      .filter(g => g.currentStock !== 0 || g.pendingApprovalQty > 0 || g.approvedQty > 0 || g.inTransitQty > 0 || g.atTptQty > 0 || g.orderPendingQty > 0 || g.dispatchedQty > 0)
       .sort((a, b) => (a.godownId === 'unassigned') - (b.godownId === 'unassigned') || b.currentStock - a.currentStock)
     : [];
 
@@ -125,11 +125,12 @@ const ProductImsModal = ({ product, onClose }) => {
               </Section>
 
               <Section title="Purchase Pipeline">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   <Stat label="Order Pending" value={formatNum(totals.orderPendingQty)} unit={unit} className="text-red-600" hint="Indent raised, not planned yet" />
                   <Stat label="Approval Pending" value={formatNum(totals.pendingApprovalQty)} unit={unit} className="text-orange-500" hint="Waiting in Vendor Approval" />
                   <Stat label="Approved" value={formatNum(totals.approvedQty)} unit={unit} className="text-emerald-600" hint="Approved, not yet lifted" />
-                  <Stat label="In Transit" value={formatNum(totals.inTransitQty)} unit={unit} className="text-violet-600" hint="Lifted, on the way / at transporter" />
+                  <Stat label="In Transit" value={formatNum(totals.inTransitQty)} unit={unit} className="text-violet-600" hint="Lifted, on the road (Aawak Pending)" />
+                  <Stat label="Transporter Godown" value={formatNum(totals.atTptQty)} unit={unit} className="text-amber-600" hint="Waiting at transporter's godown" />
                 </div>
               </Section>
 
@@ -147,6 +148,7 @@ const ProductImsModal = ({ product, onClose }) => {
                           <th className="text-center px-3 py-2.5 font-semibold text-orange-500 uppercase tracking-wider">Approval Pending</th>
                           <th className="text-center px-3 py-2.5 font-semibold text-emerald-600 uppercase tracking-wider">Approved</th>
                           <th className="text-center px-3 py-2.5 font-semibold text-violet-600 uppercase tracking-wider">In Transit</th>
+                          <th className="text-center px-3 py-2.5 font-semibold text-amber-600 uppercase tracking-wider">Transporter Godown</th>
                           <th className="text-center px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">Dispatched</th>
                         </tr>
                       </thead>
@@ -161,6 +163,7 @@ const ProductImsModal = ({ product, onClose }) => {
                             <Cell value={g.pendingApprovalQty} className="text-orange-500" />
                             <Cell value={g.approvedQty} className="text-emerald-600" />
                             <Cell value={g.inTransitQty} className="text-violet-600" />
+                            <Cell value={g.atTptQty} className="text-amber-600" />
                             <Cell value={g.dispatchedQty} className="text-slate-600" />
                           </tr>
                         ))}
@@ -171,6 +174,7 @@ const ProductImsModal = ({ product, onClose }) => {
                           <Cell value={totals.pendingApprovalQty} className="text-orange-500" />
                           <Cell value={totals.approvedQty} className="text-emerald-600" />
                           <Cell value={totals.inTransitQty} className="text-violet-600" />
+                          <Cell value={totals.atTptQty} className="text-amber-600" />
                           <Cell value={totals.dispatchedQty} className="text-slate-700" />
                         </tr>
                       </tbody>

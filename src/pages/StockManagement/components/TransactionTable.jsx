@@ -64,8 +64,15 @@ const displayDate = (t) => t.dispatch_plans?.dispatch_date || t.txn_date;
 
 const TransactionTable = ({
   transactions, totalItems, searchTerm, loading, onEdit, onDelete,
-  currentPage, totalPages, pageSize, onPageChange, onPageSizeChange
+  currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
+  balances = {}, balanceScope = 'product',
 }) => {
+  // Balance = stock after this row: the product's total across all godowns,
+  // or — with a godown filter on — its stock in that godown.
+  const getBalance = (t) => {
+    const b = balances[t.txn_id];
+    return b ? (balanceScope === 'godown' ? b.godown : b.product) : null;
+  };
   const { user } = useAuthStore();
   const userCanEdit = canEditOrDelete(user);
 
@@ -103,6 +110,7 @@ const TransactionTable = ({
           { label: 'Type', className: 'text-center' },
           { label: 'Lift/Dispatch #', className: 'text-center' },
           { label: 'Qty', className: 'text-center' },
+          { label: balanceScope === 'godown' ? 'Balance (Godown)' : 'Balance', className: 'text-center' },
           ...(userCanEdit ? [{ label: 'Actions', className: 'text-center w-20' }] : [])
         ]}
         data={transactions}
@@ -139,6 +147,10 @@ const TransactionTable = ({
               {['OPEN_STOCK','IN_FACTORY','PRODUCTION_IN','TRANSFER_IN','ADJUSTMENT_IN','PURCHASE_IN','PURCHASE_IN(TPT)'].includes(t.txn_type) ? '+' : '-'}
               {formatQty(t.qty)}
             </td>
+            <td className={`px-4 py-3 text-center font-semibold tabular-nums ${getBalance(t) == null ? 'text-slate-300' : getBalance(t) < 0 ? 'text-red-600' : 'text-slate-800'}`}
+              title={balanceScope === 'godown' ? 'Stock in this godown after this transaction' : 'Total stock of this product (all godowns) after this transaction'}>
+              {getBalance(t) == null ? '—' : formatQty(getBalance(t))}
+            </td>
             {userCanEdit && (
             <td className="px-4 py-3 text-center">
               {canEdit(t.txn_type) ? (
@@ -169,6 +181,12 @@ const TransactionTable = ({
                 {formatQty(t.qty)}
               </span>
             </div>
+            {getBalance(t) != null && (
+              <div className="text-xs text-slate-500 flex justify-between">
+                <span>Balance</span>
+                <span className={`font-semibold ${getBalance(t) < 0 ? 'text-red-600' : 'text-slate-800'}`}>{formatQty(getBalance(t))}</span>
+              </div>
+            )}
             <div className="flex justify-between items-center mt-1">
               <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
                 t.txn_type === 'OPEN_STOCK' ? 'bg-purple-50 text-purple-700' :

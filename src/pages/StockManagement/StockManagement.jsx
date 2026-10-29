@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllProducts, getAllGodowns, getAllProductStock } from '../../services/masterService';
-import { getAllTransactions, deleteTransactionRow } from '../../services/stockService';
+import { getAllTransactions, deleteTransactionRow, getLedgerForBalances } from '../../services/stockService';
 import Pagination from '@/components/ui/pagination';
 import { Input } from '@/components/ui/input';
 import { formatQty } from '@/lib/qty';
@@ -29,6 +29,9 @@ import DeleteConfirmModal from './components/DeleteConfirmModal';
 import { TransactionFilters, TransactionTable } from './components/TransactionTable';
 import { canEditOrDelete } from '@/lib/permissions';
 
+// Stock-in types (everything else takes stock out) — for the Balance column.
+const BALANCE_IN_TYPES = ['OPEN_STOCK', 'IN_FACTORY', 'PRODUCTION_IN', 'TRANSFER_IN', 'ADJUSTMENT_IN', 'PURCHASE_IN', 'PURCHASE_IN(TPT)'];
+
 const ACTIONS = [
   { id: 'factory-in', label: 'Godown in', icon: Factory, color: 'bg-blue-50 text-blue-600 border-blue-200' },
   { id: 'production', label: 'Production', icon: PackagePlus, color: 'bg-indigo-50 text-indigo-600 border-indigo-200' },
@@ -46,6 +49,10 @@ const StockManagement = () => {
   const [productStockMap, setProductStockMap] = useState({});
   const [transactions, setTransactions] = useState([]);
   const [txnLoading, setTxnLoading] = useState(true);
+  // Running Balance per transaction: { [txn_id]: { product, godown } } —
+  // product = that product's total across all godowns after the row,
+  // godown = its stock in that row's godown after the row.
+  const [balances, setBalances] = useState({});
   const [deletingTransaction, setDeletingTransaction] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [filters, setFilters] = useState({ product_id: '', godown_id: '', txn_type: '', from_date: '', to_date: '' });
@@ -85,8 +92,22 @@ const StockManagement = () => {
   const fetchTransactions = async (f = filters) => {
     setTxnLoading(true);
     try {
-      const data = await getAllTransactions(f);
+      const [data, ledger] = await Promise.all([
+        getAllTransactions(f),
+        getLedgerForBalances({ product_id: f.product_id }),
+      ]);
       setTransactions(data);
+      const productBal = {};
+      const godownBal = {};
+      const map = {};
+      for (const t of ledger) {
+        const delta = (BALANCE_IN_TYPES.includes(t.txn_type) ? 1 : -1) * (Number(t.qty) || 0);
+        const gKey = `${t.product_id}|${t.godown_id}`;
+        productBal[t.product_id] = (productBal[t.product_id] || 0) + delta;
+        godownBal[gKey] = (godownBal[gKey] || 0) + delta;
+        map[t.txn_id] = { product: productBal[t.product_id], godown: godownBal[gKey] };
+      }
+      setBalances(map);
     } catch (err) { toast.error('Failed to load transactions'); }
     setTxnLoading(false);
   };
@@ -223,6 +244,7 @@ const StockManagement = () => {
       'Type': t.txn_type === 'IN_FACTORY' ? 'GODOWN IN' : t.txn_type.replace(/_/g, ' '),
       'Lift/Dispatch #': t.txn_type === 'PURCHASE_IN' ? (t.lifting_number || '—') : (t.dispatch_number || t.lr_number || '—'),
       'Qty': `${IN_TYPES.includes(t.txn_type) ? '+' : '-'}${formatQty(t.qty)}`,
+      'Balance': balances[t.txn_id] ? formatQty(filters.godown_id ? balances[t.txn_id].godown : balances[t.txn_id].product) : '',
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
@@ -296,7 +318,9 @@ const StockManagement = () => {
           </div>
         </div>
         <TransactionTable 
-          transactions={currentTransactions} 
+          transactions={currentTransactions}
+          balances={balances}
+          balanceScope={filters.godown_id ? 'godown' : 'product'} 
           totalItems={filteredTransactions.length}
           searchTerm={searchTerm}
           loading={txnLoading} 

@@ -918,6 +918,24 @@ export const getAllTransactions = async ({ product_id, godown_id, txn_type, from
   return fetchAllRows(buildQuery);
 };
 
+// Every live ledger row (optionally for one product), oldest first — same
+// order the Transaction History table uses, just reversed — so a running
+// Balance can be built over the product's full history, whatever date /
+// type / search filters are applied to the table itself.
+export const getLedgerForBalances = async ({ product_id } = {}) => {
+  return fetchAllRows(() => {
+    let query = supabase
+      .from('transactions')
+      .select('txn_id, product_id, godown_id, txn_type, qty, txn_date, created_at')
+      .eq('is_void', false)
+      .order('txn_date', { ascending: true })
+      .order('created_at', { ascending: true })
+      .order('txn_id', { ascending: true });
+    if (product_id && product_id !== 'all') query = query.eq('product_id', product_id);
+    return query;
+  });
+};
+
 export const bulkDispatchStock = async ({ rows, created_by }) => {
   const { data: allGodowns, error: godownErr } = await supabase
     .from('godowns')

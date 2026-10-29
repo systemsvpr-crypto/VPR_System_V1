@@ -16,6 +16,11 @@ const getTodayLocal = () => {
 // moving, so it counts toward "In Transit Qty" instead of "received".
 export const isReceivedStatus = (status) => status === 'Arrived' || status === 'Received';
 
+// A lift sitting at the transporter's own godown (Aawak → Transporter Godown)
+// — counted as "At Transporter Godown", separate from In Transit (Aawak →
+// Pending, still on the road).
+export const isAtTransporterGodown = (status) => status === 'In Transport Godown' || status === 'AT TPT GDN';
+
 // Avg Dispatch = total dispatched qty / days from the first dispatch through
 // today, counting both ends (a first dispatch today = 1 day, not 0).
 export const getAvgDispatch = (totalQty, firstDate) => {
@@ -53,7 +58,7 @@ export const getStockLevel = (stock, maxLevel) => {
 
 const EMPTY_TOTALS = () => ({
   currentStock: 0, pendingApprovalQty: 0, approvedQty: 0,
-  inTransitQty: 0, totalOrderedQty: 0, totalReceivedQty: 0,
+  inTransitQty: 0, atTptQty: 0, totalOrderedQty: 0, totalReceivedQty: 0,
   orderPendingQty: 0, dispatchedQty: 0, firstDispatchDate: null,
 });
 
@@ -138,6 +143,8 @@ export const fetchImsRows = async () => {
       const dq = Number(d.received_quantity) || 0;
       totalDeliveredForThisItem += dq;
       const isRecv = isReceivedStatus(d.status);
+      const isTpt = isAtTransporterGodown(d.status);
+      const addMoving = (s, q) => { if (isTpt) s.atTptQty += q; else s.inTransitQty += q; };
 
       const allocations = d.purchase_delivery_godowns || [];
       if (allocations.length > 0) {
@@ -145,12 +152,12 @@ export const fetchImsRows = async () => {
           const allocQty = Number(alloc.qty) || 0;
           const s = getGodownStats(item.product_id, alloc.godown_id);
           if (isRecv) s.totalReceivedQty += allocQty;
-          else s.inTransitQty += allocQty;
+          else addMoving(s, allocQty);
         }
       } else {
         const s = getGodownStats(item.product_id, indentGodownId);
         if (isRecv) s.totalReceivedQty += dq;
-        else s.inTransitQty += dq;
+        else addMoving(s, dq);
       }
     }
 
@@ -206,6 +213,7 @@ export const sumImsStats = (stats) => {
     totals.pendingApprovalQty += st.pendingApprovalQty;
     totals.approvedQty += st.approvedQty;
     totals.inTransitQty += st.inTransitQty;
+    totals.atTptQty += st.atTptQty || 0;
     totals.totalOrderedQty += st.totalOrderedQty;
     totals.totalReceivedQty += st.totalReceivedQty;
     totals.orderPendingQty += (st.orderPendingQty || 0);

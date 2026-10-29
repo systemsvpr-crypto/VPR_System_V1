@@ -121,7 +121,7 @@ const UltimateIMS = () => {
       // or in transit) — products with nothing at all in that godown are
       // left out.
       .filter(r => !godownFilter || r.currentStock !== 0 ||
-        r.orderPendingQty > 0 || r.pendingApprovalQty > 0 || r.approvedQty > 0 || r.inTransitQty > 0);
+        r.orderPendingQty > 0 || r.pendingApprovalQty > 0 || r.approvedQty > 0 || r.inTransitQty > 0 || r.atTptQty > 0);
   }, [rows, searchTerm, godownFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
@@ -394,7 +394,8 @@ const UltimateIMS = () => {
                 <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap min-w-[100px]" title="Lead Time × Safety Factor × AVG Daily Consumption">Max Level</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-amber-600 uppercase tracking-wider whitespace-nowrap min-w-[120px]">Approval Pending</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-emerald-600 uppercase tracking-wider whitespace-nowrap">Approved Qty</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-violet-600 uppercase tracking-wider whitespace-nowrap">In Transit Qty</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-violet-600 uppercase tracking-wider whitespace-nowrap" title="Lifts in Purchase → Aawak Details → Pending (on the road)">In Transit Qty</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-amber-600 uppercase tracking-wider whitespace-nowrap" title="Lifts in Purchase → Aawak Details → Transporter Godown">Transporter Godown</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-red-600 uppercase tracking-wider whitespace-nowrap">Order Pending Qty</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap min-w-[130px]">Godown Name</th>
               </tr>
@@ -498,6 +499,9 @@ const UltimateIMS = () => {
                       <td className="px-4 py-3 text-center font-semibold text-violet-600 tabular-nums whitespace-nowrap">
                         {row.inTransitQty > 0 ? formatNum(row.inTransitQty) : <span className="text-slate-300">0</span>}
                       </td>
+                      <td className="px-4 py-3 text-center font-semibold text-amber-600 tabular-nums whitespace-nowrap">
+                        {row.atTptQty > 0 ? formatNum(row.atTptQty) : <span className="text-slate-300">0</span>}
+                      </td>
                       <td className="px-4 py-3 text-center font-semibold text-red-600 tabular-nums whitespace-nowrap">
                         {row.orderPendingQty > 0 ? formatNum(row.orderPendingQty) : <span className="text-slate-300">0</span>}
                       </td>
@@ -510,7 +514,7 @@ const UltimateIMS = () => {
                             // never belongs in this per-godown breakdown.
                             const visibleGodowns = row.filteredStats
                               .filter(g => g.godownId !== 'unassigned')
-                              .filter(g => g.currentStock !== 0 || g.pendingApprovalQty > 0 || g.approvedQty > 0 || g.inTransitQty > 0 || g.totalOrderedQty > 0)
+                              .filter(g => g.currentStock !== 0 || g.pendingApprovalQty > 0 || g.approvedQty > 0 || g.inTransitQty > 0 || g.atTptQty > 0 || g.totalOrderedQty > 0)
                               .sort((a, b) => b.currentStock - a.currentStock);
                             return visibleGodowns.length > 0 ? (
                               visibleGodowns.map((g) => (
