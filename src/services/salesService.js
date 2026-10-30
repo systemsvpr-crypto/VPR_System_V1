@@ -41,6 +41,7 @@ export const generateMultipleOrderNumbers = async (count) => {
   const { data, error } = await supabase
     .from('sales_orders')
     .select('order_number')
+    .in('is_deleted', [true, false])
     .order('created_at', { ascending: false })
     .limit(100);
 
@@ -65,6 +66,7 @@ export const generateMultipleOrderNumbers = async (count) => {
     const { data: exists } = await supabase
       .from('sales_orders')
       .select('order_number')
+      .in('is_deleted', [true, false])
       .eq('order_number', candidate)
       .limit(1);
 
@@ -633,37 +635,75 @@ export const getDispatchTransactions = async () => {
   return txns.filter(t => !t.dispatch_plan_id || completed.has(t.dispatch_plan_id));
 };
 
-export const generateNextDispatchNumber = async () => {
+// Reserves `count` dispatch numbers by finding the highest existing numeric DN
+// across all records (including soft-deleted ones) and verifying non-collision.
+export const generateNextDispatchNumbers = async (count) => {
+  if (!count || count <= 0) return [];
+
+  // Query dispatch_plans including soft-deleted rows so deleted DN numbers are never reused.
   const { data, error } = await supabase
     .from('dispatch_plans')
     .select('dispatch_number')
+    .in('is_deleted', [true, false])
     .like('dispatch_number', 'DN-%')
-    .order('dispatch_number', { ascending: false })
-    .limit(1);
+    .order('created_at', { ascending: false })
+    .limit(100);
 
   if (error) throw error;
-  if (!data || data.length === 0 || !data[0].dispatch_number) return 'DN-0001';
 
-  const last = data[0].dispatch_number;
-  const match = last.match(/DN-(\d+)/);
-  if (!match) return 'DN-0001';
+  let maxNum = 0;
+  if (data && data.length > 0) {
+    for (const r of data) {
+      const match = r.dispatch_number?.match(/DN-(\d+)/);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    }
+  }
 
-  const next = parseInt(match[1], 10) + 1;
-  return `DN-${String(next).padStart(4, '0')}`;
+  // Also query descending by dispatch_number to catch any out-of-order creations
+  const { data: dnData } = await supabase
+    .from('dispatch_plans')
+    .select('dispatch_number')
+    .in('is_deleted', [true, false])
+    .like('dispatch_number', 'DN-%')
+    .order('dispatch_number', { ascending: false })
+    .limit(20);
+
+  if (dnData && dnData.length > 0) {
+    for (const r of dnData) {
+      const match = r.dispatch_number?.match(/DN-(\d+)/);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    }
+  }
+
+  const numbers = [];
+  let next = maxNum + 1;
+  while (numbers.length < count) {
+    const candidate = `DN-${String(next).padStart(4, '0')}`;
+    const { data: exists } = await supabase
+      .from('dispatch_plans')
+      .select('dispatch_number')
+      .in('is_deleted', [true, false])
+      .eq('dispatch_number', candidate)
+      .limit(1);
+
+    if (!exists || exists.length === 0) {
+      numbers.push(candidate);
+    }
+    next++;
+  }
+
+  return numbers;
 };
 
-// Reserves `count` dispatch numbers with a single query instead of calling
-// generateNextDispatchNumber() once per row in a loop — the difference
-// between one round trip and N of them when a bulk action (e.g. cancelling
-// several rows at once) needs a batch of numbers. No existence check per
-// number: a collision is rare (only if something else inserts into the same
-// range in the gap before these are used) and is handled by the caller's
-// own unique-violation retry on insert, same as the single-number path.
-export const generateNextDispatchNumbers = async (count) => {
-  if (!count || count <= 0) return [];
-  const first = await generateNextDispatchNumber();
-  const start = parseInt(first.match(/DN-(\d+)/)[1], 10);
-  return Array.from({ length: count }, (_, i) => `DN-${String(start + i).padStart(4, '0')}`);
+export const generateNextDispatchNumber = async () => {
+  const numbers = await generateNextDispatchNumbers(1);
+  return numbers[0] || 'DN-0001';
 };
 
 const PG_UNIQUE_VIOLATION = '23505';

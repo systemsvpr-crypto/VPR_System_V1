@@ -86,6 +86,7 @@ export const generateNextIndentNumber = async () => {
   const { data, error } = await supabase
     .from('purchase_indents')
     .select('indent_number')
+    .in('is_deleted', [true, false])
     .order('created_at', { ascending: false })
     .limit(100);
 
@@ -108,6 +109,7 @@ export const generateNextIndentNumber = async () => {
     const { data: exists } = await supabase
       .from('purchase_indents')
       .select('indent_number')
+      .in('is_deleted', [true, false])
       .eq('indent_number', candidate)
       .limit(1);
 
