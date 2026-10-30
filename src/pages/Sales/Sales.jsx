@@ -58,6 +58,7 @@ const Sales = () => {
   const [skipFilter, setSkipFilter] = useState('pending');
   const [godownFilter, setGodownFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('pending');
   const [selectedOrderIds, setSelectedOrderIds] = useState(new Set());
   const [deletingSelectedOrders, setDeletingSelectedOrders] = useState(false);
 
@@ -82,22 +83,28 @@ const Sales = () => {
   );
 
   const filteredOrders = useMemo(() => {
-    const term = searchTerm.toLowerCase();
+    const term = searchTerm.trim().toLowerCase();
     return orders.filter(o => {
-      const matchSearch =
+      const matchSearch = !term ||
         o.order_number?.toLowerCase().includes(term) ||
         o.customers?.name?.toLowerCase().includes(term);
       const matchGodown = !godownFilter ||
         (o.sales_order_items || []).some(item => String(item.godown_id) === godownFilter);
       const matchType = !typeFilter || o.process_type === typeFilter;
-      // Only show orders that still have at least one item showing up in
-      // Dispatch Planning's Pending list — once every item is fully
-      // planned/dispatched (or cancelled), the order number no longer shows
-      // there, so it shouldn't keep cluttering Orders either.
-      const stillPending = !isOrderFullyDispatched(o);
-      return matchSearch && matchGodown && matchType && stillPending;
+      
+      const isCompleted = isOrderFullyDispatched(o);
+      const matchStatus =
+        statusFilter === 'all'
+          ? true
+          : statusFilter === 'completed'
+          ? isCompleted
+          : term
+          ? true // When searching, allow matching orders regardless of completion status
+          : !isCompleted;
+
+      return matchSearch && matchGodown && matchType && matchStatus;
     });
-  }, [orders, searchTerm, godownFilter, typeFilter]);
+  }, [orders, searchTerm, godownFilter, typeFilter, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
 
@@ -107,11 +114,11 @@ const Sales = () => {
   }, [filteredOrders, currentPage, pageSize]);
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, completeFilter, afterFilter, skipFilter, godownFilter, typeFilter, pageSize]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeTab, completeFilter, afterFilter, skipFilter, godownFilter, typeFilter, statusFilter, pageSize]);
   // A stale selection referencing orders that just scrolled off-page/out of
   // view (new search, filter, or page) is confusing more than useful — clear
   // it any time what's actually visible changes.
-  useEffect(() => { setSelectedOrderIds(new Set()); }, [searchTerm, activeTab, godownFilter, typeFilter, currentPage]);
+  useEffect(() => { setSelectedOrderIds(new Set()); }, [searchTerm, activeTab, godownFilter, typeFilter, statusFilter, currentPage]);
 
   useEffect(() => {
     if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === activeTab)) {
@@ -303,11 +310,21 @@ const Sales = () => {
                 <option value="skip_delivered">Skip</option>
               </select>
 
-              {(godownFilter || typeFilter || searchTerm) && (
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value)}
+                className="h-9 px-2.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shrink-0 min-w-[110px] max-w-[150px]"
+              >
+                <option value="pending">Pending Orders</option>
+                <option value="completed">Completed Orders</option>
+                <option value="all">All Statuses</option>
+              </select>
+
+              {(godownFilter || typeFilter || statusFilter !== 'pending' || searchTerm) && (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => { setGodownFilter(''); setTypeFilter(''); setSearchTerm(''); }}
+                  onClick={() => { setGodownFilter(''); setTypeFilter(''); setStatusFilter('pending'); setSearchTerm(''); }}
                   className="h-9 px-2.5 text-xs border-slate-200 hover:bg-slate-50 text-slate-600 shadow-sm shrink-0 gap-1"
                   title="Clear all filters"
                 >
