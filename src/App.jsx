@@ -17,6 +17,7 @@ import UltimateIMS from './pages/UltimateIMS/UltimateIMS';
 import ChecklistApp from './checklist/ChecklistApp';
 import DocsApp from './docs/DocsApp';
 import WhatsAppApp from './whatsapp/WhatsAppApp';
+import TransactionHistory from './pages/TransactionHistory/TransactionHistory';
 import { PAGES } from './constants';
 
 function App() {
@@ -44,6 +45,7 @@ function App() {
             <Route path="checklist/*" element={<ChecklistApp />} />
             <Route path="docs/*" element={<DocsApp />} />
             <Route path="whatsapp/*" element={<WhatsAppApp />} />
+            <Route path="transaction-history" element={<TransactionHistory />} />
             <Route path="my-profile" element={<MyProfile />} />
           </Route>
 

@@ -15,7 +15,7 @@ import CustomerModal from '../../Master/components/CustomerModal';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 import { getProductRateForCustomer, resolveCustomerTier } from '@/lib/pricingCategoryHelper';
 
-const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, godowns, customers, ranks = [], productGroups = [], onImportProducts, onImportCustomers }) => {
+const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, godowns, customers, ranks = [], productGroups = [], whatsappEnabled = true, onImportProducts, onImportCustomers }) => {
   const [form, setForm] = useState({
     order_date: new Date().toISOString().split('T')[0],
     order_number: '',
@@ -90,7 +90,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
         process_type: 'order_process',
         items: [],
       });
-      setNotifyCustomer(true);
+      setNotifyCustomer(whatsappEnabled);
       setExtraProducts([]);
       setExtraCustomers([]);
       setQuickAddProductRow(null);
@@ -115,13 +115,13 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
           sales_qty: item.sales_qty != null ? String(item.sales_qty) : String(item.quantity),
         })),
       });
-      setNotifyCustomer(true);
+      setNotifyCustomer(whatsappEnabled);
     } else {
       setForm(prev => ({
         ...prev,
         items: [{ product_id: '', godown_id: '', unit_price: '', Selected_Unit: '', sales_qty: '' }],
       }));
-      setNotifyCustomer(true);
+      setNotifyCustomer(whatsappEnabled);
       generateNextOrderNumber().then(num => {
         setForm(prev => ({ ...prev, order_number: num }));
       }).catch(() => {});
@@ -161,7 +161,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
           customer_id: form.customer_id,
           items: payloadItems,
           process_type: form.process_type,
-          notify_customer: notifyCustomer,
+          notify_customer: notifyCustomer && whatsappEnabled,
         });
         toast.success('Order updated successfully');
       } else {
@@ -172,7 +172,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
           items: payloadItems,
           created_by: user?.user_id,
           process_type: form.process_type,
-          notify_customer: notifyCustomer,
+          notify_customer: notifyCustomer && whatsappEnabled,
         });
         toast.success('Order created successfully');
       }
@@ -511,12 +511,16 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
             </ModalBody>
             <ModalFooter>
               <div className="flex items-center gap-2 mr-auto">
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer select-none">
+                <label
+                  className={`flex items-center gap-2 text-xs font-medium select-none ${whatsappEnabled ? 'text-slate-700 cursor-pointer' : 'text-slate-400 cursor-not-allowed'}`}
+                  title={whatsappEnabled ? undefined : 'WhatsApp is turned off for order confirmations (toggle it on in the Orders toolbar)'}
+                >
                   <input
                     type="checkbox"
-                    checked={notifyCustomer}
+                    checked={notifyCustomer && whatsappEnabled}
+                    disabled={!whatsappEnabled}
                     onChange={(e) => setNotifyCustomer(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer accent-primary"
+                    className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer accent-primary disabled:cursor-not-allowed"
                   />
                   <span>Notify Customer via WhatsApp</span>
                 </label>
@@ -539,6 +543,7 @@ const OrderModal = ({ isOpen, onClose, user, onSuccess, editingOrder, products, 
         customers={allCustomers}
         ranks={ranks}
         productGroups={productGroups}
+        whatsappEnabled={whatsappEnabled}
         onImportProducts={(product) => { setExtraProducts(prev => [...prev, product]); onImportProducts?.(product); }}
         onImportCustomers={(customer) => { setExtraCustomers(prev => [...prev, customer]); onImportCustomers?.(customer); }}
         onSuccess={() => {

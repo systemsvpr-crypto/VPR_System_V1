@@ -60,6 +60,8 @@ const EMPTY_TOTALS = () => ({
   currentStock: 0, pendingApprovalQty: 0, approvedQty: 0,
   inTransitQty: 0, atTptQty: 0, totalOrderedQty: 0, totalReceivedQty: 0,
   orderPendingQty: 0, dispatchedQty: 0, firstDispatchDate: null,
+  earliestExpectedDeliveryDate: null,
+  earliestExpectedReceivingDate: null,
 });
 
 /**
@@ -82,12 +84,12 @@ export const fetchImsRows = async () => {
   // One group per Product
   const groups = new Map();
   for (const p of products) {
-    groups.set(p.product_id, { key: p.product_id, productId: p.product_id, godownStats: new Map() });
+    groups.set(p.product_id, { key: p.product_id, productId: p.product_id, godownStats: new Map(), pipelineSchedule: [] });
   }
 
   const getGodownStats = (productId, godownId) => {
     if (!groups.has(productId)) {
-      groups.set(productId, { key: productId, productId, godownStats: new Map() });
+      groups.set(productId, { key: productId, productId, godownStats: new Map(), pipelineSchedule: [] });
     }
     const group = groups.get(productId);
     if (!group.godownStats.has(godownId)) {
@@ -147,17 +149,45 @@ export const fetchImsRows = async () => {
       const addMoving = (s, q) => { if (isTpt) s.atTptQty += q; else s.inTransitQty += q; };
 
       const allocations = d.purchase_delivery_godowns || [];
+      const expRecvDate = d.expected_delivery_date ? String(d.expected_delivery_date).slice(0, 10) : null;
+
+      if (!isRecv && dq > 0) {
+        const destGodownId = allocations[0]?.godown_id || indentGodownId;
+        const groupObj = groups.get(item.product_id);
+        if (groupObj) {
+          groupObj.pipelineSchedule.push({
+            id: d.delivery_id,
+            type: isTpt ? 'Transporter Godown' : 'In Transit',
+            refNumber: d.lifting_number || (d.lr_number ? `LR: ${d.lr_number}` : 'Lift'),
+            lrNumber: d.lr_number || '',
+            qty: dq,
+            godownId: destGodownId,
+            expectedDate: expRecvDate,
+            dateType: 'Expected Receiving Date',
+          });
+        }
+      }
       if (allocations.length > 0) {
         for (const alloc of allocations) {
           const allocQty = Number(alloc.qty) || 0;
           const s = getGodownStats(item.product_id, alloc.godown_id);
           if (isRecv) s.totalReceivedQty += allocQty;
-          else addMoving(s, allocQty);
+          else {
+            addMoving(s, allocQty);
+            if (expRecvDate && (!s.earliestExpectedReceivingDate || expRecvDate < s.earliestExpectedReceivingDate)) {
+              s.earliestExpectedReceivingDate = expRecvDate;
+            }
+          }
         }
       } else {
         const s = getGodownStats(item.product_id, indentGodownId);
         if (isRecv) s.totalReceivedQty += dq;
-        else addMoving(s, dq);
+        else {
+          addMoving(s, dq);
+          if (expRecvDate && (!s.earliestExpectedReceivingDate || expRecvDate < s.earliestExpectedReceivingDate)) {
+            s.earliestExpectedReceivingDate = expRecvDate;
+          }
+        }
       }
     }
 
@@ -173,7 +203,30 @@ export const fetchImsRows = async () => {
     } else if (!isApproved) {
       stats.pendingApprovalQty += qty;
     } else {
-      stats.approvedQty += Math.max(0, qty - totalDeliveredForThisItem);
+      const remainingApproved = Math.max(0, qty - totalDeliveredForThisItem);
+      stats.approvedQty += remainingApproved;
+      if (remainingApproved > 0) {
+        const expDelDate = item.expected_dispatch_date
+          ? String(item.expected_dispatch_date).slice(0, 10)
+          : (item.planning_date ? String(item.planning_date).slice(0, 10) : null);
+
+        if (expDelDate && (!stats.earliestExpectedDeliveryDate || expDelDate < stats.earliestExpectedDeliveryDate)) {
+          stats.earliestExpectedDeliveryDate = expDelDate;
+        }
+
+        const groupObj = groups.get(item.product_id);
+        if (groupObj) {
+          groupObj.pipelineSchedule.push({
+            id: item.item_id,
+            type: 'Approved',
+            refNumber: item.purchase_indents?.indent_number || 'Indent',
+            qty: remainingApproved,
+            godownId: indentGodownId,
+            expectedDate: expDelDate,
+            dateType: 'Expected Delivery Date',
+          });
+        }
+      }
     }
   }
 
@@ -184,7 +237,25 @@ export const fetchImsRows = async () => {
       godownName: godownMap.get(st.godownId)?.name || 'Unassigned Godown',
       godownType: godownMap.get(st.godownId)?.godown_type || 'Own',
     }));
+    const scheduleWithNames = (g.pipelineSchedule || []).map(entry => ({
+      ...entry,
+      godownName: godownMap.get(entry.godownId)?.name || (entry.godownId === 'unassigned' ? 'Godown not picked yet' : 'Unassigned Godown'),
+    })).sort((a, b) => {
+      if (!a.expectedDate && !b.expectedDate) return 0;
+      if (!a.expectedDate) return 1;
+      if (!b.expectedDate) return -1;
+      return a.expectedDate.localeCompare(b.expectedDate);
+    });
+
+    const approvedDates = scheduleWithNames.filter(e => e.type === 'Approved' && e.expectedDate).map(e => e.expectedDate);
+    const inTransitDates = scheduleWithNames.filter(e => e.type !== 'Approved' && e.expectedDate).map(e => e.expectedDate);
+
     return {
+      pipelineSchedule: scheduleWithNames,
+      earliestExpectedDeliveryDate: approvedDates.length > 0 ? [...approvedDates].sort()[0] : null,
+      latestExpectedDeliveryDate: approvedDates.length > 0 ? [...approvedDates].sort()[approvedDates.length - 1] : null,
+      earliestExpectedReceivingDate: inTransitDates.length > 0 ? [...inTransitDates].sort()[0] : null,
+      latestExpectedReceivingDate: inTransitDates.length > 0 ? [...inTransitDates].sort()[inTransitDates.length - 1] : null,
       key: g.productId,
       productId: g.productId,
       groupId: prod?.group_id || null,
@@ -217,6 +288,12 @@ export const sumImsStats = (stats) => {
     totals.totalOrderedQty += st.totalOrderedQty;
     totals.totalReceivedQty += st.totalReceivedQty;
     totals.orderPendingQty += (st.orderPendingQty || 0);
+    if (st.earliestExpectedDeliveryDate && (!totals.earliestExpectedDeliveryDate || st.earliestExpectedDeliveryDate < totals.earliestExpectedDeliveryDate)) {
+      totals.earliestExpectedDeliveryDate = st.earliestExpectedDeliveryDate;
+    }
+    if (st.earliestExpectedReceivingDate && (!totals.earliestExpectedReceivingDate || st.earliestExpectedReceivingDate < totals.earliestExpectedReceivingDate)) {
+      totals.earliestExpectedReceivingDate = st.earliestExpectedReceivingDate;
+    }
   }
   return { ...totals, avgDispatch: getAvgDispatch(totals.dispatchedQty, totals.firstDispatchDate) };
 };

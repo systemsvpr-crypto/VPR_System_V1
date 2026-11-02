@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, ClipboardList, Sparkles, Bell, CheckCircle, Mail, Truck, Download, Upload, ChevronLeft, ChevronRight, Trash2, X } from 'lucide-react';
+import { Search, ShoppingCart, Plus, ClipboardList, Sparkles, Bell, CheckCircle, Mail, Truck, Download, Upload, ChevronLeft, ChevronRight, Trash2, X, MessageCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllOrders, deleteOrder, deleteOrdersBulk } from '../../services/salesService';
@@ -28,7 +28,7 @@ const TABS = [
   { id: 'dispatch-planning', label: 'Dispatch Planning', icon: ClipboardList },
   { id: 'dispatch-completed', label: 'Dispatch Completed', icon: CheckCircle },
   { id: 'skip-delivered', label: 'Skip Delivered', icon: Truck, hidden: true },
-  { id: 'inform-after-dispatch', label: 'Inform After Dispatch', icon: Mail },
+  { id: 'inform-after-dispatch', label: 'Inform After Dispatch', icon: Mail, hidden: true },
 ];
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
@@ -48,6 +48,11 @@ const Sales = () => {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  // Whether creating/updating an order sends the customer's order-confirmation
+  // WhatsApp — remembered per browser, on by default. Acts as a master switch:
+  // Create Order / Bulk Upload's own per-order checkbox only matters while
+  // this is on.
+  const [orderWhatsappEnabled, setOrderWhatsappEnabled] = useState(() => localStorage.getItem('order_confirmation_whatsapp') !== 'off');
   const [editingOrder, setEditingOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -251,7 +256,7 @@ const Sales = () => {
   };
 
   return (
-    <div className="h-full flex-1 flex flex-col gap-3 min-h-0 overflow-hidden font-sans">
+    <div className="flex flex-col gap-3 pb-2 font-sans">
       <div className="flex justify-start w-full shrink-0 overflow-x-auto pb-1 custom-scrollbar">
         <TabSwitcher
           activeTab={activeTab}
@@ -272,9 +277,9 @@ const Sales = () => {
           <p className="text-sm text-slate-400">You don't have access to any Sales tabs. Contact your administrator.</p>
         </div>
       ) : (
-      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-col gap-4 flex-1">
       {activeTab === 'orders' && (
-        <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-col gap-3 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-2.5 shrink-0">
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               <div className="relative w-44 sm:w-52 lg:w-60 shrink-0">
@@ -341,6 +346,22 @@ const Sales = () => {
               )}
               {!loading && (
                 <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !orderWhatsappEnabled;
+                      setOrderWhatsappEnabled(next);
+                      localStorage.setItem('order_confirmation_whatsapp', next ? 'on' : 'off');
+                    }}
+                    className={`h-9 px-2.5 rounded-md border text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all shrink-0 ${orderWhatsappEnabled
+                      ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+                      : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                      }`}
+                    title={orderWhatsappEnabled ? 'Order confirmation WhatsApp: ON (click to disable)' : 'Order confirmation WhatsApp: OFF (click to enable)'}
+                  >
+                    <MessageCircle size={14} />
+                    WhatsApp {orderWhatsappEnabled ? 'On' : 'Off'}
+                  </button>
                   <Button variant="outline" size="sm" onClick={() => setBulkModalOpen(true)} className="h-9 gap-1.5 px-3 text-xs font-medium text-slate-700 border-slate-200 hover:bg-slate-50 shrink-0">
                     <Upload size={14} /><span>Bulk Upload</span>
                   </Button>
@@ -358,7 +379,7 @@ const Sales = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 flex flex-col flex-1 min-h-0 overflow-hidden shadow-sm">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
             <OrderTable orders={currentOrders} totalItems={filteredOrders.length} loading={loading}
               onEdit={handleEditOrder} onDelete={handleDeleteOrder} searchTerm={searchTerm}
               selectedIds={selectedOrderIds} onToggleSelect={handleToggleSelectOrder} onToggleSelectAll={handleToggleSelectAllOrders} />
@@ -409,6 +430,7 @@ const Sales = () => {
             user={user} onSuccess={loadData} editingOrder={editingOrder}
             products={products} godowns={godowns} customers={customers}
             ranks={ranks} productGroups={productGroups}
+            whatsappEnabled={orderWhatsappEnabled}
             onImportProducts={(product) => setProducts(prev => [...prev, product])}
             onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])} />
 
@@ -421,6 +443,7 @@ const Sales = () => {
             customers={customers}
             ranks={ranks}
             productGroups={productGroups}
+            whatsappEnabled={orderWhatsappEnabled}
             onImportProducts={(product) => setProducts(prev => [...prev, product])}
             onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])}
             onSuccess={loadData}
@@ -429,13 +452,13 @@ const Sales = () => {
       )}
 
       {activeTab === 'smart-dispatch' && (
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-col flex-1">
           <SmartDispatchPlanning godowns={godowns} />
         </div>
       )}
 
       {activeTab === 'dispatch-planning' && (
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-col flex-1">
           <DispatchPlanningTable godowns={godowns} searchTerm={searchTerm} dispatchFilter={dispatchFilter}
             onSearchChange={setSearchTerm} onFilterChange={setDispatchFilter}
             onSave={loadData} user={user} products={products} customers={customers}
@@ -446,13 +469,13 @@ const Sales = () => {
       )}
 
       {activeTab === 'dispatch-completed' && (
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-col flex-1">
           <DispatchCompletedTable searchTerm={searchTerm} onSearchChange={setSearchTerm} completeFilter={completeFilter} onFilterChange={setCompleteFilter} onSave={loadData} products={products} godowns={godowns} user={user} />
         </div>
       )}
 
       {activeTab === 'inform-after-dispatch' && (
-        <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-col gap-3 flex-1">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <div className="relative w-full md:w-72">
@@ -482,7 +505,7 @@ const Sales = () => {
       )}
 
       {activeTab === 'skip-delivered' && (
-        <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-col gap-3 flex-1">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <div className="relative w-full md:w-72">

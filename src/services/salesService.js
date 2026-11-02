@@ -461,8 +461,8 @@ export const getAllOrderItemsForDispatch = async () => {
     .select(`
       *,
       sales_orders!inner(
-        order_number, order_date, process_type,
-        customers:customer_id(name)
+        order_id, order_number, order_date, customer_id, process_type,
+        customers:customer_id(customer_id, name)
       ),
       products:product_id(name, unit, mux),
       godowns:godown_id(name)
@@ -765,7 +765,11 @@ export const saveDispatchPlan = async ({ plan_id, order_item_id, quantity, unit,
   if (plan_id) {
     const { data: existing } = await supabase.from('dispatch_plans').select('dispatch_number, quantity, godown_id, dispatch_status').eq('plan_id', plan_id).single();
     payload.dispatch_number = existing?.dispatch_number;
-    if (existing) payload.created_by = created_by;
+    if (created_by) {
+      payload.created_by = created_by;
+    } else if (existing?.created_by) {
+      payload.created_by = existing.created_by;
+    }
 
     // Editing a plan that hasn't been completed yet: just update the plan.
     // Plans made before stock moved to the completion step still carry
@@ -965,7 +969,9 @@ export const batchUpdateInformBeforeDispatch = async (planIds, inform_before_dis
 // `qtyByPlan` ({ [plan_id]: qty }, optional) — the qty that actually went
 // out in this dispatch, used in the WhatsApp message instead of the plan's
 // full qty (a partial dispatch only reports what was sent this time).
-export const batchUpdateInformAfterDispatch = async (planIds, inform_after_dispatch, qtyByPlan = {}) => {
+// `notify` (default true) — the caller's WhatsApp on/off toggle; false skips
+// the actual send but still marks the plans Informed.
+export const batchUpdateInformAfterDispatch = async (planIds, inform_after_dispatch, qtyByPlan = {}, notify = true) => {
   if (!planIds || planIds.length === 0) return { plans: [], notifyResults: [] };
   const { data, error } = await supabase
     .from('dispatch_plans')
@@ -979,7 +985,7 @@ export const batchUpdateInformAfterDispatch = async (planIds, inform_after_dispa
   // "Informed" flag silently disagreeing with what the customer actually
   // received. One result per plan.
   let notifyResults = [];
-  if (inform_after_dispatch === 'Informed') {
+  if (inform_after_dispatch === 'Informed' && notify) {
     notifyResults = await notifyDispatchConfirmations(planIds, qtyByPlan);
   }
 
@@ -1001,6 +1007,66 @@ export const updateDispatchPlan = async (plan_id, { dispatch_date, godown_id, qu
   if (error) throw error;
 };
 
+
+export const updatePendingDispatchOrderItem = async ({
+  item_id,
+  order_id,
+  order_date,
+  customer_id,
+  process_type,
+  product_id,
+  quantity,
+  unit,
+  unit_price,
+  godown_id,
+}) => {
+  // 1. Update sales_orders if order fields were modified
+  if (order_id) {
+    const orderUpdates = {};
+    if (order_date) orderUpdates.order_date = order_date;
+    if (customer_id) orderUpdates.customer_id = customer_id;
+    if (process_type) orderUpdates.process_type = process_type;
+    if (Object.keys(orderUpdates).length > 0) {
+      const { error: ordErr } = await supabase
+        .from('sales_orders')
+        .update(orderUpdates)
+        .eq('order_id', order_id);
+      if (ordErr) throw ordErr;
+    }
+  }
+
+  // 2. Update sales_order_items
+  const itemUpdates = { updated_at: new Date().toISOString() };
+  if (product_id) itemUpdates.product_id = product_id;
+  if (quantity != null) {
+    itemUpdates.quantity = Number(quantity);
+    itemUpdates.sales_qty = Number(quantity);
+  }
+  if (unit) {
+    itemUpdates.Selected_Unit = unit;
+  }
+  if (unit_price != null) itemUpdates.unit_price = Number(unit_price);
+  if (godown_id !== undefined) itemUpdates.godown_id = godown_id || null;
+
+  const { error: itemErr } = await supabase
+    .from('sales_order_items')
+    .update(itemUpdates)
+    .eq('item_id', item_id);
+  if (itemErr) throw itemErr;
+
+  // 3. Recalculate order total_amount
+  if (order_id) {
+    const { data: allItems } = await supabase
+      .from('sales_order_items')
+      .select('quantity, unit_price')
+      .eq('order_id', order_id);
+    const newTotal = (allItems || []).reduce(
+      (sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
+      0
+    );
+    await supabase.from('sales_orders').update({ total_amount: newTotal }).eq('order_id', order_id);
+  }
+};
 export const updateOrderItemFields = async (item_id, fields) => {
   const { error } = await supabase
     .from('sales_order_items')
@@ -1144,7 +1210,9 @@ export const deleteOrderItemsBulk = async (itemIds) => {
     const ordersWithItemsLeft = new Set(remaining.map(r => r.order_id));
     const emptyOrderIds = orderIds.filter(id => !ordersWithItemsLeft.has(id));
     if (emptyOrderIds.length > 0) {
-      await fetchInChunks(emptyOrderIds, (chunk) => supabase.from('sales_orders').delete().in('order_id', chunk));
+      await fetchInChunks(emptyOrderIds, (chunk) =>
+        supabase.from('sales_orders').delete().in('order_id', chunk).setHeader('x-audit-skip', 'true')
+      );
       deletedOrderCount = emptyOrderIds.length;
     }
   }
@@ -1201,13 +1269,14 @@ export const deleteDispatchPlansBulk = async (planIds) => {
   return { deletedCount: deleteIds.length, closedCount: partialIds.length };
 };
 
-// Dispatch Completed's "Close Dispatch" — for a Partially Dispatched plan the
-// customer won't take the rest of. What already went out stays a real
-// dispatch (its stock entries are kept) and the plan is closed at that qty
-// as Dispatch Done; the undispatched rest is CANCELLED on the order item
-// (cancelPendingQty: cancelled_quantity + a Cancelled history row), so it
-// does not come back to Dispatch Planning. Unlike Delete, which sends the
-// rest back to Dispatch Planning. Only Partially Dispatched plans qualify.
+// Dispatch Completed's "Close Dispatch" — for a plan (fully pending, planned,
+// or Partially Dispatched) the customer won't take the rest of. Whatever
+// already went out stays a real dispatch (its stock entries are kept) and
+// the plan is closed at that qty as Dispatch Done; the undispatched rest is
+// CANCELLED on the order item (cancelPendingQty: cancelled_quantity + a
+// Cancelled history row), so it does not come back to Dispatch Planning.
+// Unlike Delete, which sends the rest back to Dispatch Planning. Plans that
+// are already Dispatch Done or Cancelled don't qualify.
 export const closePartialDispatches = async (planIds, created_by) => {
   const ids = [...new Set(planIds)].filter(Boolean);
   if (ids.length === 0) return { closedCount: 0 };
@@ -1217,9 +1286,9 @@ export const closePartialDispatches = async (planIds, created_by) => {
       .select('plan_id, order_item_id, quantity, godown_id, unit_price, dispatch_status')
       .in('plan_id', chunk)
   );
-  const notPartial = plans.filter(p => p.dispatch_status !== 'Partially Dispatched');
-  if (notPartial.length > 0) {
-    throw new Error('Close Dispatch is only for Partially Dispatched plans.');
+  const notClosable = plans.filter(p => p.dispatch_status === 'Dispatch Done' || p.dispatch_status === 'Cancelled');
+  if (notClosable.length > 0) {
+    throw new Error('Close Dispatch cannot be used on plans that are already Dispatch Done or Cancelled.');
   }
 
   const txns = await fetchInChunks(ids, (chunk) =>

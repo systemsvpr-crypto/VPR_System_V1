@@ -14,6 +14,7 @@ export const PAGES = [
     { id: 'checklist', label: 'Checklist' },
     { id: 'docs', label: 'Docs & Subscriptions' },
     { id: 'whatsapp', label: 'WhatsApp' },
+    { id: 'transaction-history', label: 'Transaction History' },
     { id: 'settings', label: 'Global Settings' },
     { id: 'my-profile', label: 'My Profile' },
 ];

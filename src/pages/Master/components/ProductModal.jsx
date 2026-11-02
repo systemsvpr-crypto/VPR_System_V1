@@ -264,6 +264,22 @@ const ProductModal = ({
         toast.error(`${prefix}Brand name is required. Please select a group or enter a brand name.`);
         return;
       }
+      for (let pIdx = 0; pIdx < g.products.length; pIdx++) {
+        const p = g.products[pIdx];
+        const prodPrefix = groupBlocks.length > 1
+          ? `Group ${gIdx + 1}, Product ${pIdx + 1}: `
+          : (g.products.length > 1 ? `Product ${pIdx + 1}: ` : '');
+        const muxVal = String(p.mux ?? '').trim();
+        if (!muxVal) {
+          toast.error(`${prodPrefix}Mux (Weight) is required.`);
+          return;
+        }
+        const match = muxVal.match(/(\d+(\.\d+)?)/);
+        if (!match || parseFloat(match[1]) <= 0) {
+          toast.error(`${prodPrefix}Mux (Weight) must contain a valid positive number (e.g., 30 Kg).`);
+          return;
+        }
+      }
     }
 
     // Lead Time / Safety Factor are optional, but must be non-negative numbers when filled
@@ -555,7 +571,7 @@ const ProductModal = ({
                         Size <span className="text-slate-400 font-normal">(Type)</span>
                       </div>
                       <div className="col-span-2">Unit</div>
-                      <div className="col-span-2">Mux (Weight)</div>
+                      <div className="col-span-2">Mux (Weight) <span className="text-red-500">*</span></div>
                       <div className="col-span-2">Lead Time <span className="text-slate-400 font-normal">(Days)</span></div>
                       <div className="col-span-2">Safety Factor</div>
                       <div className={group.products.length > 1 && !isEditing ? "col-span-3" : "col-span-4"}>
@@ -604,7 +620,7 @@ const ProductModal = ({
 
                           {/* 3. Mux (Weight) */}
                           <div className="col-span-2 md:col-span-2 min-w-0">
-                            <label className="md:hidden block text-[11px] font-semibold text-slate-600 mb-1">Mux (Weight)</label>
+                            <label className="md:hidden block text-[11px] font-semibold text-slate-600 mb-1">Mux (Weight) <span className="text-red-500">*</span></label>
                             <Input
                               value={prod.mux}
                               onChange={(e) => updateProductInGroup(gIdx, pIdx, { mux: e.target.value })}

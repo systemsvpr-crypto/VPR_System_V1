@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useOwnStockTotals, StockCell } from '@/components/ProductStockPanel';
 import ProductImsModal, { ImsButton } from '@/components/ProductImsModal';
-import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Phone, MessageSquare, Pencil, X, Eye } from 'lucide-react';
+import { ShoppingCart, Check, History, Clock, Search, Zap, ArrowRightLeft, ChevronLeft, ChevronRight, Trash2, LayoutGrid, LayoutList, Calendar, CheckCircle2, Truck, User, MapPin, FileText, Package, RotateCw, ChevronDown, ChevronUp, Phone, MessageSquare, MessageCircle, Pencil, X, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import {
@@ -108,6 +108,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
   const [editingItem, setEditingItem] = useState(null);
   const [viewingDeleted, setViewingDeleted] = useState(null);
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('purchase_view_mode') || 'card');
+  // Whether submitting a delivery sends the "purchase delivered" WhatsApp —
+  // remembered per browser, on by default.
+  const [whatsappEnabled, setWhatsappEnabled] = useState(() => localStorage.getItem('purchase_delivered_whatsapp') !== 'off');
 
   const handleViewModeChange = (mode) => {
     setViewMode(mode);
@@ -540,7 +543,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
           delivery_date: actualDate,
           group_id: item.group_id || product?.group_id || item.purchase_indents?.group_id || null,
           expected_delivery_date: item.planning_date || null,
-          expected_dispatch_date: item.expected_dispatch_date || null,
+          expected_dispatch_date: item.expected_dispatch_date || (item.planning_date ? String(item.planning_date).slice(0, 10) : null),
           godown_allocations: defaultGodownId ? [{ godown_id: defaultGodownId, qty: masterQty }] : [],
           transporter_id: tId,
           lr_number: lrNum,
@@ -584,7 +587,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
       }
     }
 
-    if (successfulDeliveries.length > 0) {
+    if (successfulDeliveries.length > 0 && whatsappEnabled) {
       const groupedByLR = successfulDeliveries.reduce((acc, curr) => {
         const key = curr.lrNumber || 'NO_LR';
         if (!acc[key]) acc[key] = [];
@@ -592,6 +595,11 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
         return acc;
       }, {});
 
+      // A send failure (bad credentials, template rejected, etc.) used to be
+      // silently swallowed to console only, leaving "Submit" looking like it
+      // did nothing — surfaced here so a real failure is actually visible.
+      let waFailures = 0;
+      let lastWaError = '';
       for (const [lrKey, group] of Object.entries(groupedByLR)) {
         const lrNumber = lrKey === 'NO_LR' ? '-' : lrKey;
         const transporterName = group[0].transporterName;
@@ -611,8 +619,13 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
             });
           } catch (err) {
             console.error('WhatsApp Error:', err);
+            waFailures++;
+            lastWaError = err?.message || String(err);
           }
         }
+      }
+      if (waFailures > 0) {
+        toast.error(`Delivery saved, but ${waFailures} "Purchase Delivered" WhatsApp message(s) failed to send: ${lastWaError}`);
       }
     }
 
@@ -1013,7 +1026,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Expected Dispatch Date</label>
                       <DatePicker
                         showActions
-                        value={item.expected_dispatch_date || ''}
+                        value={item.expected_dispatch_date || (item.planning_date ? String(item.planning_date).slice(0, 10) : '')}
                         onChange={e => handleExpectedDispatchDateChange(item.item_id, e.target.value)}
                         placeholder="Select date"
                         className="h-8 text-xs bg-white"
@@ -1563,6 +1576,23 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
 
           <span className="text-xs text-slate-400 font-medium whitespace-nowrap">{currentList.length} item{currentList.length !== 1 ? 's' : ''}</span>
 
+          <button
+            type="button"
+            onClick={() => {
+              const next = !whatsappEnabled;
+              setWhatsappEnabled(next);
+              localStorage.setItem('purchase_delivered_whatsapp', next ? 'on' : 'off');
+            }}
+            className={`h-9 px-2.5 rounded-md border text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all shrink-0 ${whatsappEnabled
+              ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+              : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+              }`}
+            title={whatsappEnabled ? 'Purchase delivered WhatsApp: ON (click to disable)' : 'Purchase delivered WhatsApp: OFF (click to enable)'}
+          >
+            <MessageCircle size={14} />
+            WhatsApp {whatsappEnabled ? 'On' : 'Off'}
+          </button>
+
           {canModify && selectedItems.size > 0 && (
             <Button
               type="button"
@@ -1772,7 +1802,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                         <td className="px-3 py-3 text-center">
                           <DatePicker
                             showActions
-                            value={item.expected_dispatch_date || ''}
+                            value={item.expected_dispatch_date || (item.planning_date ? String(item.planning_date).slice(0, 10) : '')}
                             onChange={e => handleExpectedDispatchDateChange(item.item_id, e.target.value)}
                             placeholder="Select date"
                             className="h-8 text-xs min-w-[130px] bg-slate-50/50 border-slate-200"

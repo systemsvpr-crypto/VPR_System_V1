@@ -213,6 +213,7 @@ const IndentModal = ({ isOpen, onClose, user, onSuccess, editingIndent, products
         // Expected Delivery Date is picked once for the whole indent and
         // stored per item (planning_date), where Vendor Approval reads it.
         planning_date: form.expected_delivery_date || null,
+        expected_dispatch_date: form.expected_delivery_date || null,
       };
     });
     const headerGroupId = payloadItems.find(it => it.group_id)?.group_id || null;

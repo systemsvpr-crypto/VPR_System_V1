@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Mail, Square, CheckSquare, Send, Lock,
-  LayoutGrid, LayoutList, Calendar, MapPin, User, Package, Clock, Check
+  LayoutGrid, LayoutList, Calendar, MapPin, User, Package, Clock, Check, MessageCircle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -23,6 +23,8 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
   };
   const [checkedRows, setCheckedRows] = useState(() => new Set());
   const [isNotifying, setIsNotifying] = useState(false);
+  // Shared with Dispatch Completed's toggle — same WhatsApp message.
+  const [whatsappEnabled, setWhatsappEnabled] = useState(() => localStorage.getItem('dispatch_confirmation_whatsapp') !== 'off');
 
   useEffect(() => {
     loadPlans();
@@ -89,7 +91,7 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
       planIds.push(plan.plan_id);
     }
     try {
-      const { notifyResults } = await batchUpdateInformAfterDispatch(planIds, 'Informed');
+      const { notifyResults } = await batchUpdateInformAfterDispatch(planIds, 'Informed', {}, whatsappEnabled);
       setCheckedRows(new Set());
       setPlans(prev => prev.map(p =>
         planIds.includes(p.plan_id) ? { ...p, inform_after_dispatch: 'Informed' } : p
@@ -338,11 +340,29 @@ const InformAfterDispatchTable = ({ searchTerm, afterFilter, onSave }) => {
             </button>
           </div>
         </div>
-        <Button onClick={handleConfirmNotify} disabled={checkedRows.size === 0 || isNotifying}
-          className="gap-2 px-4 font-medium">
-          <Send size={16} />
-          {isNotifying ? 'Notifying...' : 'Confirm Notify'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const next = !whatsappEnabled;
+              setWhatsappEnabled(next);
+              localStorage.setItem('dispatch_confirmation_whatsapp', next ? 'on' : 'off');
+            }}
+            className={`h-9 px-2.5 rounded-md border text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all shrink-0 ${whatsappEnabled
+              ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+              : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+              }`}
+            title={whatsappEnabled ? 'Dispatch confirmation WhatsApp: ON (click to disable)' : 'Dispatch confirmation WhatsApp: OFF (click to enable)'}
+          >
+            <MessageCircle size={14} />
+            WhatsApp {whatsappEnabled ? 'On' : 'Off'}
+          </button>
+          <Button onClick={handleConfirmNotify} disabled={checkedRows.size === 0 || isNotifying}
+            className="gap-2 px-4 font-medium">
+            <Send size={16} />
+            {isNotifying ? 'Notifying...' : 'Confirm Notify'}
+          </Button>
+        </div>
       </div>
 
       {viewMode === 'card' && renderCards()}

@@ -32,8 +32,8 @@ const convertApproveQty = (qty, fromUnit, targetUnit, pkgSize) => {
   const from = (fromUnit || '').toLowerCase();
   const target = (targetUnit || from).toLowerCase();
   if (!from || target === from) return amount;
-  if (from === 'bag' && target === 'kg') return mux > 0 ? amount * mux : amount;
-  if (from === 'kg' && target === 'bag') return mux > 0 ? amount / mux : amount;
+  if (from === 'bag' && target === 'kg') return mux > 0 ? amount * mux : 0;
+  if (from === 'kg' && target === 'bag') return mux > 0 ? amount / mux : 0;
   return amount;
 };
 
@@ -234,6 +234,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
       approve_unit_qty: Number(approveUnitQty) || 0,
       approve_qty: approveQty,
       planning_date: getValue(item, 'planning_date') || null,
+      expected_dispatch_date: getValue(item, 'planning_date') || null,
       vendor_remarks: item.vendor_remarks,
       planning_status: 'Planned',
       approval_status: edit.approval_action,
@@ -396,6 +397,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
       const safeGroup = toWhatsappSafeName(gName);
       let bags = 0;
       let kg = 0;
+      let hasKg = false;
       const lines = groupRows.map(({ item, payload }, idx) => {
         const name = toWhatsappSafeName(item.products?.name || 'Product');
         const label = idx > 0 ? stripGroupPrefix(name, safeGroup) : name;
@@ -403,20 +405,27 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
         const unitQty = Number(payload.approve_unit_qty) || 0;
         const itemBags = convertApproveQty(unitQty, payload.approve_unit, 'bag', pkgSize);
         bags += itemBags;
-        kg += convertApproveQty(unitQty, payload.approve_unit, 'kg', pkgSize);
-        return { label, itemBags, rate: Number(payload.rate) || 0 };
+        const itemKg = convertApproveQty(unitQty, payload.approve_unit, 'kg', pkgSize);
+        const hasMux = pkgSize > 0 || (payload.approve_unit || '').toLowerCase() === 'kg';
+        if (hasMux && itemKg > 0) {
+          kg += itemKg;
+          hasKg = true;
+        }
+        return { label, itemBags, rate: Number(payload.rate) || 0, itemKg, hasMux };
       });
 
       if (lines.length === 1) {
-        const { label, itemBags, rate } = lines[0];
+        const { label, itemBags, rate, itemKg, hasMux } = lines[0];
         const ratePart = rate > 0 ? ` | ₹${formatWaNumber(rate)}` : '';
-        return `${label} - Bags: ${formatWaNumber(itemBags)}${ratePart} | KG: ${formatWaNumber(kg)}`;
+        const kgPart = hasMux && itemKg > 0 ? ` | KG: ${formatWaNumber(itemKg)}` : '';
+        return `${label} - Bags: ${formatWaNumber(itemBags)}${ratePart}${kgPart}`;
       }
 
       const parts = lines.map(({ label, itemBags, rate }) => (
         `${label} - ${formatWaNumber(itemBags)} Bags${rate > 0 ? ` - ₹${formatWaNumber(rate)}` : ''}`
       ));
-      return `${parts.join(' | ')} | Total Bags: ${formatWaNumber(bags)} | KG: ${formatWaNumber(kg)}`;
+      const kgPart = hasKg && kg > 0 ? ` | KG: ${formatWaNumber(kg)}` : '';
+      return `${parts.join(' | ')} | Total Bags: ${formatWaNumber(bags)}${kgPart}`;
     });
   };
 

@@ -263,6 +263,7 @@ export const createIndent = async ({ indent_date, indent_number, godown_id, vend
       vendor_remarks: targetRemarks,
       // Expected Delivery Date (Create Indent) — read by Vendor Approval.
       planning_date: item.planning_date || null,
+      expected_dispatch_date: item.expected_dispatch_date || item.planning_date || null,
       // reorder_unit/reorder_unit_qty are just a record of what was actually
       // picked/typed on Ultimate IMS's Reorder — quantity above is always the
       // converted, product-master-unit figure that drives the pipeline/stock.
@@ -366,7 +367,10 @@ export const updateIndent = async (indent_id, { indent_date, indent_number, godo
       direct_indent_unit: item.direct_indent_unit || null,
       direct_indent_qty: item.direct_indent_qty != null ? Number(item.direct_indent_qty) : null,
     };
-    if (item.planning_date !== undefined) baseItemPayload.planning_date = item.planning_date || null;
+    if (item.planning_date !== undefined) {
+      baseItemPayload.planning_date = item.planning_date || null;
+      baseItemPayload.expected_dispatch_date = item.expected_dispatch_date || item.planning_date || null;
+    }
 
     if (isDirect) {
       baseItemPayload.approved_godown_id = godown_id || null;
@@ -526,18 +530,49 @@ export const deletePendingDeliveryRemainder = async (item_id, user = null) => {
   }
 
   const liftedQty = roundQty(lifts.reduce((s, d) => s + (Number(d.received_quantity) || 0), 0));
+  const deletedQty = roundQty(Math.max(0, snapshot.item_qty - liftedQty));
   const logId = await logDeliveryDeletion(snapshot, {
-    deleted_qty: roundQty(Math.max(0, snapshot.item_qty - liftedQty)),
+    deleted_qty: deletedQty,
     delete_type: 'remainder',
   });
   const { error } = await supabase
     .from('purchase_indent_items')
     .update({ quantity: liftedQty })
-    .eq('item_id', item_id);
+    .eq('item_id', item_id)
+    .setHeader('x-audit-skip', 'true');
   if (error) {
     await removeDeliveryDeletionLog(logId);
     throw error;
   }
+
+  // Explicitly record the Delivery Remainder Deletion in system_audit_logs as DELETE action in Purchase Delivery stage
+  try {
+    const indentNo = snapshot.indent_number || 'Indent';
+    const prodName = snapshot.product_name || 'Item';
+    const unitStr = snapshot.product_unit ? ` ${snapshot.product_unit}` : '';
+    await supabase.from('system_audit_logs').insert({
+      user_id: user?.user_id || null,
+      user_name: user?.name || user?.username || 'System',
+      module: 'Purchase',
+      stage: 'Purchase Delivery',
+      table_name: 'purchase_deliveries',
+      record_id: item_id,
+      record_ref: `${indentNo} (Item: ${prodName})`,
+      action: 'DELETE',
+      summary: `Deleted pending delivery remainder (${deletedQty}${unitStr}) for ${indentNo}`,
+      diff: null,
+      full_data: {
+        indent_number: indentNo,
+        product_name: prodName,
+        deleted_qty: deletedQty,
+        lifted_qty: liftedQty,
+        original_qty: snapshot.item_qty,
+      },
+    });
+  } catch (auditErr) {
+    console.warn('Failed to log delivery remainder deletion audit:', auditErr);
+  }
+
   return { deleted: 'remainder', lifted_qty: liftedQty, lift_count: lifts.length };
 };
 
@@ -671,7 +706,8 @@ export const deleteIndentItem = async (item_id) => {
       const { error: indentErr } = await supabase
         .from('purchase_indents')
         .delete()
-        .eq('indent_id', indent_id);
+        .eq('indent_id', indent_id)
+        .setHeader('x-audit-skip', 'true');
       if (indentErr) throw indentErr;
     }
   }
@@ -743,13 +779,18 @@ export const getAllIndentItems = async () => {
     .order('created_at', { ascending: false }));
 };
 
-export const updateVendorSelection = async (item_id, { vendor_id, approved_godown_id, rate, quantity, planning_date, vendor_remarks, planning_status, approval_status, approved_by, approved_remarks, approve_unit, approve_unit_qty, approve_qty }) => {
+export const updateVendorSelection = async (item_id, { vendor_id, approved_godown_id, rate, quantity, planning_date, vendor_remarks, planning_status, approval_status, approved_by, approved_remarks, approve_unit, approve_unit_qty, approve_qty, expected_dispatch_date }) => {
   const updateFields = {};
   if (vendor_id !== undefined) updateFields.vendor_id = vendor_id;
   if (approved_godown_id !== undefined) updateFields.approved_godown_id = approved_godown_id;
   if (rate !== undefined) updateFields.rate = Number(rate);
   if (quantity !== undefined) updateFields.quantity = Number(quantity);
   if (planning_date !== undefined) updateFields.planning_date = planning_date;
+  if (expected_dispatch_date !== undefined) {
+    updateFields.expected_dispatch_date = expected_dispatch_date;
+  } else if (planning_date !== undefined && approval_status === 'Approved') {
+    updateFields.expected_dispatch_date = planning_date;
+  }
   if (vendor_remarks !== undefined) updateFields.vendor_remarks = vendor_remarks;
   if (planning_status !== undefined) updateFields.planning_status = planning_status;
   if (approval_status !== undefined) updateFields.approval_status = approval_status;
@@ -935,8 +976,12 @@ export const getApprovedItemsForDelivery = async () => {
         ? vendorMap[item.approved_vendor_id] || item.item_vendor?.name
         : item.item_vendor?.name;
 
+      const effectiveExpectedDispatchDate = item.expected_dispatch_date
+        || (item.planning_date ? String(item.planning_date).slice(0, 10) : null);
+
       return {
         ...item,
+        expected_dispatch_date: effectiveExpectedDispatchDate,
         approved_vendor: vendor_name ? { name: vendor_name } : null,
         received_qty,
         allocated_qty,
@@ -1592,19 +1637,19 @@ export const getPurchaseCompleteItems = async () => {
 };
 
 export const getPackagingSize = (product) => {
-  if (!product) return 30;
-  if (product.packaging_size && !isNaN(Number(product.packaging_size))) {
+  if (!product) return 0;
+  if (product.packaging_size && !isNaN(Number(product.packaging_size)) && Number(product.packaging_size) > 0) {
     return Number(product.packaging_size);
   }
   if (product.mux) {
     const match = String(product.mux).match(/(\d+(\.\d+)?)/);
-    if (match) return parseFloat(match[1]);
+    if (match && parseFloat(match[1]) > 0) return parseFloat(match[1]);
   }
   if (product.name) {
     const match = String(product.name).match(/\((\d+(\.\d+)?)\s*Kg\)/i);
-    if (match) return parseFloat(match[1]);
+    if (match && parseFloat(match[1]) > 0) return parseFloat(match[1]);
   }
-  return 30;
+  return 0;
 };
 
 export const getAawakDeliveries = async (statusFilter = null) => {
@@ -2703,8 +2748,10 @@ export const getReorderStatusItems = async () => {
       planning_status,
       approval_status,
       approved_godown_id,
-      purchase_indents!inner(is_void, process_type),
-      purchase_deliveries(status, received_quantity, purchase_delivery_godowns(godown_id, qty))
+      planning_date,
+      expected_dispatch_date,
+      purchase_indents!inner(indent_id, indent_number, is_void, process_type),
+      purchase_deliveries(delivery_id, lifting_number, lr_number, status, received_quantity, expected_delivery_date, delivery_date, purchase_delivery_godowns(godown_id, qty))
     `)
     .eq('purchase_indents.is_void', false));
 };

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  CheckCircle, Square, CheckSquare, Save, Lock, AlertTriangle, ChevronLeft, ChevronRight, Trash2,
+  CheckCircle, Square, CheckSquare, Save, Lock, AlertTriangle, ChevronLeft, ChevronRight, Trash2, Edit2,
   LayoutGrid, LayoutList, Calendar, MapPin, User, Package, Clock, RotateCw, Check, Ban, Search, X, Boxes, PackageCheck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -16,6 +16,7 @@ import { canEditOrDelete } from '../../../lib/permissions';
 import TableScrollSync from '@/components/TableScrollSync';
 import { sanitizeQtyInput } from '@/lib/qty';
 import ProductImsModal from '@/components/ProductImsModal';
+import EditDispatchPlanModal from './EditDispatchPlanModal';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -48,6 +49,38 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
   const [editValues, setEditValues] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(null);
+
+  const handleRowEdit = (plan) => {
+    if (!canDelete) {
+      toast.error('Permission denied. Only Admins can edit dispatch plans.');
+      return;
+    }
+    setEditingPlan(plan);
+  };
+
+  const handleRowDelete = async (plan) => {
+    if (!canDelete) {
+      toast.error('Permission denied. Only Admins can delete dispatch plans.');
+      return;
+    }
+    const isDone = plan.dispatch_status === 'Dispatch Done';
+    const confirmMsg = isDone
+      ? `Permanently delete completed dispatch ${plan.dispatch_number || 'plan'}? This will reverse the stock transaction (${plan.quantity} ${plan.sales_order_items?.products?.unit || ''}) back to ${plan.godowns?.name || 'the godown'}.`
+      : `Permanently delete dispatch plan ${plan.dispatch_number || 'plan'}? The quantity will return to Dispatch Planning.`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      await deleteDispatchPlansBulk([plan.plan_id]);
+      toast.success(`Dispatch ${plan.dispatch_number || 'plan'} deleted`);
+      await loadPlans();
+      await loadStock();
+      onSave?.();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete dispatch plan');
+    }
+  };
   const [closingSelected, setClosingSelected] = useState(false);
   const [stockMap, setStockMap] = useState({});
   const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
@@ -861,6 +894,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
                     </div>
                   )}
                 </th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[100px] whitespace-nowrap">Actions</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[120px] whitespace-nowrap">Dispatch No.</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[180px] whitespace-nowrap">Dispatch Date</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[130px] whitespace-nowrap">Order No.</th>
@@ -893,6 +927,32 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
                         <input type="checkbox" checked={isChecked} onChange={() => toggleCheck(plan.plan_id, isDone)}
                           className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer align-middle" />
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-center whitespace-nowrap w-[100px]" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          type="button"
+                          onClick={() => handleRowEdit(plan)}
+                          title="Edit dispatch"
+                          className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all"
+                        >
+                          <Edit2 size={15} />
+                        </Button>
+                        {canDelete && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            type="button"
+                            onClick={() => handleRowDelete(plan)}
+                            title="Delete dispatch"
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                          >
+                            <Trash2 size={15} />
+                          </Button>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-center font-medium text-slate-800 w-[120px] whitespace-nowrap">
                       {plan.dispatch_number || '—'}
@@ -1010,7 +1070,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
               })}
               {currentPlans.length === 0 && (
                 <tr>
-                  <td colSpan="16" className="p-12 text-center">
+                  <td colSpan="17" className="p-12 text-center">
                     <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4 border border-slate-100">
                       <CheckCircle size={32} className="text-slate-300" />
                     </div>
@@ -1067,6 +1127,22 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
           </div>
       </div>
       <ProductImsModal product={imsProduct} onClose={() => setImsProduct(null)} />
+
+      {editingPlan && (
+        <EditDispatchPlanModal
+          isOpen={!!editingPlan}
+          onClose={() => setEditingPlan(null)}
+          plan={editingPlan}
+          godowns={godowns}
+          user={user}
+          onSuccess={async () => {
+            await loadPlans();
+            await loadStock();
+            onSave?.();
+          }}
+          isCompleted={editingPlan.dispatch_status === 'Dispatch Done'}
+        />
+      )}
     </div>
   );
 };

@@ -327,6 +327,19 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
   };
 
   const handleImport = async () => {
+    const invalidMuxRows = rows.filter(r => {
+      if (!r.isNew && r.productId) return false;
+      const muxVal = String(r.mux || '').trim();
+      if (!muxVal) return true;
+      const match = muxVal.match(/(\d+(\.\d+)?)/);
+      return !match || parseFloat(match[1]) <= 0;
+    });
+
+    if (invalidMuxRows.length > 0) {
+      toast.error(`${invalidMuxRows.length} new product row(s) are missing a valid Mux (Weight). Please edit them before importing.`);
+      return;
+    }
+
     setStep('processing');
     setSubmitting(true);
     try {
@@ -461,8 +474,8 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
                       </div>
                       <p className="text-slate-600 text-[11px] leading-relaxed">
                         Your document can include headers for <strong>Brand Name</strong>, <strong>Category</strong>, <strong>Size</strong>, <strong>Unit</strong>,
-                        <strong> mux</strong>, <strong>Godown Name</strong>, <strong>Qty</strong>, <strong>Lead Time</strong> and <strong>Safety Factor</strong> — none are mandatory. Product Name is auto-generated as Brand + Category + Size + (mux) and matched
-                        against existing products — a combination not found in the system will be auto-created. Godowns must already exist in Master records.
+                        <strong> mux (Weight) *</strong>, <strong>Godown Name</strong>, <strong>Qty</strong>, <strong>Lead Time</strong> and <strong>Safety Factor</strong>. <strong>Mux (Weight)</strong> is required for all new products being added. Product Name is auto-generated as Brand + Category + Size + (mux) and matched
+                        against existing products. Godowns must already exist in Master records.
                       </p>
                     </div>
                   </div>
@@ -721,7 +734,7 @@ const BulkImportModal = ({ isOpen, onClose, godowns, products, user, onSuccess }
                                 <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.category || <span className="text-red-400 italic">empty</span>}</td>
                                 <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.productType || <span className="text-slate-300">—</span>}</td>
                                 <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.unit || <span className="text-slate-300">—</span>}</td>
-                                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.mux || <span className="text-slate-300">—</span>}</td>
+                                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.mux ? r.mux : (r.isNew ? <span className="text-red-500 font-medium text-xs">Required *</span> : <span className="text-slate-300">—</span>)}</td>
                                 <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{r.godownName || <span className="text-red-400 italic">empty</span>}</td>
                                 <td className="px-3 py-2 text-right font-medium whitespace-nowrap">{r.qty || <span className="text-red-400 italic">0</span>}</td>
                                 <td className="px-3 py-2 whitespace-nowrap">

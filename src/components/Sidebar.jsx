@@ -40,6 +40,7 @@ import {
   MessagesSquare,
   Megaphone,
   Truck,
+  History,
 } from 'lucide-react';
 import vprLogo from '../../assets/vpr_logo.png';
 import { DOCS_DATA_CHANGED_EVENT, fetchDocsSidebarBadgeCounts } from '../docs/services/docsApi';
@@ -178,6 +179,7 @@ const Sidebar = ({ onClose }) => {
     'checklist': ListChecks,
     'docs': FolderLock,
     'whatsapp': MessageCircle,
+    'transaction-history': History,
     'settings': Settings,
     'my-profile': User,
   };

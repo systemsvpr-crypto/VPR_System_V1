@@ -22,6 +22,7 @@ const NO_SOFT_DELETE = new Set([
   'whatsapp_broadcast_schedules',
   'vw_whatsapp_chat_inbox',
   'daily_snapshots',
+  'system_audit_logs',
   'godown_stock',
   'checklist_users',
   'checklist_unique_tasks',
@@ -82,6 +83,38 @@ const hideDeleted = (url, method) => {
   return url + (url.includes('?') ? '&' : '?') + extra;
 };
 
+// Dynamically detects the business stage/view where the action is taking place
+// so audit logs can accurately record "Dispatch Planning", "Purchase Delivery", etc.
+const getAppStage = () => {
+  if (typeof window === 'undefined' || !window.location) return null;
+  const path = window.location.pathname || '';
+  const search = window.location.search || '';
+  const params = new URLSearchParams(search);
+  const tab = params.get('tab');
+
+  if (path.includes('/purchase')) {
+    if (tab === 'in-transit') return 'Purchase Delivery';
+    if (tab === 'vendor-selection') return 'Vendor Approval';
+    if (tab === 'approval') return 'Approval';
+    if (tab === 'aawak-details') return 'Aawak Details';
+    if (tab === 'purchase-complete') return 'Purchase Dashboard';
+    return 'Indent';
+  }
+  if (path.includes('/sales')) {
+    if (tab === 'dispatch-planning') return 'Dispatch Planning';
+    if (tab === 'smart-dispatch') return 'Smart Dispatch';
+    if (tab === 'dispatch-completed') return 'Dispatch Completed';
+    return 'Orders';
+  }
+  if (path.includes('/stock-management')) return 'Stock Management';
+  if (path.includes('/master')) return 'Master Data';
+  if (path.includes('/pricing')) return 'Pricing';
+  if (path.includes('/settings')) return 'Settings';
+  if (path.includes('/live-stock-dashboard')) return 'Live Stock';
+  if (path.includes('/ultimate-ims')) return 'Ultimate IMS';
+  return null;
+};
+
 // Tells the database which app user is making each data request, so its
 // triggers can record who created / edited / deleted a row. VPR logs in through
 // its own `users` table, not Supabase Auth, so the user rides along as request
@@ -94,13 +127,17 @@ const withAppUser = (input, init = {}) => {
       const method = String(init.method || (typeof input === 'string' ? 'GET' : input.method) || 'GET').toUpperCase();
       const target = typeof input === 'string' ? hideDeleted(url, method) : input;
       const u = JSON.parse(localStorage.getItem('user') || 'null');
-      if (u?.user_id || u?.username) {
-        const headers = new Headers(init.headers || (typeof input === 'string' ? undefined : input.headers));
-        if (u.user_id) headers.set('x-app-user-id', encodeURIComponent(u.user_id));
-        if (u.username) headers.set('x-app-username', encodeURIComponent(u.username));
-        return fetch(target, { ...init, headers });
+      const headers = new Headers(init.headers || (typeof input === 'string' ? undefined : input.headers));
+
+      if (u?.user_id) headers.set('x-app-user-id', encodeURIComponent(u.user_id));
+      if (u?.username) headers.set('x-app-username', encodeURIComponent(u.username));
+
+      if (!headers.has('x-app-stage')) {
+        const stage = getAppStage();
+        if (stage) headers.set('x-app-stage', encodeURIComponent(stage));
       }
-      return fetch(target, init);
+
+      return fetch(target, { ...init, headers });
     }
   } catch {
     // fall through to the plain request

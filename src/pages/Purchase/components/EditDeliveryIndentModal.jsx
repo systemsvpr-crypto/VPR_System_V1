@@ -38,7 +38,7 @@ const EditDeliveryIndentModal = ({ isOpen, onClose, item, products = [], vendors
         product_id: productId,
         quantity: item.quantity != null ? String(item.quantity) : '',
         rate: savedRate !== '' ? String(savedRate) : '',
-        expected_dispatch_date: item.expected_dispatch_date ? item.expected_dispatch_date.slice(0, 10) : '',
+        expected_dispatch_date: item.expected_dispatch_date ? item.expected_dispatch_date.slice(0, 10) : (item.planning_date ? String(item.planning_date).slice(0, 10) : ''),
       });
     }
   }, [item, isOpen]);

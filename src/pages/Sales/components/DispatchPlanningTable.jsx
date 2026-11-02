@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  ClipboardList, Package, Truck, Search, Trash2, Ban,
+  ClipboardList, Package, Truck, Search, Trash2, Ban, Edit2,
   AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Zap,
   LayoutGrid, LayoutList, Calendar, MapPin, User, Check, Clock, RotateCw, Warehouse, X, Boxes
@@ -9,7 +9,7 @@ import { format, differenceInCalendarDays } from 'date-fns';
 import toast from 'react-hot-toast';
 import {
   getAllOrderItemsForDispatch, getAllDispatchPlans, saveDispatchPlan,
-  convertQtyToMasterUnit, convertQtyFromMasterUnit, deleteOrderItemsBulk,
+  convertQtyToMasterUnit, convertQtyFromMasterUnit, deleteOrderItemsBulk, deleteDispatchPlansBulk,
   cancelPendingQty, generateNextDispatchNumbers,
 } from '../../../services/salesService';
 import { getAllProductStock } from '../../../services/masterService';
@@ -22,6 +22,8 @@ import { sanitizeQtyInput } from '@/lib/qty';
 import { canEditOrDelete } from '@/lib/permissions';
 import DirectOrderModal from './DirectOrderModal';
 import ProductImsModal from '@/components/ProductImsModal';
+import EditOrderItemModal from './EditOrderItemModal';
+import EditDispatchPlanModal from './EditDispatchPlanModal';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 const HISTORY_PAGE_SIZE_OPTIONS = [50, 100, 200];
@@ -125,6 +127,55 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   // number actually follows is decided purely by which button gets clicked
   // (Dispatch vs. Cancel), not by which box it was typed into.
   const [cancellingAll, setCancellingAll] = useState(false);
+  const [editingOrderItem, setEditingOrderItem] = useState(null);
+  const [editingHistoryPlan, setEditingHistoryPlan] = useState(null);
+
+  const handleRowEditPending = (item) => {
+    setEditingOrderItem(item);
+  };
+
+  const handleRowDeletePending = async (item) => {
+    if (!canDelete) {
+      toast.error('Permission denied. Only Admins can delete dispatch items.');
+      return;
+    }
+    const orderNo = item.sales_orders?.order_number || item.item_id;
+    if (!window.confirm(`Permanently delete item "${item.productName}" from order ${orderNo}? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      const { deletedItemCount, deletedOrderCount } = await deleteOrderItemsBulk([item.item_id]);
+      let msg = `Deleted ${deletedItemCount} item${deletedItemCount !== 1 ? 's' : ''}`;
+      if (deletedOrderCount > 0) msg += ` (${deletedOrderCount} order${deletedOrderCount !== 1 ? 's' : ''} fully removed)`;
+      toast.success(msg);
+      await loadItems();
+      onSave?.();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete order item');
+    }
+  };
+
+  const handleRowEditHistory = (row) => {
+    setEditingHistoryPlan(row.plan);
+  };
+
+  const handleRowDeleteHistory = async (row) => {
+    if (!canDelete) {
+      toast.error('Permission denied. Only Admins can delete dispatch plans.');
+      return;
+    }
+    if (!window.confirm(`Permanently delete dispatch plan ${row.dispatchNo}? This returns ${row.dispatchQty} quantity back to Dispatch Planning.`)) {
+      return;
+    }
+    try {
+      await deleteDispatchPlansBulk([row.key]);
+      toast.success(`Dispatch plan ${row.dispatchNo} deleted`);
+      await loadItems();
+      onSave?.();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete dispatch plan');
+    }
+  };
 
   // smart dispatch planning controls (pending view only)
   const [sortBy, setSortBy] = useState('latest');
@@ -954,6 +1005,33 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                     />
                   </div>
                 </div>
+
+                <div className="border-t border-slate-100 px-3.5 py-2 flex items-center justify-end gap-2 bg-slate-50/70">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    onClick={() => handleRowEditPending(item)}
+                    className="h-7 gap-1 px-2.5 text-xs text-slate-700 hover:text-primary hover:bg-primary/5"
+                    title="Plan / Edit this item"
+                  >
+                    <Edit2 size={13} />
+                    <span>Plan / Edit</span>
+                  </Button>
+                  {canDelete && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      onClick={() => handleRowDeletePending(item)}
+                      className="h-7 gap-1 px-2 text-xs text-red-600 hover:bg-red-50 hover:border-red-200 border-slate-200"
+                      title="Delete order item"
+                    >
+                      <Trash2 size={13} />
+                      <span>Delete</span>
+                    </Button>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -1135,6 +1213,33 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                       </div>
                     </div>
                   </div>
+                </div>
+
+                <div className="border-t border-slate-100 px-3.5 py-2 flex items-center justify-end gap-2 bg-slate-50/70">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    onClick={() => handleRowEditHistory(row)}
+                    className="h-7 gap-1 px-2.5 text-xs text-slate-700 hover:text-primary hover:bg-primary/5"
+                    title="Edit dispatch plan"
+                  >
+                    <Edit2 size={13} />
+                    <span>Edit</span>
+                  </Button>
+                  {canDelete && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      onClick={() => handleRowDeleteHistory(row)}
+                      className="h-7 gap-1 px-2 text-xs text-red-600 hover:bg-red-50 hover:border-red-200 border-slate-200"
+                      title="Delete dispatch plan"
+                    >
+                      <Trash2 size={13} />
+                      <span>Delete</span>
+                    </Button>
+                  )}
                 </div>
               </div>
             );
@@ -1404,6 +1509,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                     className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
                 ), className: 'w-10 !py-3 !px-4',
               },
+              { label: 'Actions', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4 text-center w-24' },
               { label: 'Date', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Order No', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
               { label: 'Customer Name', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4' },
@@ -1437,6 +1543,32 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                   <td className="px-4 py-3 text-center">
                     <input type="checkbox" checked={selected} onChange={() => toggleDispatchSelect(item)}
                       className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+                  </td>
+                  <td className="px-4 py-3 text-center whitespace-nowrap w-24" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        type="button"
+                        onClick={() => handleRowEditPending(item)}
+                        title="Plan / Edit this item"
+                        className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all"
+                      >
+                        <Edit2 size={15} />
+                      </Button>
+                      {canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          type="button"
+                          onClick={() => handleRowDeletePending(item)}
+                          title="Delete order item"
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                        >
+                          <Trash2 size={15} />
+                        </Button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-center text-slate-600 whitespace-nowrap">
                     {item.sales_orders?.order_date ? format(new Date(item.sales_orders.order_date), 'dd/MM/yyyy') : '—'}
@@ -1534,7 +1666,9 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
             }
             minWidth="2050px"
             headers={[
-              { label: 'Dispatch No' }, { label: 'Order Date' }, { label: 'Order No' }, 
+              { label: 'Dispatch No' },
+              { label: 'Actions', className: '!text-xs !font-semibold !text-slate-500 !py-3 !px-4 text-center w-24' },
+              { label: 'Order Date' }, { label: 'Order No' }, 
               { label: 'Ordered Qty' }, { label: 'Unit' }, { label: 'Dispatch Qty' }, 
               { label: 'Cancel Qty' }, { label: 'Converted Qty' }, { label: 'Dispatch Date' }, 
               { label: 'Dispatch Godown' }, { label: 'Customer Name' }, { label: 'Order Type' }, 
@@ -1552,6 +1686,32 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
             renderRow={(row) => (
               <tr key={row.key} className={`text-xs hover:bg-slate-50/80 transition-colors ${row.status === 'Dispatch Done' ? 'bg-emerald-50/30' : row.status === 'Cancelled' ? 'bg-red-50/30' : ''}`}>
                 <td className="px-4 py-2 text-center font-semibold text-slate-700 whitespace-nowrap">{row.dispatchNo}</td>
+                <td className="px-4 py-2 text-center whitespace-nowrap w-24" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      type="button"
+                      onClick={() => handleRowEditHistory(row)}
+                      title="Edit dispatch plan"
+                      className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all"
+                    >
+                      <Edit2 size={15} />
+                    </Button>
+                    {canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        type="button"
+                        onClick={() => handleRowDeleteHistory(row)}
+                        title="Delete dispatch plan"
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                      >
+                        <Trash2 size={15} />
+                      </Button>
+                    )}
+                  </div>
+                </td>
                 <td className="px-4 py-2 text-center text-slate-600 whitespace-nowrap">{row.orderDate ? format(new Date(row.orderDate), 'dd/MM/yyyy') : '—'}</td>
                 <td className="px-4 py-2 text-center font-semibold text-primary whitespace-nowrap">{row.orderNumber}</td>
                 <td className="px-4 py-2 text-center font-semibold text-slate-900 tabular-nums whitespace-nowrap">{row.orderedQty}</td>
@@ -1663,6 +1823,37 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
         onSuccess={async () => { await loadItems(); onSave?.(); }}
       />
       <ProductImsModal product={imsProduct} onClose={() => setImsProduct(null)} />
+
+      {editingOrderItem && (
+        <EditOrderItemModal
+          isOpen={!!editingOrderItem}
+          onClose={() => setEditingOrderItem(null)}
+          item={editingOrderItem}
+          products={products}
+          customers={customers}
+          godowns={godowns}
+          user={user}
+          onSuccess={async () => {
+            await loadItems();
+            onSave?.();
+          }}
+        />
+      )}
+
+      {editingHistoryPlan && (
+        <EditDispatchPlanModal
+          isOpen={!!editingHistoryPlan}
+          onClose={() => setEditingHistoryPlan(null)}
+          plan={editingHistoryPlan}
+          godowns={godowns}
+          user={user}
+          onSuccess={async () => {
+            await loadItems();
+            onSave?.();
+          }}
+          isCompleted={editingHistoryPlan.dispatch_status === 'Dispatch Done'}
+        />
+      )}
     </div>
   );
 };
