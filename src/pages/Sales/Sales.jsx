@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, ShoppingCart, Plus, ClipboardList, Sparkles, Bell, CheckCircle, Mail, Truck, Download, Upload, ChevronLeft, ChevronRight, Trash2, X, MessageCircle } from 'lucide-react';
+import { Search, ShoppingCart, Plus, ClipboardList, Sparkles, Bell, CheckCircle, Mail, Truck, Download, Upload, ChevronLeft, ChevronRight, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllOrders, deleteOrder, deleteOrdersBulk } from '../../services/salesService';
@@ -48,11 +48,7 @@ const Sales = () => {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
-  // Whether creating/updating an order sends the customer's order-confirmation
-  // WhatsApp — remembered per browser, on by default. Acts as a master switch:
-  // Create Order / Bulk Upload's own per-order checkbox only matters while
-  // this is on.
-  const [orderWhatsappEnabled, setOrderWhatsappEnabled] = useState(() => localStorage.getItem('order_confirmation_whatsapp') !== 'off');
+
   const [editingOrder, setEditingOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -346,22 +342,6 @@ const Sales = () => {
               )}
               {!loading && (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !orderWhatsappEnabled;
-                      setOrderWhatsappEnabled(next);
-                      localStorage.setItem('order_confirmation_whatsapp', next ? 'on' : 'off');
-                    }}
-                    className={`h-9 px-2.5 rounded-md border text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all shrink-0 ${orderWhatsappEnabled
-                      ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
-                      : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                      }`}
-                    title={orderWhatsappEnabled ? 'Order confirmation WhatsApp: ON (click to disable)' : 'Order confirmation WhatsApp: OFF (click to enable)'}
-                  >
-                    <MessageCircle size={14} />
-                    WhatsApp {orderWhatsappEnabled ? 'On' : 'Off'}
-                  </button>
                   <Button variant="outline" size="sm" onClick={() => setBulkModalOpen(true)} className="h-9 gap-1.5 px-3 text-xs font-medium text-slate-700 border-slate-200 hover:bg-slate-50 shrink-0">
                     <Upload size={14} /><span>Bulk Upload</span>
                   </Button>
@@ -430,7 +410,6 @@ const Sales = () => {
             user={user} onSuccess={loadData} editingOrder={editingOrder}
             products={products} godowns={godowns} customers={customers}
             ranks={ranks} productGroups={productGroups}
-            whatsappEnabled={orderWhatsappEnabled}
             onImportProducts={(product) => setProducts(prev => [...prev, product])}
             onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])} />
 
@@ -443,7 +422,6 @@ const Sales = () => {
             customers={customers}
             ranks={ranks}
             productGroups={productGroups}
-            whatsappEnabled={orderWhatsappEnabled}
             onImportProducts={(product) => setProducts(prev => [...prev, product])}
             onImportCustomers={(customer) => setCustomers(prev => [...prev, customer])}
             onSuccess={loadData}

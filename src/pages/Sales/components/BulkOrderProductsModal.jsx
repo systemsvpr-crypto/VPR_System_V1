@@ -127,7 +127,7 @@ const fixSheetRange = (sheet) => {
 // 'order_process', and each created order's items also get their dispatch
 // auto-planned (see createDirectOrder) instead of just landing as plain
 // pending order items.
-const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns = [], customers = [], ranks = [], productGroups = [], whatsappEnabled = true, onImportProducts, onImportCustomers, onSuccess, processType = 'order_process', autoPlanDispatch = false }) => {
+const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns = [], customers = [], ranks = [], productGroups = [], onImportProducts, onImportCustomers, onSuccess, processType = 'order_process', autoPlanDispatch = false }) => {
   const fileInputRef = useRef(null);
   const [step, setStep] = useState('upload');
   const [fileName, setFileName] = useState('');
@@ -522,7 +522,7 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
             };
           }),
           // Direct orders never send an automatic WhatsApp confirmation.
-          notify_customer: autoPlanDispatch ? false : (grp.notify_customer && whatsappEnabled),
+          notify_customer: autoPlanDispatch ? false : Boolean(grp.notify_customer),
         };
 
         if (autoPlanDispatch) {
@@ -756,15 +756,13 @@ const BulkOrderProductsModal = ({ isOpen, onClose, user, products = [], godowns 
                           <input
                             type="checkbox"
                             id={`notify-${group.key}`}
-                            checked={group.notify_customer && whatsappEnabled}
-                            disabled={!whatsappEnabled}
+                            checked={Boolean(group.notify_customer)}
                             onChange={(e) => handleGroupHeaderChange(group.key, 'notify_customer', e.target.checked)}
-                            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:cursor-not-allowed"
+                            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
                           />
                           <label
                             htmlFor={`notify-${group.key}`}
-                            className={`font-medium ${whatsappEnabled ? 'text-slate-600 cursor-pointer' : 'text-slate-400 cursor-not-allowed'}`}
-                            title={whatsappEnabled ? undefined : 'WhatsApp is turned off for order confirmations (toggle it on in the Orders toolbar)'}
+                            className="font-medium text-slate-600 cursor-pointer"
                           >
                             Send WhatsApp Message
                           </label>

@@ -4,7 +4,7 @@ import { sendOrderConfirmationWhatsapp, sendDispatchConfirmationWhatsapp } from 
 import { getPackagingSize } from './purchaseService';
 import { roundQty } from '../lib/qty';
 import { getGroupNameFromItem } from './productGroupingService';
-import { toWhatsappSafeName, stripGroupPrefix, formatWaNumber, numberLabel } from '../lib/whatsappFormat';
+import { toWhatsappSafeName, stripGroupPrefix, formatWaNumber, numberLabel, formatNumberedProductList } from '../lib/whatsappFormat';
 
 // Bag <-> Kg conversion for dispatch planning. `product.unit` is the
 // master unit ('bag' or 'kg'); `product.mux` (e.g. "32 Kg") gives the
@@ -302,30 +302,68 @@ const formatUnitPlural = (unit, qty) => {
   return unit || '';
 };
 
-const buildOrderItemEntry = (item, p, index) => {
-  const brandAndCat = [p?.brand_name, p?.category].map(v => (v || '').trim()).filter(Boolean).join(' ');
-  let size = formatSize(p?.product_type);
-  let title = brandAndCat;
+const convertSalesQty = (qty, fromUnit, targetUnit, pkgSize) => {
+  const amount = Number(qty) || 0;
+  const mux = Number(pkgSize) || 0;
+  const from = (fromUnit || '').toLowerCase();
+  const target = (targetUnit || from).toLowerCase();
+  if (!from || target === from) return amount;
+  if (from === 'bag' && target === 'kg') return mux > 0 ? amount * mux : 0;
+  if (from === 'kg' && target === 'bag') return mux > 0 ? amount / mux : 0;
+  return amount;
+};
 
-  if (!title) {
-    let name = toWhatsappSafeName(p?.name || 'Item');
-    const sizeMatch = name.match(/(\d+(\.\d+)?\s*[×\*x]\s*\d+(\.\d+)?)/i);
-    if (!size && sizeMatch) {
-      size = formatSize(sizeMatch[1]);
-      name = name.replace(sizeMatch[0], '').replace(/\(\s*\d+\s*kg\s*\)/gi, '').trim();
+// One entry per product group: the first item's full name, later items
+// without the repeated group prefix. Bags always come before the rate.
+// Single product:  "test amit 12×12 (40 Kg) - Bags: 45 | ₹46 | KG: 1800"
+// Several products: each with its own bags then rate, followed by the group totals:
+// "Darla xoxo 1×2 - 5 Bags - ₹1 | 2×3 - 5 Bags - ₹1 | Total Bags: 10 | KG: 300"
+export const buildOrderProductEntries = (items, prodMap = {}) => {
+  const byGroup = new Map();
+  items.forEach(item => {
+    const product = prodMap[item.product_id] || {};
+    const gName = getGroupNameFromItem({ products: product });
+    const key = gName && gName !== '—' ? gName : (product.name || 'Product');
+    if (!byGroup.has(key)) byGroup.set(key, []);
+    byGroup.get(key).push({ item, product });
+  });
+
+  return [...byGroup.entries()].map(([gName, groupRows]) => {
+    const safeGroup = toWhatsappSafeName(gName);
+    let bags = 0;
+    let kg = 0;
+    let hasKg = false;
+    const lines = groupRows.map(({ item, product }, idx) => {
+      const name = toWhatsappSafeName(product.name || 'Product');
+      const label = idx > 0 ? stripGroupPrefix(name, safeGroup) : name;
+      const pkgSize = getPackagingSize(product);
+      const unit = (item.Selected_Unit || product.unit || 'bag').toLowerCase();
+      const qty = item.sales_qty != null ? Number(item.sales_qty) : (Number(item.quantity) || 0);
+      const itemBags = convertSalesQty(qty, unit, 'bag', pkgSize);
+      bags += itemBags;
+      const itemKg = convertSalesQty(qty, unit, 'kg', pkgSize);
+      const hasMux = pkgSize > 0 || unit === 'kg';
+      if (hasMux && itemKg > 0) {
+        kg += itemKg;
+        hasKg = true;
+      }
+      const rate = Number(item.unit_price) || 0;
+      return { label, itemBags, rate, itemKg, hasMux };
+    });
+
+    if (lines.length === 1) {
+      const { label, itemBags, rate, itemKg, hasMux } = lines[0];
+      const ratePart = rate > 0 ? ` | ₹${formatWaNumber(rate)}` : '';
+      const kgPart = hasMux && itemKg > 0 ? ` | KG: ${formatWaNumber(itemKg)}` : '';
+      return `${label} - Bags: ${formatWaNumber(itemBags)}${ratePart}${kgPart}`;
     }
-    title = name;
-  }
 
-  const price = item.unit_price != null && Number(item.unit_price) > 0
-    ? ` — ₹${formatWaNumber(item.unit_price)}/-`
-    : '';
-
-  const qty = item.sales_qty != null ? Number(item.sales_qty) : Number(item.quantity);
-  const unitLabel = formatUnitPlural(item.Selected_Unit || p?.unit || '', qty);
-  const sizePart = size ? `   ${size}` : '';
-
-  return `${numberLabel(index)} ${title}${price}${sizePart} — ${formatWaNumber(qty)}${unitLabel ? ' ' + unitLabel : ''}`;
+    const parts = lines.map(({ label, itemBags, rate }) => (
+      `${label} - ${formatWaNumber(itemBags)} Bags${rate > 0 ? ` - ₹${formatWaNumber(rate)}` : ''}`
+    ));
+    const kgPart = hasKg && kg > 0 ? ` | KG: ${formatWaNumber(kg)}` : '';
+    return `${parts.join(' | ')} | Total Bags: ${formatWaNumber(bags)}${kgPart}`;
+  });
 };
 
 const notifyOrderConfirmation = async (customer_id, items, order_date) => {
@@ -339,14 +377,13 @@ const notifyOrderConfirmation = async (customer_id, items, order_date) => {
   const productIds = [...new Set(items.map(i => i.product_id))];
   const { data: productRows } = await supabase
     .from('products')
-    .select('product_id, name, unit, brand_name, category, product_type, mux')
+    .select('product_id, name, unit, brand_name, category, product_type, mux, group_id, product_groups:group_id(group_id, group_name)')
     .in('product_id', productIds);
   const prodMap = {};
   (productRows || []).forEach(p => { prodMap[p.product_id] = p; });
 
-  const itemDetails = items
-    .map((item, index) => buildOrderItemEntry(item, prodMap[item.product_id], index))
-    .join(' • ');
+  const entries = buildOrderProductEntries(items, prodMap);
+  const itemDetails = formatNumberedProductList(entries, { heading: '' });
 
   const totalQtyNum = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
   const distinctUnits = [...new Set(items.map(i => (i.Selected_Unit || prodMap[i.product_id]?.unit || '').trim()).filter(Boolean))];
@@ -1458,6 +1495,7 @@ const notifyDispatchConfirmations = async (planIds, qtyByPlan = {}) => {
     .select(`
       plan_id, quantity, dispatch_date,
       sales_order_items!inner(
+        unit_price, Selected_Unit,
         products:product_id(name, unit, mux, brand_name, category, group_id, product_groups:group_id(group_name)),
         sales_orders!inner(customer_id, customers:customer_id(name, phone_number))
       )
@@ -1532,28 +1570,46 @@ const buildDispatchEntries = (plans) => {
 
   const entries = [...byGroup.entries()].map(([gName, groupPlans]) => {
     const safeGroup = toWhatsappSafeName(gName);
+    let bags = 0;
+    let kg = 0;
+    let hasKg = false;
     const lines = groupPlans.map((plan, idx) => {
-      const product = plan.sales_order_items?.products || {};
+      const item = plan.sales_order_items || {};
+      const product = item.products || {};
       const name = toWhatsappSafeName(product.name || 'Product');
       const label = idx > 0 ? stripGroupPrefix(name, safeGroup) : name;
-      const unit = String(product.unit || '').toLowerCase();
+      const pkgSize = getPackagingSize(product);
+      const unit = (item.Selected_Unit || product.unit || 'bag').toLowerCase();
       const qty = Number(plan.quantity) || 0;
-      let amount = qty;
-      let unitLabel = product.unit || '';
-      if (unit === 'bag' || unit === 'kg') {
-        const pkg = getPackagingSize(product);
-        amount = unit === 'kg' && pkg > 0 ? qty / pkg : qty;
-        unitLabel = 'Bags';
+      const itemBags = convertSalesQty(qty, unit, 'bag', pkgSize);
+      bags += itemBags;
+      const itemKg = convertSalesQty(qty, unit, 'kg', pkgSize);
+      const hasMux = pkgSize > 0 || unit === 'kg';
+      if (hasMux && itemKg > 0) {
+        kg += itemKg;
+        hasKg = true;
       }
-      addTotal(unitLabel.toLowerCase(), amount);
-      return { label, amount, unitLabel };
+      const rate = Number(item.unit_price) || 0;
+      if (unit === 'kg' && pkgSize === 0) {
+        addTotal('kg', qty);
+      } else {
+        addTotal('bags', itemBags);
+      }
+      return { label, itemBags, rate, itemKg, hasMux };
     });
 
     if (lines.length === 1) {
-      const { label, amount, unitLabel } = lines[0];
-      return `${label} - ${unitLabel}: ${formatWaNumber(amount)}`;
+      const { label, itemBags, rate, itemKg, hasMux } = lines[0];
+      const ratePart = rate > 0 ? ` | ₹${formatWaNumber(rate)}` : '';
+      const kgPart = hasMux && itemKg > 0 ? ` | KG: ${formatWaNumber(itemKg)}` : '';
+      return `${label} - Bags: ${formatWaNumber(itemBags)}${ratePart}${kgPart}`;
     }
-    return lines.map(({ label, amount, unitLabel }) => `${label} - ${formatWaNumber(amount)} ${unitLabel}`).join(' | ');
+
+    const parts = lines.map(({ label, itemBags, rate }) => (
+      `${label} - ${formatWaNumber(itemBags)} Bags${rate > 0 ? ` - ₹${formatWaNumber(rate)}` : ''}`
+    ));
+    const kgPart = hasKg && kg > 0 ? ` | KG: ${formatWaNumber(kg)}` : '';
+    return `${parts.join(' | ')} | Total Bags: ${formatWaNumber(bags)}${kgPart}`;
   });
 
   const totalLabel = [...totals.entries()]
