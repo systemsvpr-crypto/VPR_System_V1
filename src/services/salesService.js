@@ -1301,26 +1301,59 @@ export const closePartialDispatches = async (planIds, created_by) => {
     const dispatched = roundQty(dispatchedMap[plan.plan_id] || 0);
     const leftover = roundQty(Number(plan.quantity) - dispatched);
 
-    const { error } = await supabase
-      .from('dispatch_plans')
-      .update({ quantity: dispatched, dispatch_status: 'Dispatch Done', updated_at: new Date().toISOString() })
-      .eq('plan_id', plan.plan_id);
-    if (error) throw error;
+    if (dispatched > 0) {
+      const { error } = await supabase
+        .from('dispatch_plans')
+        .update({ quantity: dispatched, dispatch_status: 'Dispatch Done', updated_at: new Date().toISOString() })
+        .eq('plan_id', plan.plan_id);
+      if (error) throw error;
 
-    if (leftover > 0) {
-      await cancelPendingQty({
-        order_item_id: plan.order_item_id,
-        cancel_qty: leftover,
-        godown_id: plan.godown_id,
-        unit_price: plan.unit_price,
-        created_by,
-        reason: 'Closed from Dispatch Completed (rest of a partial dispatch)',
-      });
+      if (leftover > 0) {
+        await cancelPendingQty({
+          order_item_id: plan.order_item_id,
+          cancel_qty: leftover,
+          godown_id: plan.godown_id,
+          unit_price: plan.unit_price,
+          created_by,
+          reason: 'Closed from Dispatch Completed (rest of a partial dispatch)',
+        });
+      }
+    } else {
+      // Fully pending plan (dispatched === 0): cancel the entire plan directly
+      await supabase.from('transactions').delete().eq('dispatch_plan_id', plan.plan_id).eq('is_void', false);
+
+      const { error } = await supabase
+        .from('dispatch_plans')
+        .update({
+          dispatch_status: 'Cancelled',
+          cancelled_at: new Date().toISOString(),
+          cancelled_by: created_by,
+          cancelled_reason: 'Closed from Dispatch Completed (cancelled full pending dispatch)',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('plan_id', plan.plan_id);
+      if (error) throw error;
+
+      if (leftover > 0) {
+        const { data: itemRow } = await supabase
+          .from('sales_order_items')
+          .select('cancelled_quantity')
+          .eq('item_id', plan.order_item_id)
+          .single();
+        const baseCancelled = Number(itemRow?.cancelled_quantity || 0);
+        const { error: updErr } = await supabase
+          .from('sales_order_items')
+          .update({ cancelled_quantity: baseCancelled + leftover })
+          .eq('item_id', plan.order_item_id);
+        if (updErr) throw updErr;
+      }
     }
   }
 
   return { closedCount: plans.length };
 };
+
+export const closeDispatches = closePartialDispatches;
 
 export const completeDispatchWithStockOut = async ({ plan_id, product_id, godown_id, quantity, dispatch_date, dispatch_number, created_by }) => {
   const getTodayLocal = () => {

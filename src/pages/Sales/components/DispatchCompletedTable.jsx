@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   CheckCircle, Square, CheckSquare, Save, Lock, AlertTriangle, ChevronLeft, ChevronRight, Trash2, Edit2,
-  LayoutGrid, LayoutList, Calendar, MapPin, User, Package, Clock, RotateCw, Check, Ban, Search, X, Boxes, PackageCheck
+  LayoutGrid, LayoutList, Calendar, MapPin, User, Package, Clock, RotateCw, Check, Ban, Search, X, Boxes, PackageCheck, MessageCircle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAllDispatchPlans, completeDispatchWithStockOut, batchUpdateInformAfterDispatch, deleteDispatchPlansBulk, closePartialDispatches } from '../../../services/salesService';
@@ -82,6 +82,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
     }
   };
   const [closingSelected, setClosingSelected] = useState(false);
+  const [whatsappEnabled, setWhatsappEnabled] = useState(() => localStorage.getItem('dispatch_confirmation_whatsapp') !== 'off');
   const [stockMap, setStockMap] = useState({});
   const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
 
@@ -189,7 +190,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
     } else if (completeFilter === 'dispatch-done') {
       // Partially dispatched plans show here too (for what's already gone
       // out) as well as under Pending (for the rest still to dispatch).
-      result = result.filter(plan => plan.dispatch_status === 'Dispatch Done' || plan.dispatch_status === 'Partially Dispatched');
+      result = result.filter(plan => plan.dispatch_status === 'Dispatch Done' || plan.dispatch_status === 'Partially Dispatched' || plan.dispatch_status === 'Cancelled');
     }
 
     if (orderFilter) {
@@ -323,7 +324,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
       // separate manual visit to the Inform After Dispatch tab.
       let notifyResults = [];
       try {
-        const result = await batchUpdateInformAfterDispatch(completedPlanIds, 'Informed', qtyByPlan);
+        const result = await batchUpdateInformAfterDispatch(completedPlanIds, 'Informed', qtyByPlan, whatsappEnabled);
         notifyResults = result.notifyResults || [];
       } catch (err) {
         errors.push(`Completed, but failed to mark as informed: ${err.message}`);
@@ -335,9 +336,13 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
 
       let message = `Completed ${completedPlanIds.length} dispatch(es) with stock out`;
       if (partialCount > 0) message += ` (${partialCount} partial — rest still pending)`;
-      if (sentCount > 0) message += ` — ${sentCount} customer(s) notified via WhatsApp`;
-      if (noPhoneCount > 0) message += `, ${noPhoneCount} skipped (no phone number on file)`;
-      if (failedCount > 0) message += `, ${failedCount} WhatsApp message(s) failed to send`;
+      if (whatsappEnabled) {
+        if (sentCount > 0) message += ` — ${sentCount} customer(s) notified via WhatsApp`;
+        if (noPhoneCount > 0) message += `, ${noPhoneCount} skipped (no phone number on file)`;
+        if (failedCount > 0) message += `, ${failedCount} WhatsApp message(s) failed to send`;
+      } else {
+        message += ' (WhatsApp notification turned off)';
+      }
 
       if (failedCount > 0) toast.error(message);
       else toast.success(message);
@@ -388,9 +393,9 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
     setDeletingSelected(false);
   };
 
-  // Close Dispatch — for Partially Dispatched plans the customer won't take
-  // the rest of: closes the plan at the qty already dispatched (Dispatch
-  // Done) and cancels the rest on the order, so it does NOT go back to
+  // Close Dispatch — for plans (Partially Dispatched or fully pending) the customer
+  // won't take (or the rest of): closes the plan (or marks it Cancelled), and
+  // cancels the undispatched quantity on the order item so it does NOT go back to
   // Dispatch Planning (unlike Delete).
   const handleCloseSelected = async () => {
     if (!canDelete) {
@@ -398,21 +403,29 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
       return;
     }
     const selected = plans.filter(p => checkedRows.has(p.plan_id));
-    const partial = selected.filter(p => p.dispatch_status === 'Partially Dispatched');
-    if (partial.length === 0) {
-      toast.error('Close Dispatch is only for Partially Dispatched plans. Select at least one.');
+    if (selected.length === 0) {
+      toast.error('Select at least one dispatch to close.');
       return;
     }
-    if (partial.length !== selected.length) {
-      toast.error('Only Partially Dispatched plans can be closed. Untick the other rows first.');
+    const closable = selected.filter(p => p.dispatch_status !== 'Dispatch Done' && p.dispatch_status !== 'Cancelled');
+    if (closable.length === 0) {
+      toast.error('Selected dispatches are already closed or cancelled.');
       return;
     }
-    const lines = partial.map(p => `• ${p.dispatch_number || 'Plan'} — ${getRemainingQty(p)} left will be cancelled`).join('\n');
-    if (!window.confirm(`Close ${partial.length} partial dispatch${partial.length !== 1 ? 'es' : ''}? The qty already dispatched stays as Dispatch Done; the rest is cancelled and will not go back to Dispatch Planning.\n\n${lines}`)) return;
+    const lines = closable.map(p => {
+      const dQty = getDispatchedQty(p);
+      const rQty = getRemainingQty(p);
+      if (dQty > 0) {
+        return `• ${p.dispatch_number || 'Plan'} — ${dQty} dispatched stays as Done, ${rQty} left will be cancelled`;
+      }
+      return `• ${p.dispatch_number || 'Plan'} — full plan (${rQty}) will be cancelled`;
+    }).join('\n');
+
+    if (!window.confirm(`Close ${closable.length} dispatch${closable.length !== 1 ? 'es' : ''}? Cancelled quantities will not go back to Dispatch Planning.\n\n${lines}`)) return;
 
     setClosingSelected(true);
     try {
-      const { closedCount } = await closePartialDispatches(partial.map(p => p.plan_id), user?.user_id);
+      const { closedCount } = await closePartialDispatches(closable.map(p => p.plan_id), user?.user_id);
       setCheckedRows(new Set());
       toast.success(`Closed ${closedCount} dispatch${closedCount !== 1 ? 'es' : ''}.`);
       await loadPlans();
@@ -807,8 +820,27 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
         )}
 
         {!isHistoryView && (
+          <button
+            type="button"
+            onClick={() => {
+              const next = !whatsappEnabled;
+              setWhatsappEnabled(next);
+              localStorage.setItem('dispatch_confirmation_whatsapp', next ? 'on' : 'off');
+            }}
+            className={`h-9 px-2.5 rounded-md border text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all sm:ml-auto shrink-0 ${whatsappEnabled
+              ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+              : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+              }`}
+            title={whatsappEnabled ? 'Dispatch confirmation WhatsApp: ON (click to disable)' : 'Dispatch confirmation WhatsApp: OFF (click to enable)'}
+          >
+            <MessageCircle size={14} />
+            WhatsApp {whatsappEnabled ? 'On' : 'Off'}
+          </button>
+        )}
+
+        {!isHistoryView && (
           <Button onClick={handleSave} disabled={checkedRows.size === 0 || isSaving}
-            className="gap-2 px-4 font-medium h-9 w-full sm:w-auto text-xs sm:ml-auto shrink-0">
+            className="gap-2 px-4 font-medium h-9 w-full sm:w-auto text-xs shrink-0">
             <Save size={16} />
             {isSaving ? 'Completing...' : 'Complete'}
           </Button>
@@ -816,8 +848,8 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
 
         {canDelete && !isHistoryView && (
           <Button variant="outline" onClick={handleCloseSelected}
-            disabled={closingSelected || !plans.some(p => checkedRows.has(p.plan_id) && p.dispatch_status === 'Partially Dispatched')}
-            title="Close a partially dispatched plan: keep what was dispatched, cancel the rest"
+            disabled={closingSelected || checkedRows.size === 0}
+            title="Close selected dispatches: for partial plans, keep what was dispatched and cancel the rest; for pending plans, cancel the dispatch"
             className="gap-2 px-4 font-medium h-9 w-full sm:w-auto text-xs shrink-0 border-amber-300 text-amber-700 hover:bg-amber-50">
             <PackageCheck size={16} />
             {closingSelected ? 'Closing...' : 'Close Dispatch'}

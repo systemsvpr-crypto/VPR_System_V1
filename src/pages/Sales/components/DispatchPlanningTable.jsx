@@ -371,6 +371,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
         const convertedQty = Number(p.converted_value ?? dispatchQty);
         return {
           key: p.plan_id,
+          plan: p,
           dispatchNo: p.dispatch_number || '—',
           orderDate: p.sales_order_items?.sales_orders?.order_date,
           orderNumber: p.sales_order_items?.sales_orders?.order_number || '—',
