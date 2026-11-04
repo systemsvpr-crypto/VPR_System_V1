@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useAuthStore from "../../store/authStore";
 import { useWaToast } from "../utils/toast";
-import WhatsAppSubNav from "../components/WhatsAppSubNav";
 import ChatSidebar from "../components/ChatSidebar";
 import ChatWindow from "../components/ChatWindow";
 import EmptyState from "../components/EmptyState";
@@ -587,8 +586,6 @@ export default function ChatInboxPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-3 pb-2">
-      <WhatsAppSubNav />
-
       <div className="flex flex-1 min-h-[520px] w-full overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-2xs">
         <ChatSidebar
           conversations={conversations}
