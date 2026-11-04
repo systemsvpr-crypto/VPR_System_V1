@@ -1786,7 +1786,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                           {pendingQty}
                         </td>
                         <td className="px-3 py-3 text-center text-slate-600">
-                          {savedRate !== '' && savedRate != null ? Number(savedRate).toFixed(2) : '—'}
+                          {savedRate !== '' && savedRate != null ? `₹${Number(savedRate).toFixed(2)}` : '—'}
                         </td>
                         <td className="px-3 py-3 text-center">
                           <Input
@@ -1926,6 +1926,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                     <th className={`sticky ${productLeft} z-20 bg-blue-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)] text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap`}>Product Name</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">IMS</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Current Stock</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Received Qty</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in BAG</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Dispatch in KG</th>
@@ -1942,7 +1943,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                 <tbody className="divide-y divide-slate-100">
                   {currentList.length === 0 && (
                     <tr>
-                      <td colSpan={canModify ? 20 : 19} className="p-12 text-center text-slate-400">
+                      <td colSpan={canModify ? 21 : 20} className="p-12 text-center text-slate-400">
                         <ShoppingCart size={36} className="mx-auto mb-2 text-slate-300" />
                         <p className="text-sm font-medium">No delivery history found.</p>
                       </td>
@@ -1987,6 +1988,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                             {del.purchase_indent_items?.product_id ? <ImsButton onClick={() => setImsProduct({ productId: del.purchase_indent_items?.product_id, productName: prod.name })} /> : '—'}
                           </td>
                           <StockCell totals={stockTotals} productId={del.purchase_indent_items?.product_id} />
+                          <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
+                            {del.purchase_indent_items?.rate != null ? `₹${Number(del.purchase_indent_items.rate).toFixed(2)}` : '—'}
+                          </td>
                           <td className="px-3 py-3 text-center text-slate-400">—</td>
                           <td className="px-3 py-3 text-center text-slate-400">—</td>
                           <td className="px-3 py-3 text-center text-slate-400">—</td>
@@ -2054,6 +2058,9 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
                           {del.purchase_indent_items?.product_id ? <ImsButton onClick={() => setImsProduct({ productId: del.purchase_indent_items?.product_id, productName: prod.name })} /> : '—'}
                         </td>
                         <StockCell totals={stockTotals} productId={del.purchase_indent_items?.product_id} />
+                        <td className="px-3 py-3 text-center text-slate-700 whitespace-nowrap">
+                          {del.purchase_indent_items?.rate != null ? `₹${Number(del.purchase_indent_items.rate).toFixed(2)}` : '—'}
+                        </td>
                         <td className="px-3 py-3 text-center font-bold text-emerald-700">
                           {qtyKg}
                         </td>
