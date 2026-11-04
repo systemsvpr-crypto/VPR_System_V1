@@ -126,13 +126,6 @@ Deno.serve(async (req: Request) => {
 
               const convId = await rpcRes.json();
 
-              // A contact messaging in again should bring their chat back to the
-              // inbox sidebar if it was previously "deleted" there.
-              await fetch(`${supabaseUrl}/rest/v1/whatsapp_hidden_conversations?conversation_id=eq.${convId}`, {
-                method: 'DELETE',
-                headers: dbHeaders,
-              }).catch((e: unknown) => console.error('Failed to unhide conversation:', e));
-
               // Extend contact 24-hour session window
               const sessionExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
               // Look up contact id for this conv

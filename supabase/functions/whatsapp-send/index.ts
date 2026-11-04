@@ -130,13 +130,6 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Messaging a contact again should bring their chat back to the inbox
-    // sidebar if it was previously "deleted" there.
-    await fetch(`${supabaseUrl}/rest/v1/whatsapp_hidden_conversations?conversation_id=eq.${targetConvId}`, {
-      method: 'DELETE',
-      headers: dbHeaders,
-    }).catch((e) => console.error('Failed to unhide conversation:', e));
-
     // Check parent message wamid if reply
     let parentWaMessageId: string | null = null;
     if (replyToMessageId) {

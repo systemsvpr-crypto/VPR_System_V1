@@ -17,7 +17,7 @@ import {
   fetchUsers,
   markConversationRead,
   softDeleteMessages,
-  hideConversation,
+  deleteConversationPermanently,
   sendTextMessage,
   sendTemplateMessage,
   sendMediaMessage,
@@ -542,19 +542,17 @@ export default function ChatInboxPage() {
     }
   };
 
-  // Deletes the whole open conversation: soft-deletes every message in it
-  // (same mechanism as a single-message delete) and hides it from the sidebar
-  // (whatsapp_hidden_conversations) until that contact messages again.
+  // Permanently deletes the whole open conversation — its messages, their
+  // status history, and the conversation row itself. Not a soft delete; this
+  // cannot be undone, and the thread will not reappear from local state.
   const handleDeleteConversation = async () => {
     if (!activeChatId) return;
     const conv = conversations.find((c) => c.chatId === activeChatId);
     const name = conv?.customerName || "this chat";
-    if (!window.confirm(`Delete the entire chat with "${name}"? This cannot be undone.`)) return;
+    if (!window.confirm(`Permanently delete the entire chat with "${name}"? This cannot be undone.`)) return;
 
-    const ids = (messagesByChat[activeChatId] || []).map((m) => m.id);
     try {
-      if (ids.length) await softDeleteMessages(ids);
-      await hideConversation(activeChatId);
+      await deleteConversationPermanently(activeChatId);
       setMessagesByChat((prev) => {
         const next = { ...prev };
         delete next[activeChatId];

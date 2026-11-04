@@ -40,33 +40,46 @@ async function throwFunctionError(error) {
 // ---------------------------------------------------------------------------
 
 export async function fetchInboxConversations() {
-  const [convRes, hiddenIds] = await Promise.all([
-    supabase
-      .from("vw_whatsapp_chat_inbox")
-      .select("*")
-      .order("last_message_at", { ascending: false, nullsFirst: false }),
-    fetchHiddenConversationIds().catch(() => new Set()),
-  ]);
+  const { data, error } = await supabase
+    .from("vw_whatsapp_chat_inbox")
+    .select("*")
+    .order("last_message_at", { ascending: false, nullsFirst: false });
 
-  if (convRes.error) throw convRes.error;
-  const rows = convRes.data || [];
-  return hiddenIds.size ? rows.filter((r) => !hiddenIds.has(r.conversation_id)) : rows;
+  if (error) throw error;
+  return data || [];
 }
 
-// "Deleted" chats — hidden from the inbox sidebar until that contact sends or
-// receives a new message again (the webhook / send edge functions clear the
-// hide automatically on new activity).
-export async function fetchHiddenConversationIds() {
-  const { data, error } = await supabase.from("whatsapp_hidden_conversations").select("conversation_id");
-  if (error) throw error;
-  return new Set((data || []).map((r) => r.conversation_id));
-}
+// Permanently removes a conversation: its messages, their status-history rows,
+// and the conversation row itself (not a soft delete — this cannot be undone).
+// The contact record is left in place, so if they message again a brand-new,
+// empty conversation is created for them.
+export async function deleteConversationPermanently(conversationId) {
+  const { data: msgs, error: msgErr } = await supabase
+    .from("whatsapp_messages")
+    .select("id")
+    .eq("conversation_id", conversationId);
+  if (msgErr) throw msgErr;
 
-export async function hideConversation(conversationId) {
-  const { error } = await supabase
-    .from("whatsapp_hidden_conversations")
-    .upsert({ conversation_id: conversationId, hidden_at: new Date().toISOString() });
-  if (error) throw error;
+  const messageIds = (msgs || []).map((m) => m.id);
+  if (messageIds.length) {
+    const { error: historyErr } = await supabase
+      .from("whatsapp_message_status_history")
+      .delete()
+      .in("message_id", messageIds);
+    if (historyErr) throw historyErr;
+  }
+
+  const { error: deleteMsgErr } = await supabase
+    .from("whatsapp_messages")
+    .delete()
+    .eq("conversation_id", conversationId);
+  if (deleteMsgErr) throw deleteMsgErr;
+
+  const { error: convErr } = await supabase
+    .from("whatsapp_conversations")
+    .delete()
+    .eq("id", conversationId);
+  if (convErr) throw convErr;
 }
 
 export async function fetchMessages(conversationId) {

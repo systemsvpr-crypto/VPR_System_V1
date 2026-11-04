@@ -209,13 +209,6 @@ Deno.serve(async (req: Request) => {
         const conversationId = rpcRes.ok ? await rpcRes.json() : null;
 
         if (conversationId) {
-          // A new notification to this contact should bring their chat back to
-          // the inbox sidebar if it was previously "deleted" there.
-          await fetch(`${supabaseUrl}/rest/v1/whatsapp_hidden_conversations?conversation_id=eq.${conversationId}`, {
-            method: 'DELETE',
-            headers: dbHeaders,
-          }).catch((e: unknown) => console.error('Failed to unhide conversation:', e));
-
           const wamid = result?.messages?.[0]?.id ?? null;
 
           // Render the actual approved template text (with parameters filled in)
