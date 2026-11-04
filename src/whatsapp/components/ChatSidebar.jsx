@@ -1,5 +1,8 @@
-import { Search, MailWarning, CheckCheck, Layers, RefreshCw, Download, MessageSquarePlus } from "lucide-react";
+import { useState } from "react";
+import { Search, MailWarning, CheckCheck, Layers, RefreshCw, Download, MessageSquarePlus, Pencil, Check, X } from "lucide-react";
 import { getInitials, formatTime, lastMessagePreview } from "../utils/chatUtils";
+import { updateContact } from "../services/whatsappApi";
+import { useWaToast } from "../utils/toast";
 
 // "Groups" was dropped: the WhatsApp Business Cloud API has no
 // group-messaging concept, so there is no real data to filter on.
@@ -26,7 +29,43 @@ export default function ChatSidebar({
   onRefreshData,
   isRefreshingData,
   onNewChat,
+  onContactNameUpdated,
 }) {
+  const { showToast } = useWaToast();
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [savingRename, setSavingRename] = useState(false);
+
+  const startRename = (e, c) => {
+    e.stopPropagation();
+    setRenamingId(c.contactId);
+    setRenameValue(c.customerName || "");
+  };
+
+  const cancelRename = (e) => {
+    if (e) e.stopPropagation();
+    setRenamingId(null);
+    setRenameValue("");
+  };
+
+  const saveRename = async (e, contactId) => {
+    if (e) e.stopPropagation();
+    const trimmed = renameValue.trim();
+    if (!trimmed) return;
+    setSavingRename(true);
+    try {
+      await updateContact(contactId, { display_name: trimmed });
+      onContactNameUpdated?.(contactId, trimmed);
+      setRenamingId(null);
+      setRenameValue("");
+    } catch (err) {
+      console.error("Failed to rename contact:", err);
+      showToast("Failed to rename contact: " + err.message, "error");
+    } finally {
+      setSavingRename(false);
+    }
+  };
+
   const filtered = conversations.filter((c) => {
     if (activeFilter === "UNREAD" && c.unreadCount === 0) return false;
     if (activeFilter === "AWAITING" && !c.awaitingReply) return false;
@@ -127,11 +166,17 @@ export default function ChatSidebar({
             const lastMsg = c.messages[c.messages.length - 1];
             const isTemplate = lastMsg?.type === "TEMPLATE";
             const isActive = c.chatId === activeChatId;
+            const isRenaming = renamingId === c.contactId;
             return (
-              <button
+              <div
                 key={c.chatId}
-                onClick={() => onSelectChat(c.chatId)}
-                className={`flex w-full items-start gap-3 border-b border-slate-100 px-4 py-3 text-left transition-colors ${
+                role="button"
+                tabIndex={0}
+                onClick={() => !isRenaming && onSelectChat(c.chatId)}
+                onKeyDown={(e) => {
+                  if (!isRenaming && (e.key === "Enter" || e.key === " ")) onSelectChat(c.chatId);
+                }}
+                className={`group flex w-full items-start gap-3 border-b border-slate-100 px-4 py-3 text-left transition-colors cursor-pointer ${
                   isActive ? "bg-primary/5 border-l-2 border-l-primary" : "hover:bg-slate-50"
                 }`}
               >
@@ -150,9 +195,48 @@ export default function ChatSidebar({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <p className={`truncate text-sm text-slate-800 ${c.unreadCount > 0 ? "font-semibold" : "font-medium"}`}>
-                      {c.customerName}
-                    </p>
+                    {isRenaming ? (
+                      <div className="flex items-center gap-1 flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveRename(e, c.contactId);
+                            else if (e.key === "Escape") cancelRename(e);
+                          }}
+                          className="h-7 flex-1 min-w-0 rounded-md border border-primary/40 bg-white px-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                        <button
+                          onClick={(e) => saveRename(e, c.contactId)}
+                          disabled={savingRename}
+                          title="Save name"
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-emerald-600 hover:bg-emerald-50"
+                        >
+                          <Check size={13} />
+                        </button>
+                        <button
+                          onClick={cancelRename}
+                          title="Cancel"
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 min-w-0 flex-1">
+                        <p className={`truncate text-sm text-slate-800 ${c.unreadCount > 0 ? "font-semibold" : "font-medium"}`}>
+                          {c.customerName}
+                        </p>
+                        <button
+                          onClick={(e) => startRename(e, c)}
+                          title="Rename contact"
+                          className="hidden shrink-0 h-5 w-5 items-center justify-center rounded text-slate-400 hover:text-primary hover:bg-primary/10 group-hover:flex"
+                        >
+                          <Pencil size={11} />
+                        </button>
+                      </div>
+                    )}
                     <span
                       className={`shrink-0 text-[10px] font-medium ${c.unreadCount > 0 ? "text-primary" : "text-slate-400"}`}
                     >
@@ -176,7 +260,7 @@ export default function ChatSidebar({
                     )}
                   </div>
                 </div>
-              </button>
+              </div>
             );
           })
         )}

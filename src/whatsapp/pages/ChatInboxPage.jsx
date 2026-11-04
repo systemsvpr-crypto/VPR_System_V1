@@ -603,6 +603,7 @@ export default function ChatInboxPage() {
           onRefreshData={handleRefreshData}
           isRefreshingData={isRefreshing}
           onNewChat={handleOpenNewChat}
+          onContactNameUpdated={handleContactNameUpdated}
         />
 
         {loadingConversations ? (
