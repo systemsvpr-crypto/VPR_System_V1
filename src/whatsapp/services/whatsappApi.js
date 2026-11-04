@@ -40,13 +40,33 @@ async function throwFunctionError(error) {
 // ---------------------------------------------------------------------------
 
 export async function fetchInboxConversations() {
-  const { data, error } = await supabase
-    .from("vw_whatsapp_chat_inbox")
-    .select("*")
-    .order("last_message_at", { ascending: false, nullsFirst: false });
+  const [convRes, hiddenIds] = await Promise.all([
+    supabase
+      .from("vw_whatsapp_chat_inbox")
+      .select("*")
+      .order("last_message_at", { ascending: false, nullsFirst: false }),
+    fetchHiddenConversationIds().catch(() => new Set()),
+  ]);
 
+  if (convRes.error) throw convRes.error;
+  const rows = convRes.data || [];
+  return hiddenIds.size ? rows.filter((r) => !hiddenIds.has(r.conversation_id)) : rows;
+}
+
+// "Deleted" chats — hidden from the inbox sidebar until that contact sends or
+// receives a new message again (the webhook / send edge functions clear the
+// hide automatically on new activity).
+export async function fetchHiddenConversationIds() {
+  const { data, error } = await supabase.from("whatsapp_hidden_conversations").select("conversation_id");
   if (error) throw error;
-  return data || [];
+  return new Set((data || []).map((r) => r.conversation_id));
+}
+
+export async function hideConversation(conversationId) {
+  const { error } = await supabase
+    .from("whatsapp_hidden_conversations")
+    .upsert({ conversation_id: conversationId, hidden_at: new Date().toISOString() });
+  if (error) throw error;
 }
 
 export async function fetchMessages(conversationId) {

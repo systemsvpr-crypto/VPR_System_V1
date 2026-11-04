@@ -17,6 +17,7 @@ import {
   fetchUsers,
   markConversationRead,
   softDeleteMessages,
+  hideConversation,
   sendTextMessage,
   sendTemplateMessage,
   sendMediaMessage,
@@ -541,6 +542,34 @@ export default function ChatInboxPage() {
     }
   };
 
+  // Deletes the whole open conversation: soft-deletes every message in it
+  // (same mechanism as a single-message delete) and hides it from the sidebar
+  // (whatsapp_hidden_conversations) until that contact messages again.
+  const handleDeleteConversation = async () => {
+    if (!activeChatId) return;
+    const conv = conversations.find((c) => c.chatId === activeChatId);
+    const name = conv?.customerName || "this chat";
+    if (!window.confirm(`Delete the entire chat with "${name}"? This cannot be undone.`)) return;
+
+    const ids = (messagesByChat[activeChatId] || []).map((m) => m.id);
+    try {
+      if (ids.length) await softDeleteMessages(ids);
+      await hideConversation(activeChatId);
+      setMessagesByChat((prev) => {
+        const next = { ...prev };
+        delete next[activeChatId];
+        return next;
+      });
+      setConversations((prev) => prev.filter((c) => c.chatId !== activeChatId));
+      setProfileDrawerOpen(false);
+      setActiveChatId(null);
+      showToast("Chat deleted", "success");
+    } catch (err) {
+      console.error("Failed to delete conversation:", err);
+      showToast(err.message || "Failed to delete chat", "error");
+    }
+  };
+
   // No reactions table yet — reactions are visual-only (local state).
   const handleReactToMessage = (messageId, emoji) => {
     if (!activeChatId) return;
@@ -595,6 +624,7 @@ export default function ChatInboxPage() {
             onToggleMessageSelect={handleToggleMessageSelect}
             onForwardSelected={handleForwardSelected}
             onDeleteSelected={handleDeleteSelected}
+            onDeleteConversation={handleDeleteConversation}
             onSendText={handleSendText}
             onSendMedia={handleSendMedia}
             onOpenTemplateDrawer={() => setTemplateDrawerOpen(true)}

@@ -15,6 +15,9 @@ import {
   ArrowLeft,
   Plus,
   BarChart2,
+  ChevronUp,
+  ChevronDown,
+  Trash2,
 } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import ImagePreviewLightbox from "./ImagePreviewLightbox";
@@ -54,6 +57,7 @@ export default function ChatWindow({
   onOpenProfileDrawer,
   onBackToList,
   onSendInitiationTemplate,
+  onDeleteConversation,
 }) {
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState(null);
@@ -63,6 +67,10 @@ export default function ChatWindow({
   const [previewImage, setPreviewImage] = useState(null); // { url, title } | null
   const [previewVideo, setPreviewVideo] = useState(null); // { url, title } | null
   const [pollModalOpen, setPollModalOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMatchIndex, setSearchMatchIndex] = useState(0);
+  const searchInputRef = useRef(null);
   const streamRef = useRef(null);
   const textareaRef = useRef(null);
   const docInputRef = useRef(null);
@@ -158,6 +166,62 @@ export default function ChatWindow({
     }
   };
 
+  // Search within the open conversation — matches message body text.
+  const searchMatches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return processedMessages.filter((m) => (m.body || "").toLowerCase().includes(q));
+  }, [processedMessages, searchQuery]);
+
+  useEffect(() => {
+    setSearchMatchIndex(0);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (searchMatches.length > 0) {
+      jumpToMessage(searchMatches[searchMatchIndex]?.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchMatches, searchMatchIndex]);
+
+  const handleOpenSearch = () => {
+    setSearchOpen(true);
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  };
+
+  const handleCloseSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchMatchIndex(0);
+  };
+
+  const goToNextMatch = () => {
+    if (searchMatches.length === 0) return;
+    setSearchMatchIndex((i) => (i + 1) % searchMatches.length);
+  };
+
+  const goToPrevMatch = () => {
+    if (searchMatches.length === 0) return;
+    setSearchMatchIndex((i) => (i - 1 + searchMatches.length) % searchMatches.length);
+  };
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) goToPrevMatch();
+      else goToNextMatch();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleCloseSearch();
+    }
+  };
+
+  // Closing the chat / switching conversations resets any open search.
+  useEffect(() => {
+    handleCloseSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation.chatId]);
+
   const handleSend = () => {
     if (!draft.trim()) return;
     onSendText(draft.trim(), replyTo?.id);
@@ -245,10 +309,35 @@ export default function ChatWindow({
               {sessionActive ? <ShieldCheck size={11} /> : <ShieldAlert size={11} />}
               {sessionActive ? "24h Session Active" : "Session Expired"}
             </span>
-            <IconButton icon={Search} title="Search chat" />
+            <IconButton icon={Search} title="Search chat" onClick={handleOpenSearch} />
             <IconButton icon={CheckSquare} title="Toggle multi-select" onClick={() => onToggleMultiSelect(true)} />
+            <IconButton icon={Trash2} title="Delete chat" onClick={onDeleteConversation} />
             <IconButton icon={PanelRightOpen} title="Open profile" onClick={onOpenProfileDrawer} />
           </div>
+        </div>
+      )}
+
+      {/* In-chat search bar */}
+      {searchOpen && !isMultiSelectMode && (
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 md:px-4">
+          <Search size={15} className="shrink-0 text-slate-400" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Search in this chat..."
+            className="h-8 flex-1 min-w-0 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
+          />
+          {searchQuery.trim() && (
+            <span className="shrink-0 text-xs text-slate-400 select-none">
+              {searchMatches.length > 0 ? `${searchMatchIndex + 1}/${searchMatches.length}` : "0/0"}
+            </span>
+          )}
+          <IconButton icon={ChevronUp} title="Previous match" onClick={goToPrevMatch} />
+          <IconButton icon={ChevronDown} title="Next match" onClick={goToNextMatch} />
+          <IconButton icon={X} title="Close search" onClick={handleCloseSearch} />
         </div>
       )}
 

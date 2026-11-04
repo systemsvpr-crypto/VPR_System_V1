@@ -10,6 +10,13 @@
 //     headerDocument?: { link: string, filename?: string } }
 // headerDocument is for templates whose header is a Document (e.g. "document_share");
 // the link must be a public https URL Meta can fetch.
+//
+// On a successful Meta send, this also mirrors the message into the Chat Inbox's
+// own tables (whatsapp_conversations / whatsapp_messages / whatsapp_message_status_history)
+// — the same tables the whatsapp-send edge function writes to — so every triggered
+// notification (Sales/Purchase/Docs/Checklist) shows up in /whatsapp/inbox too.
+// That sync is best-effort and wrapped in its own try/catch: it never changes this
+// function's response or blocks a send.
 
 // Editor-only typing: the Supabase Edge runtime provides `Deno` globally, but a
 // plain TS language server doesn't know it. `export {}` makes this a module so
@@ -26,6 +33,19 @@ function normalizePhone(raw: string): string {
   const digits = raw.replace(/\D/g, '');
   if (digits.length === 10) return `91${digits}`;
   return digits;
+}
+
+// Fills {{1}}, {{2}}, ... in an approved template's body text with the sent
+// parameters — mirrors parseTemplateBody() in src/whatsapp/utils/chatUtils.js,
+// so the inbox shows the real message instead of a generic "Template: name" label.
+function renderTemplateBody(bodyText: string, vars: unknown[]): string {
+  let output = bodyText;
+  (vars || []).forEach((val, idx) => {
+    const token = `{{${idx + 1}}}`;
+    const strVal = val != null ? String(val).trim() : '';
+    output = output.split(token).join(strVal ? strVal : token);
+  });
+  return output;
 }
 
 // Best-effort insert into whatsapp_logs; never lets a logging failure break the send.
@@ -169,6 +189,106 @@ Deno.serve(async (req: Request) => {
     }
 
     await writeLog({ ...log, status: 'sent', wa_message_id: result?.messages?.[0]?.id ?? null });
+
+    // Best-effort: mirror this send into the Chat Inbox tables so it shows up in
+    // /whatsapp/inbox. Never throws past this block — a failure here must not
+    // change the response above or affect the caller in any way.
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL');
+      const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      if (supabaseUrl && serviceKey) {
+        const dbHeaders = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' };
+
+        // Resolve/create the conversation for this phone — same RPC the inbox's
+        // own send path and the inbound webhook already use.
+        const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/fn_get_or_create_conversation`, {
+          method: 'POST',
+          headers: dbHeaders,
+          body: JSON.stringify({ p_raw_phone: to, p_display_name: recipientName ?? null }),
+        });
+        const conversationId = rpcRes.ok ? await rpcRes.json() : null;
+
+        if (conversationId) {
+          // A new notification to this contact should bring their chat back to
+          // the inbox sidebar if it was previously "deleted" there.
+          await fetch(`${supabaseUrl}/rest/v1/whatsapp_hidden_conversations?conversation_id=eq.${conversationId}`, {
+            method: 'DELETE',
+            headers: dbHeaders,
+          }).catch((e: unknown) => console.error('Failed to unhide conversation:', e));
+
+          const wamid = result?.messages?.[0]?.id ?? null;
+
+          // Render the actual approved template text (with parameters filled in)
+          // so the inbox shows the real message, not just the template name.
+          let messageBody = `Template: ${template}`;
+          let resolvedTemplateId: string | null = null;
+          try {
+            const tplRes = await fetch(
+              `${supabaseUrl}/rest/v1/whatsapp_templates?element_name=eq.${encodeURIComponent(template)}&language=eq.${encodeURIComponent(language || 'en')}&select=id,body_text&limit=1`,
+              { headers: dbHeaders },
+            );
+            if (tplRes.ok) {
+              const tplRows = await tplRes.json();
+              const tpl = tplRows?.[0];
+              if (tpl?.body_text) {
+                messageBody = renderTemplateBody(tpl.body_text, parameters ?? []);
+                resolvedTemplateId = tpl.id ?? null;
+              }
+            }
+          } catch (tplErr) {
+            console.error('Chat inbox sync: template lookup failed, using label fallback:', tplErr);
+          }
+
+          const insertRes = await fetch(`${supabaseUrl}/rest/v1/whatsapp_messages`, {
+            method: 'POST',
+            headers: { ...dbHeaders, Prefer: 'return=representation' },
+            body: JSON.stringify({
+              conversation_id: conversationId,
+              direction: 'OUTBOUND',
+              message_type: 'template',
+              body: messageBody,
+              media_url: headerDocument?.link ?? null,
+              mime_type: null,
+              metadata: {
+                template_name: template,
+                parameters: parameters ?? null,
+                header_parameters: headerParameters ?? null,
+                header_document: headerDocument ?? null,
+                module: module ?? null,
+                reference_type: referenceType ?? null,
+                reference_id: referenceId != null ? String(referenceId) : null,
+                meta_response: result,
+              },
+              template_id: resolvedTemplateId,
+              wa_message_id: wamid,
+              created_at: new Date().toISOString(),
+            }),
+          });
+
+          if (insertRes.ok) {
+            const saved = await insertRes.json();
+            const messageId = saved?.[0]?.id;
+            if (messageId) {
+              await fetch(`${supabaseUrl}/rest/v1/whatsapp_message_status_history`, {
+                method: 'POST',
+                headers: dbHeaders,
+                body: JSON.stringify({ message_id: messageId, status: 'sent', changed_at: new Date().toISOString() }),
+              });
+            }
+          } else {
+            console.error('Chat inbox sync: whatsapp_messages insert failed:', insertRes.status, await insertRes.text());
+          }
+
+          await fetch(`${supabaseUrl}/rest/v1/whatsapp_conversations?id=eq.${conversationId}`, {
+            method: 'PATCH',
+            headers: dbHeaders,
+            body: JSON.stringify({ updated_at: new Date().toISOString() }),
+          });
+        }
+      }
+    } catch (syncErr) {
+      console.error('Chat inbox sync failed (triggered send still succeeded):', syncErr);
+    }
 
     return new Response(JSON.stringify({ success: true, result }), {
       status: 200,

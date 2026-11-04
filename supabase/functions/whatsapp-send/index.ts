@@ -12,6 +12,18 @@ function normalizePhone(raw: string): string {
   return digits;
 }
 
+// Fills {{1}}, {{2}}, ... in an approved template's body text with the sent
+// variables — mirrors parseTemplateBody() in src/whatsapp/utils/chatUtils.js.
+function renderTemplateBody(bodyText: string, vars: unknown[]): string {
+  let output = bodyText;
+  (vars || []).forEach((val, idx) => {
+    const token = `{{${idx + 1}}}`;
+    const strVal = val != null ? String(val).trim() : '';
+    output = output.split(token).join(strVal ? strVal : token);
+  });
+  return output;
+}
+
 async function writeLog(supabaseUrl: string, serviceKey: string, row: Record<string, unknown>) {
   try {
     await fetch(`${supabaseUrl}/rest/v1/whatsapp_logs`, {
@@ -117,6 +129,13 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // Messaging a contact again should bring their chat back to the inbox
+    // sidebar if it was previously "deleted" there.
+    await fetch(`${supabaseUrl}/rest/v1/whatsapp_hidden_conversations?conversation_id=eq.${targetConvId}`, {
+      method: 'DELETE',
+      headers: dbHeaders,
+    }).catch((e) => console.error('Failed to unhide conversation:', e));
 
     // Check parent message wamid if reply
     let parentWaMessageId: string | null = null;
@@ -226,7 +245,29 @@ Deno.serve(async (req: Request) => {
         language: { code: templateLanguage || 'en' },
         ...(components.length > 0 ? { components } : {}),
       };
+
+      // Render the actual approved template text (with variables filled in) so
+      // the inbox shows the real message instead of a generic label.
       messageBody = `Template: ${templateElementName}`;
+      try {
+        const tplFilter = templateId
+          ? `id=eq.${templateId}`
+          : `element_name=eq.${encodeURIComponent(templateElementName)}&language=eq.${encodeURIComponent(templateLanguage || 'en')}`;
+        const tplRes = await fetch(
+          `${supabaseUrl}/rest/v1/whatsapp_templates?${tplFilter}&select=id,body_text&limit=1`,
+          { headers: dbHeaders },
+        );
+        if (tplRes.ok) {
+          const tplRows = await tplRes.json();
+          const tpl = tplRows?.[0];
+          if (tpl?.body_text) {
+            messageBody = renderTemplateBody(tpl.body_text, variables ?? []);
+            if (!templateId) templateId = tpl.id ?? templateId;
+          }
+        }
+      } catch (tplErr) {
+        console.error('Template lookup failed, using label fallback:', tplErr);
+      }
     }
 
     // 3. Send to Meta Cloud API
