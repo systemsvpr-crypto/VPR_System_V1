@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/hooks/useConfirm";
 import { documentsApi, subscriptionsApi } from "../services/docsApi";
 import { getUserAllowedDivisions, isDivisionAllowed } from "../utils/divisions";
 import { formatDate, formatCurrency, isExpiringSoon, isOverdue } from "../utils/dateFormatter";
@@ -45,6 +46,7 @@ const FREQUENCIES = ["Monthly", "Quarterly", "Half-Yearly", "Yearly"];
 const BASE_CATEGORIES = ["Company", "Director", "Personal"];
 
 export default function ResourceManager() {
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState("subscriptions"); // 'documents' | 'subscriptions'
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -114,7 +116,7 @@ export default function ResourceManager() {
   const docPage = usePaged(filteredDocuments);
 
   const handleDeleteDocument = async (doc) => {
-    if (!window.confirm(`Are you sure you want to delete document "${doc.documentName}"?`)) return;
+    if (!(await confirm(`Are you sure you want to delete document "${doc.documentName}"?`))) return;
     try {
       await documentsApi.remove(doc.id);
       toast.success("Document deleted successfully");

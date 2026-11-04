@@ -18,10 +18,12 @@ import {
 } from "../../redux/slice/notificationSlice";
 import { useMagicToast } from "../../context/MagicToastContext";
 import { isAdministrator, isAdminOrSuperAdmin } from "../../utils/roleUtils";
+import { useConfirm } from "../../../hooks/useConfirm";
 
 export default function Notifications() {
   const dispatch = useDispatch();
   const { showToast } = useMagicToast();
+  const confirm = useConfirm();
   const { list, loading } = useSelector((state) => state.notifications);
   const currentUserRole = (localStorage.getItem("role") || "").toLowerCase();
   const currentUsername = localStorage.getItem("user-name") || "Admin";
@@ -71,7 +73,7 @@ export default function Notifications() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this notification?"))
+    if (!(await confirm("Are you sure you want to delete this notification?")))
       return;
     try {
       await dispatch(removeNotification(id)).unwrap();

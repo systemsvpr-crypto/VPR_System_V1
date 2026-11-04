@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/hooks/useConfirm";
 import { loansApi } from "../../services/docsApi";
 import { openFileAttachment } from "../../utils/fileDownloader";
 import { formatCurrency } from "../../utils/dateFormatter";
@@ -55,6 +56,7 @@ const LINK_CHIP =
   "inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors";
 
 export default function AllLoans() {
+  const confirm = useConfirm();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [selectedBank, setSelectedBank] = useState("All");
@@ -70,7 +72,7 @@ export default function AllLoans() {
   }, []);
 
   const handleDelete = async (loan) => {
-    if (!window.confirm(`Are you sure you want to delete loan "${loan.loanName}"?`)) return;
+    if (!(await confirm(`Are you sure you want to delete loan "${loan.loanName}"?`))) return;
     try {
       await loansApi.remove(loan.id);
       toast.success("Loan facility deleted successfully");

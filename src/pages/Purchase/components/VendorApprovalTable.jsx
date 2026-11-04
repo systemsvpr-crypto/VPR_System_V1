@@ -10,6 +10,7 @@ import { Dropdown } from '@/components/ui/dropdown';
 import { sanitizeQtyInput } from '@/lib/qty';
 import { canEditOrDelete } from '../../../lib/permissions';
 import TableScrollSync from '@/components/TableScrollSync';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -26,6 +27,7 @@ const IndentTypeBadge = ({ processType }) => (
 );
 
 const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
+  const confirm = useConfirm();
   const canDelete = canEditOrDelete(user);
   const [indents, setIndents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -269,7 +271,7 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
       return;
     }
     const iNum = indent.indent_number || 'this indent';
-    if (!window.confirm(`Permanently delete indent "${iNum}" and all its items? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete indent "${iNum}" and all its items? This cannot be undone.`))) return;
     try {
       await deleteIndent(indent.indent_id);
       toast.success('Indent deleted');
@@ -286,7 +288,7 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
       return;
     }
     const pName = item.products?.name || 'this item';
-    if (!window.confirm(`Permanently delete "${pName}"? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete "${pName}"? This cannot be undone.`))) return;
     try {
       await deleteIndentItem(item.item_id);
       toast.success('Item deleted');
@@ -302,7 +304,7 @@ const VendorApprovalTable = ({ vendors, godowns, user, groups = [] }) => {
       return;
     }
     if (selectedCount === 0) { toast.error('No items selected.'); return; }
-    if (!window.confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`))) return;
     setDeleting(true);
     let count = 0;
     for (const itemId of selectedItems) {

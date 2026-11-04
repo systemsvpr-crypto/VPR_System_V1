@@ -9,6 +9,7 @@ import { getAllCustomers } from '../../services/customerService';
 import { getAllRanks } from '../../services/rankService';
 import { getAllPricingGroups } from '../../services/pricingService';
 import { isOrderFullyDispatched } from '@/lib/orderDispatchStatus';
+import { useConfirm } from '@/hooks/useConfirm';
 import { canEditOrDelete } from '@/lib/permissions';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ const TABS = [
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
 const Sales = () => {
+  const confirm = useConfirm();
   const { user } = useAuthStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'orders';
@@ -203,7 +205,7 @@ const Sales = () => {
       toast.error('Permission denied. Only Admins can delete orders.');
       return;
     }
-    if (!window.confirm(`Permanently delete order ${order.order_number}? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete order ${order.order_number}? This cannot be undone.`))) return;
     try {
       await deleteOrder(order.order_id);
       toast.success('Order deleted.');
@@ -238,7 +240,7 @@ const Sales = () => {
       return;
     }
     if (selectedOrderIds.size === 0) { toast.error('No orders selected.'); return; }
-    if (!window.confirm(`Permanently delete ${selectedOrderIds.size} selected order${selectedOrderIds.size !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete ${selectedOrderIds.size} selected order${selectedOrderIds.size !== 1 ? 's' : ''}? This cannot be undone.`))) return;
     setDeletingSelectedOrders(true);
     try {
       const { deletedOrderCount } = await deleteOrdersBulk([...selectedOrderIds]);

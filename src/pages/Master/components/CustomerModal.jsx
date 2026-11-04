@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 import { canEditOrDelete } from '@/lib/permissions';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDelete, ranks: propRanks = [] }) => {
+  const confirm = useConfirm();
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -99,7 +101,7 @@ const CustomerModal = ({ isOpen, onClose, onSuccess, editingCustomer, user, onDe
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete customer "${editingCustomer?.name}"? This cannot be undone.`)) return;
+    if (!(await confirm(`Delete customer "${editingCustomer?.name}"? This cannot be undone.`))) return;
     setDeleting(true);
     try {
       await deleteCustomer(editingCustomer.customer_id);

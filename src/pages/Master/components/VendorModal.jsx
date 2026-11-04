@@ -6,8 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 import { canEditOrDelete } from '@/lib/permissions';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor, user, onDelete }) => {
+  const confirm = useConfirm();
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -60,7 +62,7 @@ const VendorModal = ({ isOpen, onClose, onSuccess, editingVendor, user, onDelete
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete vendor "${editingVendor?.name}"? This cannot be undone.`)) return;
+    if (!(await confirm(`Delete vendor "${editingVendor?.name}"? This cannot be undone.`))) return;
     setDeleting(true);
     try {
       await deleteVendor(editingVendor.vendor_id);

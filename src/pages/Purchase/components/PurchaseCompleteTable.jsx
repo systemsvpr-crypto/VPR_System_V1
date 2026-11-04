@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalTitle } from '@/components/ui/modal';
 import { canEditOrDelete } from '../../../lib/permissions';
 import TableScrollSync from '@/components/TableScrollSync';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const LIFT_STATUS_STYLE = {
   'In Transit': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: Timer, label: 'In Transit' },
@@ -38,6 +39,7 @@ const IndentTypeBadge = ({ processType }) => (
 );
 
 const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = [], groups = [] }) => {
+  const confirm = useConfirm();
   const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
   const stockTotals = useOwnStockTotals(); // Current Stock column
   const canDelete = canEditOrDelete(user);
@@ -76,7 +78,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
       toast.error('You do not have permission to delete purchase items');
       return;
     }
-    if (!window.confirm(`Are you sure you want to delete purchase indent item "${item.product_name}" (Indent: ${item.indent_number}) and all its deliveries?`)) {
+    if (!(await confirm(`Are you sure you want to delete purchase indent item "${item.product_name}" (Indent: ${item.indent_number}) and all its deliveries?`))) {
       return;
     }
     setDeletingId(item.item_id);
@@ -102,7 +104,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
       toast.error('You do not have permission to delete delivery lifts');
       return;
     }
-    if (!window.confirm(`Are you sure you want to delete lift "${liftNo || deliveryId}"?`)) {
+    if (!(await confirm(`Are you sure you want to delete lift "${liftNo || deliveryId}"?`))) {
       return;
     }
     setDeletingId(deliveryId);
@@ -211,7 +213,7 @@ const PurchaseCompleteTable = ({ user, godowns = [], products = [], vendors = []
       return;
     }
     if (selectedItems.size === 0) return;
-    if (!window.confirm(`Are you sure you want to delete ${selectedItems.size} selected purchase item(s) and all their deliveries?`)) {
+    if (!(await confirm(`Are you sure you want to delete ${selectedItems.size} selected purchase item(s) and all their deliveries?`))) {
       return;
     }
     setLoading(true);

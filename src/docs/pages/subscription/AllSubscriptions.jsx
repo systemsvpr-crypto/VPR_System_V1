@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { CreditCard, Plus, CheckCircle2, Clock, Wallet, Trash2, RefreshCw, XCircle, IndianRupee, Download } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/hooks/useConfirm";
 import { subscriptionsApi } from "../../services/docsApi";
 import { formatCurrency } from "../../utils/dateFormatter";
 import { getUserAllowedDivisions, isDivisionAllowed } from "../../utils/divisions";
@@ -71,6 +72,7 @@ const COLUMNS = [
 ];
 
 export default function AllSubscriptions() {
+  const confirm = useConfirm();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("");
   const [selectedFrequency, setSelectedFrequency] = useState("");
@@ -89,7 +91,7 @@ export default function AllSubscriptions() {
   }, []);
 
   const handleDelete = async (sub) => {
-    if (!window.confirm(`Are you sure you want to delete subscription "${sub.subscriptionName}"?`)) return;
+    if (!(await confirm(`Are you sure you want to delete subscription "${sub.subscriptionName}"?`))) return;
     try {
       await subscriptionsApi.remove(sub.id);
       toast.success("Subscription deleted successfully");

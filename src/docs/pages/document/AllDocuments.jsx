@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { FileText, Plus, Mail, Edit2, Trash2, Eye, RefreshCw, Paperclip } from "lucide-react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/hooks/useConfirm";
 import { documentsApi } from "../../services/docsApi";
 import { openFileAttachment } from "../../utils/fileDownloader";
 import { getUserAllowedDivisions, isDivisionAllowed } from "../../utils/divisions";
@@ -49,6 +50,7 @@ const RENEWAL_FILTERS = [
 const OUTLINE_BTN = "px-4 font-medium text-xs h-9 text-slate-600 border-slate-200 hover:bg-slate-50";
 
 export default function AllDocuments() {
+  const confirm = useConfirm();
   const { data: documents, loading, error, reload } = useDocsData(() => documentsApi.list(), []);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -76,7 +78,7 @@ export default function AllDocuments() {
   }, [error]);
 
   const handleDelete = async (doc) => {
-    if (!window.confirm(`Are you sure you want to delete "${doc.documentName}"?`)) return;
+    if (!(await confirm(`Are you sure you want to delete "${doc.documentName}"?`))) return;
     try {
       await documentsApi.remove(doc.id);
       setSelectedIds((prev) => prev.filter((id) => id !== doc.id));

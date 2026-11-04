@@ -30,6 +30,7 @@ import {
   uploadWhatsappMedia,
 } from "../services/whatsappApi";
 import { useWaToast } from "../utils/toast";
+import { useConfirm } from "@/hooks/useConfirm";
 
 const CATEGORY_INFO = {
   UTILITY: {
@@ -120,6 +121,7 @@ export default function CreateTemplateView({
 }) {
   const { showToast: fallbackToast } = useWaToast();
   const showToast = showToastProp || fallbackToast;
+  const confirm = useConfirm();
 
   // Form State
   const [name, setName] = useState("");
@@ -366,7 +368,7 @@ export default function CreateTemplateView({
   };
 
   const handleDelete = async (tpl) => {
-    if (!window.confirm(`Are you sure you want to delete template "${tpl.element_name}"?`)) return;
+    if (!(await confirm(`Are you sure you want to delete template "${tpl.element_name}"?`))) return;
     try {
       await deleteWhatsappTemplate(tpl.id, tpl.element_name);
       showToast(`Template "${tpl.element_name}" deleted`, "info");

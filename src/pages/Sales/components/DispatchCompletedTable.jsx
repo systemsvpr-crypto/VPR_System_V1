@@ -17,6 +17,7 @@ import TableScrollSync from '@/components/TableScrollSync';
 import { sanitizeQtyInput } from '@/lib/qty';
 import ProductImsModal from '@/components/ProductImsModal';
 import EditDispatchPlanModal from './EditDispatchPlanModal';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -34,6 +35,7 @@ const getDispatchedQty = (plan) =>
 const getRemainingQty = (plan) => Math.max(0, round2(Number(plan.quantity || 0) - getDispatchedQty(plan)));
 
 const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, onFilterChange, onSave, products, godowns, user }) => {
+  const confirm = useConfirm();
   const canDelete = canEditOrDelete(user);
 
   const [plans, setPlans] = useState([]);
@@ -69,7 +71,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
       ? `Permanently delete completed dispatch ${plan.dispatch_number || 'plan'}? This will reverse the stock transaction (${plan.quantity} ${plan.sales_order_items?.products?.unit || ''}) back to ${plan.godowns?.name || 'the godown'}.`
       : `Permanently delete dispatch plan ${plan.dispatch_number || 'plan'}? The quantity will return to Dispatch Planning.`;
 
-    if (!window.confirm(confirmMsg)) return;
+    if (!(await confirm(confirmMsg))) return;
 
     try {
       await deleteDispatchPlansBulk([plan.plan_id]);
@@ -374,7 +376,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
       ? 'Permanently delete this dispatch plan and its stock transaction? This cannot be undone.'
       : `Permanently delete ${planIds.length} selected dispatch plans and their stock transactions? This cannot be undone.`)
       + (hasPartial ? '\n\nPartially dispatched plans: the qty already dispatched stays as Dispatch Done, and the rest goes back to Dispatch Planning. To close the rest instead, use Close Dispatch.' : '');
-    if (!window.confirm(confirmMsg)) return;
+    if (!(await confirm(confirmMsg))) return;
 
     setDeletingSelected(true);
     try {
@@ -421,7 +423,7 @@ const DispatchCompletedTable = ({ searchTerm, onSearchChange, completeFilter, on
       return `• ${p.dispatch_number || 'Plan'} — full plan (${rQty}) will be cancelled`;
     }).join('\n');
 
-    if (!window.confirm(`Close ${closable.length} dispatch${closable.length !== 1 ? 'es' : ''}? Cancelled quantities will not go back to Dispatch Planning.\n\n${lines}`)) return;
+    if (!(await confirm(`Close ${closable.length} dispatch${closable.length !== 1 ? 'es' : ''}? Cancelled quantities will not go back to Dispatch Planning.\n\n${lines}`))) return;
 
     setClosingSelected(true);
     try {

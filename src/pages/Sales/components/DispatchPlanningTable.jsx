@@ -24,6 +24,7 @@ import DirectOrderModal from './DirectOrderModal';
 import ProductImsModal from '@/components/ProductImsModal';
 import EditOrderItemModal from './EditOrderItemModal';
 import EditDispatchPlanModal from './EditDispatchPlanModal';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 const HISTORY_PAGE_SIZE_OPTIONS = [50, 100, 200];
@@ -98,6 +99,7 @@ const buildProductNoMap = (rawItems) => {
    Main component
 ────────────────────────────────────────────────────────── */
 const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchChange, onFilterChange, onSave, user, products, customers, ranks = [], productGroups = [], onImportProducts, onImportCustomers }) => {
+  const confirm = useConfirm();
   const canDelete = canEditOrDelete(user);
 
   const [items, setItems]                   = useState([]);
@@ -140,7 +142,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
       return;
     }
     const orderNo = item.sales_orders?.order_number || item.item_id;
-    if (!window.confirm(`Permanently delete item "${item.productName}" from order ${orderNo}? This cannot be undone.`)) {
+    if (!(await confirm(`Permanently delete item "${item.productName}" from order ${orderNo}? This cannot be undone.`))) {
       return;
     }
     try {
@@ -164,7 +166,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
       toast.error('Permission denied. Only Admins can delete dispatch plans.');
       return;
     }
-    if (!window.confirm(`Permanently delete dispatch plan ${row.dispatchNo}? This returns ${row.dispatchQty} quantity back to Dispatch Planning.`)) {
+    if (!(await confirm(`Permanently delete dispatch plan ${row.dispatchNo}? This returns ${row.dispatchQty} quantity back to Dispatch Planning.`))) {
       return;
     }
     try {
@@ -650,7 +652,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
     const confirmMsg = toDelete.length === 1
       ? `Permanently delete this row (order ${toDelete[0].sales_orders?.order_number || toDelete[0].item_id})? This cannot be undone.`
       : `Permanently delete ${toDelete.length} selected rows? This cannot be undone.`;
-    if (!window.confirm(confirmMsg)) return;
+    if (!(await confirm(confirmMsg))) return;
 
     setDeletingSelected(true);
     try {
@@ -701,7 +703,7 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
       ? `Cancel ${toCancel[0].qty} unit(s) of order ${toCancel[0].item.sales_orders?.order_number || ''}? This cannot be undone.`
       : `Cancel the entered quantity for these ${toCancel.length} orders? This cannot be undone.\n\n` +
         toCancel.map(({ item, qty }) => `• ${item.sales_orders?.order_number || item.item_id} — ${qty} ${item.products?.name || ''}`).join('\n');
-    if (!window.confirm(confirmMsg)) return;
+    if (!(await confirm(confirmMsg))) return;
 
     setCancellingAll(true);
     // One query reserves every dispatch_number the batch needs, and the

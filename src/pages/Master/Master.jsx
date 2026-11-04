@@ -33,6 +33,7 @@ import BulkImportEntityModal, { CUSTOMER_CONFIG, VENDOR_CONFIG, TRANSPORTER_CONF
 import RankTable from './components/RankTable';
 import RankModal from './components/RankModal';
 import { canEditOrDelete } from '@/lib/permissions';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const TABS = [
   { id: 'products', label: 'Products', icon: Package },
@@ -87,6 +88,7 @@ const FilterSelect = ({ value, onValueChange, options, placeholder, label, allLa
 
 const Master = () => {
   const { user } = useAuthStore();
+  const confirm = useConfirm();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'products';
   const setActiveTab = (tab) => setSearchParams({ tab });
@@ -571,7 +573,7 @@ const Master = () => {
       toast.error('Permission denied. Only Admins can delete groups.');
       return;
     }
-    if (!window.confirm(`Delete group "${group.group_name}"? This action cannot be undone.`)) return;
+    if (!(await confirm(`Delete group "${group.group_name}"? This action cannot be undone.`))) return;
     try {
       await deleteGroup(group.group_id);
       toast.success('Group deleted');
@@ -598,7 +600,7 @@ const Master = () => {
       toast.error('Permission denied. Only Admins can delete ranks.');
       return;
     }
-    if (!window.confirm(`Delete rank "${rank.rank_name}"? This action cannot be undone.`)) return;
+    if (!(await confirm(`Delete rank "${rank.rank_name}"? This action cannot be undone.`))) return;
     try {
       await deleteRank(rank.rank_id);
       toast.success('Rank deleted');
@@ -611,7 +613,7 @@ const Master = () => {
       toast.error('Permission denied. Only Admins can delete godowns.');
       return;
     }
-    if (!window.confirm(`Delete godown "${godown.name}"? This action cannot be undone.`)) return;
+    if (!(await confirm(`Delete godown "${godown.name}"? This action cannot be undone.`))) return;
     try {
       await deleteGodown(godown.godown_id);
       toast.success('Godown deleted');

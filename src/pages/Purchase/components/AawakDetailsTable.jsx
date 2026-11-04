@@ -15,6 +15,7 @@ import EditAawakLiftModal from './EditAawakLiftModal';
 import { canEditOrDelete } from '../../../lib/permissions';
 import TableScrollSync from '@/components/TableScrollSync';
 import { roundQty, formatQty } from '../../../lib/qty';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -35,6 +36,7 @@ const IndentTypeBadge = ({ processType }) => (
 );
 
 const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [], vendors = [], groups = [] }) => {
+  const confirm = useConfirm();
   const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
   const stockTotals = useOwnStockTotals(); // Current Stock column
   const canModify = canEditOrDelete(user);
@@ -483,7 +485,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     }
     const liftNum = del.lifting_number || del.delivery_id;
     if (isHistory || isTransporterGodown) {
-      if (!window.confirm(`Move delivery lift "${liftNum}" back to Aawak Pending? Its stock entry will be reversed.`)) return;
+      if (!(await confirm(`Move delivery lift "${liftNum}" back to Aawak Pending? Its stock entry will be reversed.`))) return;
       try {
         await revertLiftToPending({ delivery_id: del.delivery_id, user_id: user?.user_id });
         toast.success(`Delivery lift "${liftNum}" moved back to Pending`);
@@ -502,7 +504,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         toast.error(err.message || 'Failed to revert delivery');
       }
     } else {
-      if (!window.confirm(`Permanently delete delivery lift "${liftNum}"? This cannot be undone.`)) return;
+      if (!(await confirm(`Permanently delete delivery lift "${liftNum}"? This cannot be undone.`))) return;
       try {
         await deleteDelivery(del.delivery_id);
         toast.success('Delivery lift deleted');
@@ -533,7 +535,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
     if (toDeleteIds.length === 0) return;
 
     if (isHistory || isTransporterGodown) {
-      if (!window.confirm(`Move ${toDeleteIds.length} selected delivery lift(s) back to Aawak Pending? This will reverse their stock entries.`)) {
+      if (!(await confirm(`Move ${toDeleteIds.length} selected delivery lift(s) back to Aawak Pending? This will reverse their stock entries.`))) {
         return;
       }
       setDeletingSelected(true);
@@ -555,7 +557,7 @@ const AawakDetailsTable = ({ transporters = [], user, godowns = [], products = [
         loadData();
       }
     } else {
-      if (!window.confirm(`Permanently delete ${toDeleteIds.length} selected delivery lift(s)? This will revert inventory transactions and cannot be undone.`)) {
+      if (!(await confirm(`Permanently delete ${toDeleteIds.length} selected delivery lift(s)? This will revert inventory transactions and cannot be undone.`))) {
         return;
       }
       setDeletingSelected(true);

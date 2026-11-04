@@ -6,8 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 import { canEditOrDelete } from '@/lib/permissions';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user, onDelete, godowns }) => {
+  const confirm = useConfirm();
   const [name, setName] = useState('');
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [driverPhoneNumber, setDriverPhoneNumber] = useState('');
@@ -56,7 +58,7 @@ const TransporterModal = ({ isOpen, onClose, onSuccess, editingTransporter, user
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete transporter "${editingTransporter?.name}"? This cannot be undone.`)) return;
+    if (!(await confirm(`Delete transporter "${editingTransporter?.name}"? This cannot be undone.`))) return;
     setDeleting(true);
     try {
       await deleteTransporter(editingTransporter.transporter_id);

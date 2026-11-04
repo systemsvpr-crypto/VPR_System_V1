@@ -19,6 +19,7 @@ import DeliveryTable from './components/DeliveryTable';
 import AawakDetailsTable from './components/AawakDetailsTable';
 import PurchaseCompleteTable from './components/PurchaseCompleteTable';
 import { canEditOrDelete } from '../../lib/permissions';
+import { useConfirm } from '@/hooks/useConfirm';
 
 // "Vendor Approval" (VendorSelectionTable) is planning — picking vendor,
 // rate, qty, expected delivery date. "Approval" (VendorApprovalTable) is the
@@ -36,6 +37,7 @@ const TABS = [
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const Purchase = () => {
+  const confirm = useConfirm();
   const { user } = useAuthStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'indent';
@@ -140,7 +142,7 @@ const Purchase = () => {
       toast.error('You do not have permission to delete indents');
       return;
     }
-    if (!window.confirm(`Permanently delete indent "${indent.indent_number}"? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete indent "${indent.indent_number}"? This cannot be undone.`))) return;
     try {
       await deleteIndent(indent.indent_id);
       toast.success('Indent deleted');

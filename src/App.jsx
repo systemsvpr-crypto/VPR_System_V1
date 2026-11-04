@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import { ConfirmDialogProvider } from './hooks/useConfirm';
 import Layout from './components/Layout copy';
 import Login from './pages/Login';
 import MyProfile from './pages/MyProfile/MyProfile';
@@ -23,6 +24,7 @@ import { PAGES } from './constants';
 function App() {
   return (
     <div className="gradient-bg min-h-screen">
+      <ConfirmDialogProvider>
       <Router>
         <Toaster position="top-right" containerStyle={{ zIndex: 99999 }} />
         <Routes>
@@ -52,6 +54,7 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Router>
+      </ConfirmDialogProvider>
     </div >
   );
 }

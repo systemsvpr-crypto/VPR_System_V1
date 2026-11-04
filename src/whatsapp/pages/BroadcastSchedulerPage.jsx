@@ -61,6 +61,7 @@ import { Button } from "@/components/ui/button";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@/components/ui/modal";
 import { getInitials } from "../utils/chatUtils";
 import { useWaToast } from "../utils/toast";
+import { useConfirm } from "@/hooks/useConfirm";
 
 const HOURS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
@@ -151,6 +152,7 @@ const mediaTagFor = (headerType) => {
 
 export default function BroadcastSchedulerPage() {
   const { showToast } = useWaToast();
+  const confirm = useConfirm();
 
   const [scheduleName, setScheduleName] = useState("");
   const [status, setStatus] = useState("onetime");
@@ -523,7 +525,7 @@ export default function BroadcastSchedulerPage() {
   };
 
   const handleDeleteSchedule = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this campaign schedule?")) return;
+    if (!(await confirm("Are you sure you want to delete this campaign schedule?"))) return;
     try {
       await deleteBroadcastSchedule(id);
       showToast("Campaign schedule deleted", "info");

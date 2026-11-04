@@ -7,9 +7,11 @@ import { shiftTasksOffHoliday } from '../../utils/holidayShift';
 import useAuthStore from '../../../store/authStore';
 import { canEditOrDelete } from '../../../lib/permissions';
 import { isAdminOrSuperAdmin } from '../../utils/roleUtils';
+import { useConfirm } from '../../../hooks/useConfirm';
 
 const HolidayListPage = () => {
     const user = useAuthStore((state) => state.user);
+    const confirm = useConfirm();
     const [storedRole, setStoredRole] = useState(() => {
         try {
             return localStorage.getItem('role') || '';
@@ -125,7 +127,7 @@ const HolidayListPage = () => {
             alert('You do not have permission to delete holidays.');
             return;
         }
-        if (!window.confirm(`Delete holiday "${holiday.holiday_name}"?`)) return;
+        if (!(await confirm(`Delete holiday "${holiday.holiday_name}"?`))) return;
 
         try {
             const { error: deleteError } = await supabase

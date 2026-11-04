@@ -45,6 +45,7 @@ import CalendarComponent from "../components/CalendarComponent";
 import { createPortal } from "react-dom";
 import { sendTaskReassignmentNotification } from "../services/whatsappService";
 import { useMagicToast } from "../context/MagicToastContext";
+import { useConfirm } from "../../hooks/useConfirm";
 
 const formatDateLong = (date) =>
   date
@@ -64,6 +65,7 @@ const formatDateISO = (date) => {
 
 const Setting = () => {
   const { showToast } = useMagicToast();
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState("departments");
   const [showUserModal, setShowUserModal] = useState(false);
   const [showDeptModal, setShowDeptModal] = useState(false);
@@ -450,7 +452,7 @@ const Setting = () => {
         ? `Shift ${tasksToShift.length} selected task(s) from "${leavePersonName}" to "${shiftToPerson}"?`
         : `Mark "${leavePersonName}" as On Leave? (No tasks found to shift)`;
 
-    if (!window.confirm(confirmMsg)) return;
+    if (!(await confirm(confirmMsg))) return;
 
     setLeaveSubmitting(true);
     try {
@@ -1162,7 +1164,7 @@ const Setting = () => {
   };
 
   const handleDeleteDivision = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this division?")) return;
+    if (!(await confirm("Are you sure you want to delete this division?"))) return;
     try {
       const { error } = await supabase.from("divisions").delete().eq("id", id);
       if (error) throw error;
@@ -1376,7 +1378,7 @@ const Setting = () => {
 
   const handleDeleteDepartmentGroup = async (group) => {
     if (
-      window.confirm(
+      await confirm(
         `Are you sure you want to delete department "${group.name}"?`,
       )
     ) {
@@ -2740,8 +2742,8 @@ const Setting = () => {
                                 <Edit size={16} />
                               </button>
                               <button
-                                onClick={() => {
-                                  if (window.confirm("Delete this entry?")) {
+                                onClick={async () => {
+                                  if (await confirm("Delete this entry?")) {
                                     dispatch(deleteAssignFrom(item.id));
                                   }
                                 }}
@@ -2969,10 +2971,10 @@ const Setting = () => {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                       <button
-                                        onClick={(e) => {
+                                        onClick={async (e) => {
                                           e.stopPropagation();
                                           if (
-                                            window.confirm(
+                                            await confirm(
                                               `Delete machine "${machineName}" and all its parts?`,
                                             )
                                           ) {
@@ -3038,10 +3040,10 @@ const Setting = () => {
                                                       />
                                                     </label>
                                                     <button
-                                                      onClick={(e) => {
+                                                      onClick={async (e) => {
                                                         e.stopPropagation();
                                                         if (
-                                                          window.confirm(
+                                                          await confirm(
                                                             `Delete part "${part.value}"?`,
                                                           )
                                                         ) {
@@ -3107,10 +3109,10 @@ const Setting = () => {
                                   </span>
                                 </div>
                                 <button
-                                  onClick={(e) => {
+                                  onClick={async (e) => {
                                     e.stopPropagation();
                                     if (
-                                      window.confirm(
+                                      await confirm(
                                         `Delete machine "${machineName}" and all its parts?`,
                                       )
                                     ) {
@@ -3186,10 +3188,10 @@ const Setting = () => {
                                                 />
                                               </label>
                                               <button
-                                                onClick={(e) => {
+                                                onClick={async (e) => {
                                                   e.stopPropagation();
                                                   if (
-                                                    window.confirm(
+                                                    await confirm(
                                                       `Delete part "${part.value}"?`,
                                                     )
                                                   ) {

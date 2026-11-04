@@ -11,6 +11,7 @@ import {
   Layers,
 } from "lucide-react";
 import { useMagicToast } from "../context/MagicToastContext";
+import { useConfirm } from "../../hooks/useConfirm";
 import {
   fetchMasterTatRules,
   upsertMasterTatRule,
@@ -281,6 +282,7 @@ const DEFAULT_TAT_RULES = [
 
 export default function TatMasterSettingsView({ activeUser }) {
   const { showToast } = useMagicToast();
+  const confirm = useConfirm();
 
   const [loading, setLoading] = useState(false);
   const [rules, setRules] = useState(DEFAULT_TAT_RULES);
@@ -458,7 +460,7 @@ export default function TatMasterSettingsView({ activeUser }) {
   };
 
   const handleDeleteRule = async (id) => {
-    if (!window.confirm("Are you sure you want to remove this TAT SLA rule?"))
+    if (!(await confirm("Are you sure you want to remove this TAT SLA rule?")))
       return;
     try {
       if (!String(id).startsWith("tat-")) {

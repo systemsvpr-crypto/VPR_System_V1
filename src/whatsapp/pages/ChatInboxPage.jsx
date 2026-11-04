@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useAuthStore from "../../store/authStore";
 import { useWaToast } from "../utils/toast";
+import { useConfirm } from "@/hooks/useConfirm";
 import ChatSidebar from "../components/ChatSidebar";
 import ChatWindow from "../components/ChatWindow";
 import EmptyState from "../components/EmptyState";
@@ -46,6 +47,7 @@ const mapDbTemplateToUi = (t) => ({
 
 export default function ChatInboxPage() {
   const { showToast } = useWaToast();
+  const confirm = useConfirm();
   const user = useAuthStore((s) => s.user);
   const activeAgent = useMemo(
     () => ({ id: user?.user_id || "agent", name: user?.full_name || user?.Name || user?.username || "VPR Agent" }),
@@ -523,7 +525,7 @@ export default function ChatInboxPage() {
 
     if (!ids.length) return;
 
-    if (!window.confirm("Are you sure you want to delete the selected message(s)?")) return;
+    if (!(await confirm("Are you sure you want to delete the selected message(s)?"))) return;
     try {
       await softDeleteMessages(ids);
       setMessagesByChat((prev) => ({
@@ -548,7 +550,7 @@ export default function ChatInboxPage() {
     if (!activeChatId) return;
     const conv = conversations.find((c) => c.chatId === activeChatId);
     const name = conv?.customerName || "this chat";
-    if (!window.confirm(`Permanently delete the entire chat with "${name}"? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete the entire chat with "${name}"? This cannot be undone.`))) return;
 
     try {
       await deleteConversationPermanently(activeChatId);

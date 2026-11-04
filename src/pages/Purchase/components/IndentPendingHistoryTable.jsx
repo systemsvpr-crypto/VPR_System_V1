@@ -13,6 +13,7 @@ import { Dropdown } from '@/components/ui/dropdown';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 import { canEditOrDelete } from '../../../lib/permissions';
 import TableScrollSync from '@/components/TableScrollSync';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -73,6 +74,7 @@ const buildItemNoMap = (allItems) => {
  * auto-approved/Planned right at creation, so they land straight in History).
  */
 const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarExtra, searchTerm = '', onSearchChange, onDelete, groups = [] }) => {
+  const confirm = useConfirm();
   const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
   const stockTotals = useOwnStockTotals(); // Current Stock column
   const canDelete = canEditOrDelete(user);
@@ -340,7 +342,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
     }
     const pName = item.products?.name || 'this product';
     const iNum = item.purchase_indents?.indent_number || '';
-    if (!window.confirm(`Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`))) return;
     try {
       if (onDelete) {
         await onDelete([item]);
@@ -364,7 +366,7 @@ const IndentPendingHistoryTable = ({ vendors = [], user, refreshToken, toolbarEx
       return;
     }
     if (selectedCount === 0) { toast.error('No rows selected.'); return; }
-    if (!window.confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`))) return;
     setDeleting(true);
     const toDelete = items.filter(i => selectedItems.has(i.item_id));
     try {

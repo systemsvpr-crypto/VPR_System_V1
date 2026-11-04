@@ -7,8 +7,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 import { canEditOrDelete } from '@/lib/permissions';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }) => {
+  const confirm = useConfirm();
   const [groupName, setGroupName] = useState('');
   const [brandName, setBrandName] = useState('');
   const [category, setCategory] = useState('');
@@ -153,7 +155,7 @@ const GroupModal = ({ isOpen, onClose, user, onSuccess, editingGroup, onDelete }
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete group "${editingGroup?.group_name}"? This cannot be undone.`)) return;
+    if (!(await confirm(`Delete group "${editingGroup?.group_name}"? This cannot be undone.`))) return;
     setDeleting(true);
     try {
       await deleteGroup(editingGroup.group_id);

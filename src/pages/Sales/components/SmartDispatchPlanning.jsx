@@ -12,6 +12,7 @@ import { getInTransitAawakDeliveries, getPendingDeliveryItemsForPlanning } from 
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { sanitizeQtyInput, roundQty, formatQty } from '@/lib/qty';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const OVERRIDES_KEY = 'smart_dispatch_overrides';
 const PARTY_TYPES_KEY = 'smart_dispatch_party_types';
@@ -335,6 +336,7 @@ const HeaderRow = ({ cols, labels }) => (
    Main component
 ────────────────────────────────────────────────────────── */
 const SmartDispatchPlanning = ({ godowns }) => {
+  const confirm = useConfirm();
   const [rawItems, setRawItems] = useState([]);
   const [stockRows, setStockRows] = useState([]);
   const [inTransitDeliveries, setInTransitDeliveries] = useState([]);
@@ -566,11 +568,11 @@ const SmartDispatchPlanning = ({ godowns }) => {
 
   const resetLine = (itemId) => setOverrides(prev => { const { [itemId]: _, ...rest } = prev; return rest; });
 
-  const resetLocation = () => {
+  const resetLocation = async () => {
     const ids = new Set(pendingLines.filter(l => lineAtLocation(l, activeLocation)).map(l => l.itemId));
     const count = Object.keys(overrides).filter(id => ids.has(Number(id)) || ids.has(id)).length;
     if (count === 0) { toast('No manual edits to reset.'); return; }
-    if (!window.confirm(`Discard ${count} manual edit${count !== 1 ? 's' : ''} at ${activeLocationName} and restore the suggested plan?`)) return;
+    if (!(await confirm(`Discard ${count} manual edit${count !== 1 ? 's' : ''} at ${activeLocationName} and restore the suggested plan?`))) return;
     setOverrides(prev => Object.fromEntries(Object.entries(prev).filter(([id]) => !ids.has(Number(id)) && !ids.has(id))));
     toast.success('Reset to suggested plan.');
   };

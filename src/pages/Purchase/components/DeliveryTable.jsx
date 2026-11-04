@@ -28,6 +28,7 @@ import EditDeliveryIndentModal from './EditDeliveryIndentModal';
 import DeletedIndentDetailsModal from './DeletedIndentDetailsModal';
 import { canEditOrDelete } from '../../../lib/permissions';
 import TableScrollSync from '@/components/TableScrollSync';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -85,6 +86,7 @@ const toDeletedHistoryRow = (d) => ({
 });
 
 const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], products = [], vendors = [] }) => {
+  const confirm = useConfirm();
   const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
   const stockTotals = useOwnStockTotals(); // Current Stock column
   const canModify = canEditOrDelete(user);
@@ -460,7 +462,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
       const names = borrowing
         .map(item => `• ${item.purchase_indents?.indent_number || '-'} — ${effectiveProduct(item)?.name || 'Product'}`)
         .join('\n');
-      const ok = window.confirm(
+      const ok = await confirm(
         `${borrowing.length} selected row(s) have no LR No. / Transporter of their own:\n\n${names}\n\n` +
         `They will be dispatched with LR ${fallbackLrNumber || '-'} (${fallbackTransporterName}).\n\n` +
         'Press OK to continue, or Cancel to untick / fill those rows.',
@@ -649,7 +651,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
     const confirmMsg = partlyDispatched
       ? `Delete the pending ${formatQty(item.remaining_alloc_qty)} of "${pName}"${iNum ? ` (indent "${iNum}")` : ''}? Lifts already dispatched (${formatQty(item.allocated_qty)}) are kept.`
       : `Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`;
-    if (!window.confirm(confirmMsg)) return;
+    if (!(await confirm(confirmMsg))) return;
     try {
       const res = await deletePendingDeliveryRemainder(item.item_id, user);
       toast.success(res.deleted === 'remainder' ? 'Pending qty deleted — dispatched lifts kept' : 'Item deleted');
@@ -689,7 +691,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
       return;
     }
     const liftNum = del.lifting_number || del.delivery_id;
-    if (!window.confirm(`Permanently delete delivery lift "${liftNum}"? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete delivery lift "${liftNum}"? This cannot be undone.`))) return;
     try {
       await deleteDelivery(del.delivery_id);
       toast.success('Delivery lift deleted');
@@ -709,7 +711,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
     if (toDeleteIds.length === 0) return;
 
     if (activeSubTab === 'pending') {
-      if (!window.confirm(`Delete ${toDeleteIds.length} selected pending item(s)? For partly dispatched indents only the pending qty is deleted — lifts already dispatched are kept. This cannot be undone.`)) {
+      if (!(await confirm(`Delete ${toDeleteIds.length} selected pending item(s)? For partly dispatched indents only the pending qty is deleted — lifts already dispatched are kept. This cannot be undone.`))) {
         return;
       }
       setDeletingSelected(true);
@@ -731,7 +733,7 @@ const DeliveryTable = ({ transporters = [], user, godowns = [], groups = [], pro
         toast.error('Failed to delete selected items');
       }
     } else {
-      if (!window.confirm(`Are you sure you want to permanently delete ${toDeleteIds.length} selected delivery lift(s)? This will revert inventory transactions and cannot be undone.`)) {
+      if (!(await confirm(`Are you sure you want to permanently delete ${toDeleteIds.length} selected delivery lift(s)? This will revert inventory transactions and cannot be undone.`))) {
         return;
       }
       setDeletingSelected(true);

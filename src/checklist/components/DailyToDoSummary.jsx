@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { BellRing, ClipboardList } from "lucide-react";
 import { fetchDailyToDoSummaryApi, sendDailyRemindersApi } from "../redux/api/reminderApi";
 import { useMagicToast } from "../context/MagicToastContext";
+import { useConfirm } from "../../hooks/useConfirm";
 
 const Stat = ({ value, label, className }) => (
   <span className={`inline-flex items-baseline gap-1 ${className}`}>
@@ -15,6 +16,7 @@ const Stat = ({ value, label, className }) => (
 
 export default function DailyToDoSummary({ username, isAdmin, canWrite, refreshKey }) {
   const { showToast } = useMagicToast();
+  const confirm = useConfirm();
   const [summary, setSummary] = useState(null);
   const [isSending, setIsSending] = useState(false);
 
@@ -44,9 +46,9 @@ export default function DailyToDoSummary({ username, isAdmin, canWrite, refreshK
 
   const handleSendReminders = async () => {
     if (
-      !window.confirm(
+      !(await confirm(
         "Send today's to-do reminder on WhatsApp now? Users already reminded today are skipped.",
-      )
+      ))
     )
       return;
     setIsSending(true);

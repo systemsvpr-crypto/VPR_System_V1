@@ -11,6 +11,7 @@ import {
 import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 import { canEditOrDelete } from '@/lib/permissions';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const createEmptyProduct = (defaultUnit = 'bag') => ({
   id: Date.now() + Math.random(),
@@ -399,7 +400,7 @@ const ProductModal = ({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete product "${editingProduct?.name}"? This cannot be undone.`)) return;
+    if (!(await confirm(`Delete product "${editingProduct?.name}"? This cannot be undone.`))) return;
     setDeleting(true);
     try {
       await deleteProduct(editingProduct.product_id);

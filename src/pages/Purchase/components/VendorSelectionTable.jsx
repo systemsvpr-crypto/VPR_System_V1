@@ -12,6 +12,7 @@ import { Dropdown } from '@/components/ui/dropdown';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 import { canEditOrDelete } from '../../../lib/permissions';
 import TableScrollSync from '@/components/TableScrollSync';
+import { useConfirm } from '@/hooks/useConfirm';
 import { sendVendorApprovalWhatsapp } from '../../../services/whatsappService';
 import { toWhatsappSafeName, formatWaNumber, stripGroupPrefix } from '@/lib/whatsappFormat';
 
@@ -38,6 +39,7 @@ const convertApproveQty = (qty, fromUnit, targetUnit, pkgSize) => {
 };
 
 const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
+  const confirm = useConfirm();
   const [imsProduct, setImsProduct] = useState(null); // { productId, productName } — IMS popup
   const stockTotals = useOwnStockTotals(); // Current Stock column
   const canDelete = canEditOrDelete(user);
@@ -436,7 +438,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
     }
     const pName = item.products?.name || 'this product';
     const iNum = item.purchase_indents?.indent_number || '';
-    if (!window.confirm(`Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete "${pName}"${iNum ? ` from indent "${iNum}"` : ''}? This cannot be undone.`))) return;
     try {
       await deleteIndentItem(item.item_id);
       toast.success('Indent item deleted');
@@ -458,7 +460,7 @@ const VendorSelectionTable = ({ vendors, godowns = [], user, groups = [] }) => {
       return;
     }
     if (selectedCount === 0) { toast.error('No items selected.'); return; }
-    if (!window.confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    if (!(await confirm(`Permanently delete ${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}? This cannot be undone.`))) return;
     setDeletingSelected(true);
     let successCount = 0;
     for (const itemId of selectedItems) {
