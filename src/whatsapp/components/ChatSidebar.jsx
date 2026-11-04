@@ -231,7 +231,7 @@ export default function ChatSidebar({
                         <button
                           onClick={(e) => startRename(e, c)}
                           title="Rename contact"
-                          className="hidden shrink-0 h-5 w-5 items-center justify-center rounded text-slate-400 hover:text-primary hover:bg-primary/10 group-hover:flex"
+                          className="flex shrink-0 h-5 w-5 items-center justify-center rounded text-slate-400 hover:text-primary hover:bg-primary/10"
                         >
                           <Pencil size={11} />
                         </button>
