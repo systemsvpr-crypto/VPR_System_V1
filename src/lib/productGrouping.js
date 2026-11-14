@@ -8,3 +8,8 @@ export const getProductGrouping = (product) => {
     .filter(Boolean);
   return parts.join(' ');
 };
+
+// Collapses all whitespace + lowercases for group name deduplication.
+// "Damru LdKirana", "DamruLdKirana", and "damru ld kirana" all normalize to "damruldkirana".
+export const normalizeGroupKey = (str) => (str || '').replace(/\s+/g, '').toLowerCase();
+

@@ -1,4 +1,5 @@
 import { supabase, fetchAllRows } from '../supabase';
+import { normalizeGroupKey } from '../lib/productGrouping';
 
 export const getAllGroups = async () => {
   const { data: groups, error: groupErr } = await supabase
@@ -63,9 +64,24 @@ export const getAllGroups = async () => {
 };
 
 export const createGroup = async ({ group_name, product_ids, created_by }) => {
+  const trimmedName = (group_name || '').trim();
+  if (!trimmedName) throw new Error('Group name is required.');
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from('product_groups')
+    .select('group_id, group_name');
+  if (fetchErr) throw fetchErr;
+
+  const clash = (existing || []).find(g =>
+    normalizeGroupKey(g.group_name) === normalizeGroupKey(trimmedName)
+  );
+  if (clash) {
+    throw new Error(`A group named "${clash.group_name}" already exists.`);
+  }
+
   const { data: group, error: groupErr } = await supabase
     .from('product_groups')
-    .insert([{ group_name, created_by }])
+    .insert([{ group_name: trimmedName, created_by }])
     .select()
     .single();
   if (groupErr) throw groupErr;
@@ -108,7 +124,7 @@ export const renameGroupBrandCategory = async (group_id, { brand_name, category 
     .select('group_id, group_name');
   if (groupsErr) throw groupsErr;
   const clash = (groups || []).find(g =>
-    g.group_id !== group_id && (g.group_name || '').trim().toLowerCase() === group_name.toLowerCase());
+    g.group_id !== group_id && normalizeGroupKey(g.group_name) === normalizeGroupKey(group_name));
   if (clash) throw new Error(`A group named "${clash.group_name}" already exists.`);
 
   const allProducts = await fetchAllRows(() => supabase

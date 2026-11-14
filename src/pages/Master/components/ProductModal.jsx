@@ -12,6 +12,7 @@ import { Dropdown } from '@/components/ui/dropdown';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle } from '@/components/ui/modal';
 import { canEditOrDelete } from '@/lib/permissions';
 import { useConfirm } from '@/hooks/useConfirm';
+import { normalizeGroupKey } from '@/lib/productGrouping';
 
 const createEmptyProduct = (defaultUnit = 'bag') => ({
   id: Date.now() + Math.random(),
@@ -125,8 +126,8 @@ const ProductModal = ({
     } else if (editingProduct) {
       let initialGroupId = editingProduct.group_id || '';
       if (!initialGroupId && (editingProduct.brand_name || editingProduct.category)) {
-        const combined = `${(editingProduct.brand_name || '').trim()}${(editingProduct.category || '').trim()}`.toLowerCase();
-        const found = (groups || []).find(g => (g.group_name || '').trim().toLowerCase() === combined);
+        const combined = `${(editingProduct.brand_name || '').trim()}${(editingProduct.category || '').trim()}`;
+        const found = (groups || []).find(g => normalizeGroupKey(g.group_name) === normalizeGroupKey(combined));
         if (found) initialGroupId = found.group_id;
       }
       setGroupBlocks([{
@@ -173,8 +174,8 @@ const ProductModal = ({
     if (isOpen && editingProduct && groups.length > 0) {
       setGroupBlocks(prev => {
         if (prev.length === 1 && !prev[0].group_id && !prev[0].isCreatingNewGroup) {
-          const combined = `${(editingProduct.brand_name || '').trim()}${(editingProduct.category || '').trim()}`.toLowerCase();
-          const found = groups.find(g => (g.group_name || '').trim().toLowerCase() === combined);
+          const combined = `${(editingProduct.brand_name || '').trim()}${(editingProduct.category || '').trim()}`;
+          const found = groups.find(g => normalizeGroupKey(g.group_name) === normalizeGroupKey(combined));
           if (found) {
             return [{ ...prev[0], group_id: found.group_id }];
           }

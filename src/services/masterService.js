@@ -1,5 +1,6 @@
 import { supabase, fetchAllRows } from '../supabase';
 import { hasValidQtyPrecision } from '../lib/qty';
+import { normalizeGroupKey } from '../lib/productGrouping';
 
 export const getAllGodowns = async () => {
   const { data, error } = await supabase
@@ -146,23 +147,29 @@ const duplicateProductError = (name) => {
   return err;
 };
 
+export { normalizeGroupKey };
+
 // Every product belongs to a product_groups row keyed by its own Brand Name +
-// Category, concatenated exactly as typed (Brand "AA" + Category "BB" ->
-// group_name "AABB") — reused case-insensitively, so "Aa"+"BB" resolves to
-// that same "AABB" row instead of creating a near-duplicate group. Returns
-// null when both fields are blank (nothing to group by).
+// Category, concatenated as typed (Brand "AA" + Category "BB" ->
+// group_name "AABB") — reused case-insensitively and whitespace-insensitively,
+// so "Aa"+"BB" or "AA "+"BB" resolves to that same "AABB" row instead of creating
+// a near-duplicate group. Returns null when both fields are blank (nothing to group by).
 const PG_UNIQUE_VIOLATION = '23505';
 
 const resolveProductGroupId = async (brand_name, category) => {
-  const groupName = `${(brand_name || '').trim()}${(category || '').trim()}`;
-  if (!groupName) return null;
+  const brand = (brand_name || '').trim();
+  const cat = (category || '').trim();
+  const candidateGroupName = `${brand}${cat}`;
+  if (!candidateGroupName) return null;
 
   const { data: groups, error: fetchErr } = await supabase
     .from('product_groups')
     .select('group_id, group_name');
   if (fetchErr) throw fetchErr;
 
-  const existing = (groups || []).find(g => (g.group_name || '').trim().toLowerCase() === groupName.toLowerCase());
+  const existing = (groups || []).find(g =>
+    normalizeGroupKey(g.group_name) === normalizeGroupKey(candidateGroupName)
+  );
   if (existing) return existing.group_id;
 
   // created_by is intentionally left unset: product_groups.created_by has a
@@ -174,7 +181,7 @@ const resolveProductGroupId = async (brand_name, category) => {
   // showed as a stuck/failed save.
   const { data: created, error: createErr } = await supabase
     .from('product_groups')
-    .insert([{ group_name: groupName }])
+    .insert([{ group_name: candidateGroupName }])
     .select('group_id')
     .single();
   if (createErr) {
@@ -182,7 +189,9 @@ const resolveProductGroupId = async (brand_name, category) => {
     // lookup and insert — fall back to using theirs instead of failing.
     if (createErr.code === PG_UNIQUE_VIOLATION) {
       const { data: retryGroups } = await supabase.from('product_groups').select('group_id, group_name');
-      const retryMatch = (retryGroups || []).find(g => (g.group_name || '').trim().toLowerCase() === groupName.toLowerCase());
+      const retryMatch = (retryGroups || []).find(g =>
+        normalizeGroupKey(g.group_name) === normalizeGroupKey(candidateGroupName)
+      );
       if (retryMatch) return retryMatch.group_id;
     }
     throw createErr;
