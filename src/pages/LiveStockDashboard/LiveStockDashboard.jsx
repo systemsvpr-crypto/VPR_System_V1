@@ -164,6 +164,7 @@ const LiveStockDashboard = () => {
       await exportStockReport(result.data, date);
       const t2 = performance.now();
       console.info(`[Excel export] fetch: ${(t1 - t0).toFixed(0)}ms, build+download: ${(t2 - t1).toFixed(0)}ms, total: ${(t2 - t0).toFixed(0)}ms`);
+      toast.success('Excel exported successfully');
     } catch (err) {
       toast.error('Failed to export data');
     }
