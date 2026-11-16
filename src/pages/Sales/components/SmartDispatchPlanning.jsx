@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Warehouse, Users, Package, Truck, CheckCircle2, Search, Download, RefreshCw,
   RotateCcw, ChevronDown, ChevronRight, PencilLine, Hand, PauseCircle, Boxes,
-  ClipboardList, Sparkles, AlertCircle, Calendar,
+  ClipboardList, Sparkles, AlertCircle, Calendar, Printer,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { sanitizeQtyInput, roundQty, formatQty } from '@/lib/qty';
 import { useConfirm } from '@/hooks/useConfirm';
+import DispatchSlipModal from './DispatchSlipModal';
 
 const OVERRIDES_KEY = 'smart_dispatch_overrides';
 const PARTY_TYPES_KEY = 'smart_dispatch_party_types';
@@ -351,6 +352,7 @@ const SmartDispatchPlanning = ({ godowns }) => {
   const [itemFilter, setItemFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [expanded, setExpanded] = useState(new Set());
+  const [showSlipModal, setShowSlipModal] = useState(false);
 
   const [overrides, setOverrides] = useState(() => readStore(OVERRIDES_KEY));
   const [partyTypes, setPartyTypes] = useState(() => readStore(PARTY_TYPES_KEY));
@@ -588,6 +590,13 @@ const SmartDispatchPlanning = ({ godowns }) => {
 
   /* ── export ── */
   const stamp = () => new Date().toISOString().slice(0, 10);
+  const handlePrintSlips = () => {
+    if (!plan || plan.totals?.suggested <= 0) {
+      toast.error(`Nothing to dispatch at "${activeLocationName}" (Stock is 0). Please select a godown tab that has stock.`);
+      return;
+    }
+    setShowSlipModal(true);
+  };
   const exportLocation = () => {
     if (plan.totals.suggested <= 0) { toast.error('Nothing to dispatch at this location.'); return; }
     const safe = activeLocationName.replace(/[^\w-]+/g, '_');
@@ -814,6 +823,16 @@ const SmartDispatchPlanning = ({ godowns }) => {
           <Button size="sm" onClick={exportLocation} className="h-9 gap-1.5 px-3.5 text-xs font-medium shadow-2xs">
             <Download size={14} /><span className="truncate">Export {activeLocationName}</span>
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePrintSlips}
+            className="h-9 gap-1.5 px-3 text-xs font-medium text-slate-700 border-slate-300 hover:bg-slate-50 cursor-pointer"
+            title="Generate and print mini dispatch slips party-wise"
+          >
+            <Printer size={14} />
+            <span>Print Slips</span>
+          </Button>
         </div>
       </div>
       {lastUpdated && (
@@ -1014,6 +1033,14 @@ const SmartDispatchPlanning = ({ godowns }) => {
         </div>
       </div>
       </div>
+
+      <DispatchSlipModal
+        isOpen={showSlipModal}
+        onClose={() => setShowSlipModal(false)}
+        parties={plan?.parties || []}
+        locationName={activeLocationName}
+        dispatchDate={new Date().toISOString().slice(0, 10)}
+      />
     </div>
   );
 };

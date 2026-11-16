@@ -8,6 +8,8 @@ import {
   Check,
   AlertTriangle,
   CheckCircle2,
+  Download,
+  Upload,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
@@ -25,6 +27,8 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalTitle, M
 import PricingTable from './components/PricingTable';
 import PricingModal from './components/PricingModal';
 import RateHistoryModal from './components/RateHistoryModal';
+import PricingImportModal from './components/PricingImportModal';
+import { downloadPricingTemplate } from './pricingImportTemplate';
 import { TabSwitcher } from '../../components/StandardButtons';
 import { canEditOrDelete } from '@/lib/permissions';
 
@@ -48,6 +52,7 @@ const Pricing = () => {
 
   // Modal states
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
+  const [pricingImportModalOpen, setPricingImportModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyGroup, setHistoryGroup] = useState(null);
@@ -515,8 +520,8 @@ const Pricing = () => {
           </div>
         </div>
 
-        {/* Submit & Delete Buttons on Search Bar Card */}
-        {userCanEdit && selectedGroupIds.size > 0 && (
+        {/* Action Buttons: Bulk actions when selected, otherwise Download / Import / Add */}
+        {userCanEdit && selectedGroupIds.size > 0 ? (
           <div className="flex items-center gap-2 border-t lg:border-t-0 lg:border-l border-slate-200 pt-2 lg:pt-0 lg:pl-3 animate-in fade-in shrink-0">
             <span className="text-xs font-bold text-primary px-2.5 py-1 bg-primary/10 rounded-md whitespace-nowrap">
               {selectedGroupIds.size} Selected
@@ -557,6 +562,44 @@ const Pricing = () => {
               )}
               Submit ({selectedGroupIds.size})
             </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 shrink-0 border-t lg:border-t-0 pt-2 lg:pt-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => downloadPricingTemplate(ranks, groups)}
+              className="h-8 px-2.5 text-xs text-slate-600 gap-1.5 cursor-pointer"
+              title="Download CSV template for Pricing groups and Rank rates"
+            >
+              <Download size={13} />
+              <span className="hidden sm:inline">Download Template</span>
+            </Button>
+            {userCanEdit && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPricingImportModalOpen(true)}
+                className="h-8 px-2.5 text-xs text-primary border-primary/30 hover:bg-primary/5 gap-1.5 cursor-pointer"
+                title="Import Pricing groups and Rank rates from CSV"
+              >
+                <Upload size={13} />
+                <span>Import CSV</span>
+              </Button>
+            )}
+            {userCanEdit && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleOpenAdd}
+                className="h-8 px-3 text-xs gap-1.5 cursor-pointer shadow-xs font-medium"
+              >
+                <Plus size={13} />
+                <span className="hidden sm:inline">Add Group</span>
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -620,6 +663,17 @@ const Pricing = () => {
         }}
         group={historyGroup}
         ranks={ranks}
+      />
+
+      {/* Bulk CSV Import Modal */}
+      <PricingImportModal
+        isOpen={pricingImportModalOpen}
+        onClose={() => setPricingImportModalOpen(false)}
+        existingGroups={groups}
+        ranks={ranks}
+        onImportComplete={loadGroups}
+        userCanEdit={userCanEdit}
+        user={user}
       />
 
       {/* Single Delete Confirmation Modal */}

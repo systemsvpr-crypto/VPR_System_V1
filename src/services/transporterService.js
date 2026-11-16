@@ -130,3 +130,57 @@ export const getLiftsMovedOutOfTransporterGodown = async () => {
     .eq('void_reason', 'Moved to destination godown on Arrived'));
   return new Set((rows || []).map(r => r.lifting_number).filter(Boolean));
 };
+
+// ─── Freight Rate Functions ───────────────────────────────────────────────────
+
+export const getFreightRates = async () => {
+  const { data, error } = await supabase
+    .from('freight_rates')
+    .select(`
+      *,
+      transporters:transporter_id(transporter_id, name)
+    `)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+};
+
+export const createFreightRate = async ({ transporter_id, city, rate_with_gst, rate_without_gst }) => {
+  const { data, error } = await supabase
+    .from('freight_rates')
+    .insert([{ transporter_id, city: city.trim(), rate_with_gst, rate_without_gst }])
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+export const updateFreightRate = async ({ rate_id, city, rate_with_gst, rate_without_gst }) => {
+  const { data, error } = await supabase
+    .from('freight_rates')
+    .update({ city: city.trim(), rate_with_gst, rate_without_gst, updated_at: new Date().toISOString() })
+    .eq('rate_id', rate_id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+export const deleteFreightRate = async (rate_id) => {
+  const { error } = await supabase
+    .from('freight_rates')
+    .delete()
+    .eq('rate_id', rate_id);
+  if (error) throw error;
+};
+
+/** Save freight billing data for one Hisab Sheet row */
+export const updateHisabRow = async (delivery_id, { freight_rate, freight_rate_type, freight_amount, freight_payment_status, remarks }) => {
+  const patch = { freight_rate, freight_rate_type, freight_amount, freight_payment_status };
+  if (remarks !== undefined) patch.remarks = remarks;
+  const { error } = await supabase
+    .from('purchase_deliveries')
+    .update(patch)
+    .eq('delivery_id', delivery_id);
+  if (error) throw error;
+};

@@ -3,7 +3,7 @@ import {
   ClipboardList, Package, Truck, Search, Trash2, Ban, Edit2,
   AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Zap,
-  LayoutGrid, LayoutList, Calendar, MapPin, User, Check, Clock, RotateCw, Warehouse, X, Boxes
+  LayoutGrid, LayoutList, Calendar, MapPin, User, Check, Clock, RotateCw, Warehouse, X, Boxes, Printer,
 } from 'lucide-react';
 import { format, differenceInCalendarDays } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -24,6 +24,7 @@ import DirectOrderModal from './DirectOrderModal';
 import ProductImsModal from '@/components/ProductImsModal';
 import EditOrderItemModal from './EditOrderItemModal';
 import EditDispatchPlanModal from './EditDispatchPlanModal';
+import DispatchSlipModal from './DispatchSlipModal';
 import { useConfirm } from '@/hooks/useConfirm';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
@@ -131,6 +132,92 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
   const [cancellingAll, setCancellingAll] = useState(false);
   const [editingOrderItem, setEditingOrderItem] = useState(null);
   const [editingHistoryPlan, setEditingHistoryPlan] = useState(null);
+  const [slipModalOpen, setSlipModalOpen] = useState(false);
+  const [selectedSlips, setSelectedSlips] = useState([]);
+
+  const openHistorySlips = (rowsToPrint = null) => {
+    let targetRows = rowsToPrint;
+    if (!targetRows) {
+      if (isPendingView) {
+        // Pending view: collect checked items or filtered items
+        const pickedIds = Object.keys(dispatchDraft);
+        const sourceItems = pickedIds.length > 0
+          ? dashboardItems.filter(it => pickedIds.includes(it.item_id))
+          : dashboardItems.slice(0, 50);
+
+        if (sourceItems.length === 0) {
+          toast.error('No pending dispatch items selected.');
+          return;
+        }
+
+        const partyMap = new Map();
+        sourceItems.forEach(item => {
+          const party = item.partyName || '—';
+          if (!partyMap.has(party)) {
+            partyMap.set(party, {
+              partyName: party,
+              locationName: 'Godown',
+              dispatchDate: new Date().toISOString().slice(0, 10),
+              items: [],
+              totalQty: 0,
+            });
+          }
+          const slip = partyMap.get(party);
+          const qty = Number(dispatchDraft[item.item_id]?.quantity || item.remaining || 0);
+          slip.items.push({
+            productName: item.productName,
+            quantity: qty,
+            unit: item.unit || 'BAG',
+            orderNumber: item.sales_orders?.order_number || '—',
+          });
+          slip.totalQty = Math.round((slip.totalQty + qty) * 100) / 100;
+        });
+
+        setSelectedSlips(Array.from(partyMap.values()));
+        setSlipModalOpen(true);
+        return;
+      } else {
+        targetRows = historyRows;
+      }
+    }
+
+    if (!targetRows || targetRows.length === 0) {
+      toast.error('No dispatch history records to print.');
+      return;
+    }
+
+    const slipMap = new Map();
+    targetRows.forEach((r) => {
+      if (r.status === 'Cancelled') return;
+      const key = `${r.customerName || 'Party'}__${r.dispatchDate || 'Date'}`;
+      if (!slipMap.has(key)) {
+        slipMap.set(key, {
+          partyName: r.customerName || '—',
+          locationName: r.dispatchGodownName || 'Godown',
+          dispatchDate: r.dispatchDate || '',
+          items: [],
+          totalQty: 0,
+        });
+      }
+      const slip = slipMap.get(key);
+      const qty = Number(r.convertedQty || r.dispatchQty || 0);
+      slip.items.push({
+        productName: r.productName,
+        quantity: qty,
+        unit: r.unit,
+        orderNumber: r.orderNumber,
+      });
+      slip.totalQty = Math.round((slip.totalQty + qty) * 100) / 100;
+    });
+
+    const slipsList = Array.from(slipMap.values());
+    if (slipsList.length === 0) {
+      toast.error('No active dispatch records available to print.');
+      return;
+    }
+    setSelectedSlips(slipsList);
+    setSlipModalOpen(true);
+  };
 
   const handleRowEditPending = (item) => {
     setEditingOrderItem(item);
@@ -1223,6 +1310,17 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                     size="sm"
                     variant="outline"
                     type="button"
+                    onClick={() => openHistorySlips([row])}
+                    className="h-7 gap-1 px-2 text-xs text-slate-700 hover:text-primary hover:bg-primary/5"
+                    title="Print Mini Dispatch Slip"
+                  >
+                    <Printer size={13} />
+                    <span>Slip</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
                     onClick={() => handleRowEditHistory(row)}
                     className="h-7 gap-1 px-2.5 text-xs text-slate-700 hover:text-primary hover:bg-primary/5"
                     title="Edit dispatch plan"
@@ -1416,6 +1514,18 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
             )}
           </>
         )}
+
+        <Button
+          size="sm"
+          variant="outline"
+          type="button"
+          onClick={() => openHistorySlips()}
+          className="gap-1.5 text-xs h-9 w-full sm:w-auto shrink-0 border-slate-300 text-slate-700 hover:bg-slate-50 cursor-pointer shadow-xs"
+          title="Generate and print mini dispatch slips party-wise"
+        >
+          <Printer size={14} />
+          <span>Print Slips</span>
+        </Button>
       </div>
 
       {loading ? (
@@ -1695,6 +1805,16 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
                       variant="ghost"
                       size="icon"
                       type="button"
+                      onClick={() => openHistorySlips([row])}
+                      title="Print Mini Dispatch Slip"
+                      className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all"
+                    >
+                      <Printer size={15} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      type="button"
                       onClick={() => handleRowEditHistory(row)}
                       title="Edit dispatch plan"
                       className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/5 rounded transition-all"
@@ -1857,6 +1977,12 @@ const DispatchPlanningTable = ({ godowns, searchTerm, dispatchFilter, onSearchCh
           isCompleted={editingHistoryPlan.dispatch_status === 'Dispatch Done'}
         />
       )}
+
+      <DispatchSlipModal
+        isOpen={slipModalOpen}
+        onClose={() => setSlipModalOpen(false)}
+        slips={selectedSlips}
+      />
     </div>
   );
 };

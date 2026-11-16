@@ -35,6 +35,7 @@ export const PAGE_TABS = {
     { id: 'vendors', label: 'Vendors' },
     { id: 'transporters', label: 'Transporters' },
     { id: 'product-grouping', label: 'Product Grouping' },
+    { id: 'freight-sheet', label: 'Freight Sheet' },
     { id: 'ranks', label: 'Ranks' },
   ],
   sales: [

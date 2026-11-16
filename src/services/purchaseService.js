@@ -1670,7 +1670,7 @@ export const getAawakDeliveries = async (statusFilter = null) => {
           approved_vendor_id,
           product_groups:group_id(group_name),
           products:product_id(name, unit, mux, group_id, brand_name, category, product_groups:group_id(group_name)),
-          item_vendor:vendor_id(name),
+          item_vendor:vendor_id(name, location),
           purchase_indents(
             indent_id, indent_number, indent_date, process_type, group_id, product_groups:group_id(group_name)
           )

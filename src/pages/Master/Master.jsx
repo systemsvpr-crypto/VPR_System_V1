@@ -1,13 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet, Award, PackagePlus, X, Download } from 'lucide-react';
+import { Search, Package, Warehouse, Users, Building2, Truck, FolderTree, Plus, FileSpreadsheet, Award, PackagePlus, X, Download, Receipt } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { getAllGodowns, getAllProducts, getAllProductStock, toggleGodownStatus, deleteGodown } from '../../services/masterService';
 import { getAllCustomers, bulkImportCustomers } from '../../services/customerService';
 import { getAllVendors, bulkImportVendors } from '../../services/vendorService';
-import { getAllTransporters, bulkImportTransporters } from '../../services/transporterService';
+import { getAllTransporters, bulkImportTransporters, getFreightRates, deleteFreightRate } from '../../services/transporterService';
 import { getAllGroups, deleteGroup } from '../../services/productGroupingService';
 import { getAllRanks, deleteRank } from '../../services/rankService';
 import { Input } from '@/components/ui/input';
@@ -32,6 +32,8 @@ import GroupModal from './components/ProductGrouping/GroupModal';
 import BulkImportEntityModal, { CUSTOMER_CONFIG, VENDOR_CONFIG, TRANSPORTER_CONFIG } from './components/BulkImportEntityModal';
 import RankTable from './components/RankTable';
 import RankModal from './components/RankModal';
+import FreightRateTable from './components/FreightSheet/FreightRateTable';
+import FreightRateModal from './components/FreightSheet/FreightRateModal';
 import { canEditOrDelete } from '@/lib/permissions';
 import { useConfirm } from '@/hooks/useConfirm';
 
@@ -42,6 +44,7 @@ const TABS = [
   { id: 'vendors', label: 'Vendors', icon: Building2 },
   { id: 'transporters', label: 'Transporters', icon: Truck },
   { id: 'product-grouping', label: 'Product Grouping', icon: FolderTree },
+  { id: 'freight-sheet', label: 'Freight Sheet', icon: Receipt },
   { id: 'ranks', label: 'Ranks', icon: Award },
 ];
 
@@ -100,6 +103,7 @@ const Master = () => {
   const [transporters, setTransporters] = useState([]);
   const [groups, setGroups] = useState([]);
   const [ranks, setRanks] = useState([]);
+  const [freightRates, setFreightRates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [godownModalOpen, setGodownModalOpen] = useState(false);
@@ -111,6 +115,7 @@ const Master = () => {
   const [transporterModalOpen, setTransporterModalOpen] = useState(false);
   const [rankModalOpen, setRankModalOpen] = useState(false);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [freightRateModalOpen, setFreightRateModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [editingVendor, setEditingVendor] = useState(null);
@@ -118,6 +123,7 @@ const Master = () => {
   const [editingGroup, setEditingGroup] = useState(null);
   const [editingRank, setEditingRank] = useState(null);
   const [editingGodown, setEditingGodown] = useState(null);
+  const [editingFreightRate, setEditingFreightRate] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [godownFilter, setGodownFilter] = useState('all');
   const [transporterFilter, setTransporterFilter] = useState('all');
@@ -127,11 +133,14 @@ const Master = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
 
+  const isAdminUser = user?.role === 'SUPER ADMIN' || user?.role?.toUpperCase().includes('ADMIN') || user?.Admin === 'Yes';
+
   const visibleTabs = useMemo(() => {
+    if (isAdminUser) return TABS;
     const allowedTabs = user?.tab_access?.master;
-    if (!allowedTabs || allowedTabs.length === 0) return [];
-    return TABS.filter(tab => allowedTabs.includes(tab.id));
-  }, [user]);
+    if (!allowedTabs || allowedTabs.length === 0) return TABS;
+    return TABS.filter(tab => allowedTabs.includes(tab.id) || (allowedTabs.includes('transporters') && tab.id === 'freight-sheet'));
+  }, [user, isAdminUser]);
 
   const ownGodowns = useMemo(() => (
     godowns.filter(g => (g.godown_type || 'Own') === 'Own')
@@ -362,6 +371,20 @@ const Master = () => {
     });
   }, [ranks, searchTerm]);
 
+  const filteredFreightRates = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+    return freightRates.filter(r => {
+      if (!term) return true;
+      const transporterName = r.transporters?.name || '';
+      return (
+        transporterName.toLowerCase().includes(term) ||
+        r.city?.toLowerCase().includes(term) ||
+        String(r.rate_with_gst || '').includes(term) ||
+        String(r.rate_without_gst || '').includes(term)
+      );
+    });
+  }, [freightRates, searchTerm]);
+
   const totalProductPages = Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage));
   const totalGodownPages = Math.max(1, Math.ceil(filteredGodowns.length / itemsPerPage));
   const totalCustomerPages = Math.max(1, Math.ceil(filteredCustomers.length / itemsPerPage));
@@ -418,7 +441,7 @@ const Master = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [p, g, s, c, v, t, gr, rk] = await Promise.all([
+      const [p, g, s, c, v, t, gr, rk, fr] = await Promise.all([
         getAllProducts(), getAllGodowns(), getAllProductStock(),
         getAllCustomers(), getAllVendors(), getAllTransporters(),
         getAllGroups(),
@@ -426,10 +449,14 @@ const Master = () => {
         // every other Master tab keep working even before the `ranks`
         // table migration has been run.
         getAllRanks().catch(() => []),
+        getFreightRates().catch(err => {
+          console.error('Failed to load freight rates:', err);
+          return [];
+        }),
       ]);
       setProducts(p); setGodowns(g); setAllStock(s);
       setCustomers(c); setVendors(v); setTransporters(t);
-      setGroups(gr); setRanks(rk);
+      setGroups(gr); setRanks(rk); setFreightRates(fr);
     } catch (err) { toast.error('Failed to load data'); }
     setLoading(false);
   };
@@ -621,6 +648,26 @@ const Master = () => {
     } catch (err) { toast.error(err.message); }
   };
 
+  const handleDeleteFreightRate = async (rate) => {
+    if (!canEditOrDelete(user)) {
+      toast.error('Permission denied. Only Admins can delete freight rates.');
+      return;
+    }
+    const ok = await confirm({
+      title: 'Delete Freight Rate',
+      message: `Delete freight rate for "${rate.transporters?.name || 'Unknown'}" → ${rate.city}? This action cannot be undone.`,
+      variant: 'danger',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+    });
+    if (!ok) return;
+    try {
+      await deleteFreightRate(rate.rate_id);
+      toast.success('Freight rate deleted');
+      loadData();
+    } catch (err) { toast.error(err.message || 'Failed to delete freight rate'); }
+  };
+
   return (
     <div className="flex flex-col gap-4 sm:gap-6 shrink-0 pb-2 min-w-0">
 
@@ -774,6 +821,7 @@ const Master = () => {
                         else if (activeTab === 'vendors') { setEditingVendor(null); setVendorModalOpen(true); }
                         else if (activeTab === 'transporters') { setEditingTransporter(null); setTransporterModalOpen(true); }
                         else if (activeTab === 'ranks') { setEditingRank(null); setRankModalOpen(true); }
+                        else if (activeTab === 'freight-sheet') { setEditingFreightRate(null); setFreightRateModalOpen(true); }
                       }} className="gap-2 px-3 h-8 text-sm font-medium shrink-0">
                         <Plus size={15} />
                         <span>Add {
@@ -782,7 +830,8 @@ const Master = () => {
                               activeTab === 'customers' ? 'Customer' :
                                 activeTab === 'vendors' ? 'Vendor' :
                                   activeTab === 'transporters' ? 'Transporter' :
-                                    'Rank'
+                                    activeTab === 'freight-sheet' ? 'Rate' :
+                                      'Rank'
                         }</span>
                       </Button>
                     )}
@@ -843,6 +892,19 @@ const Master = () => {
                     onPageChange={setCurrentPage} onItemsPerPageChange={setItemsPerPage} />
                 </div>
               )}
+              {activeTab === 'freight-sheet' && (
+                <div className="flex flex-col flex-1">
+                  <FreightRateTable
+                    rates={filteredFreightRates}
+                    loading={loading}
+                    onEdit={(rate) => { setEditingFreightRate(rate); setFreightRateModalOpen(true); }}
+                    onDelete={handleDeleteFreightRate}
+                    onRefresh={loadData}
+                    user={user}
+                    searchTerm={searchTerm}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -866,6 +928,13 @@ const Master = () => {
         user={user} onSuccess={loadData} editingGroup={editingGroup} />
       <RankModal isOpen={rankModalOpen} onClose={handleCloseRankModal}
         onSuccess={loadData} editingRank={editingRank} />
+      <FreightRateModal
+        isOpen={freightRateModalOpen}
+        onClose={() => { setFreightRateModalOpen(false); setEditingFreightRate(null); }}
+        onSuccess={loadData}
+        transporters={transporters}
+        editingRate={editingFreightRate}
+      />
       {entityImportType && (
         <BulkImportEntityModal
           isOpen={!!entityImportType}

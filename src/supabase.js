@@ -28,6 +28,7 @@ const NO_SOFT_DELETE = new Set([
   'checklist_unique_tasks',
   'holidays',
   'working_day_calender',
+  'freight_rates',
 ]);
 const isNoSoftDelete = (name) => {
   if (!name) return false;

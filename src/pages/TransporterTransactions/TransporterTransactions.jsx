@@ -4,13 +4,15 @@ import { Truck, Search, RotateCw, X, Package, Warehouse, CheckCircle2, Route, Ex
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { getAawakDeliveries } from '../../services/purchaseService';
-import { getAllTransporters, getLiftsMovedOutOfTransporterGodown } from '../../services/transporterService';
+import { getAllTransporters, getLiftsMovedOutOfTransporterGodown, getFreightRates } from '../../services/transporterService';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dropdown } from '@/components/ui/dropdown';
 import { DatePicker } from '@/components/ui/date-picker';
 import TableScrollSync from '@/components/TableScrollSync';
 import ProductImsModal, { ImsButton } from '@/components/ProductImsModal';
+import Pagination from '@/components/ui/pagination';
+import HisabSheet from './components/HisabSheet';
 
 const formatNum = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const formatDate = (d) => (d ? format(new Date(d), 'dd/MM/yyyy') : '—');
@@ -48,6 +50,7 @@ const TABS = [
   { id: 'lifts', label: 'Transaction Summary' },
   { id: 'transporters', label: 'Transporter Summary' },
   { id: 'products', label: 'Product Summary' },
+  { id: 'hisab', label: 'Hisab Sheet' },
 ];
 
 /**
@@ -59,9 +62,12 @@ const TABS = [
 const TransporterTransactions = () => {
   const navigate = useNavigate();
   const [lifts, setLifts] = useState([]);
+  const [rawDeliveries, setRawDeliveries] = useState([]);
+  const [freightRates, setFreightRates] = useState([]);
   const [transporters, setTransporters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('lifts');
+  const [hisabSubTab, setHisabSubTab] = useState('pending');
   const [imsProduct, setImsProduct] = useState(null);
 
   const [transporterFilter, setTransporterFilter] = useState('');
@@ -70,14 +76,19 @@ const TransporterTransactions = () => {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [deliveries, transporterList, movedOut] = await Promise.all([
+      const [deliveries, transporterList, movedOut, fr] = await Promise.all([
         getAawakDeliveries(), getAllTransporters(), getLiftsMovedOutOfTransporterGodown(),
+        getFreightRates().catch(() => []),
       ]);
       setTransporters(transporterList || []);
+      setRawDeliveries(deliveries || []);
+      setFreightRates(fr);
       // A transporter's own godown has godown_id === transporter_id.
       const transporterIds = new Set((transporterList || []).map(t => t.transporter_id));
       setLifts((deliveries || [])
@@ -165,6 +176,64 @@ const TransporterTransactions = () => {
     String(b.liftDate || '').localeCompare(String(a.liftDate || '')) || String(b.liftNo).localeCompare(String(a.liftNo), undefined, { numeric: true })),
   [filtered]);
 
+  // Reset to first page whenever tab or any search filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [tab, search, transporterFilter, productFilter, stageFilter, fromDate, toDate]);
+
+  // Active list for current tab (Transaction Summary, Transporter Summary, or Product Summary)
+  const activeList = useMemo(() => {
+    if (tab === 'transporters') return transporterRows;
+    if (tab === 'products') return productRows;
+    return sortedLifts;
+  }, [tab, transporterRows, productRows, sortedLifts]);
+
+  const activeTotalItems = activeList.length;
+  const activeTotalPages = Math.max(1, Math.ceil(activeTotalItems / itemsPerPage));
+  const activeStartIndex = activeTotalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+  const activeEndIndex = Math.min(currentPage * itemsPerPage, activeTotalItems);
+
+  useEffect(() => {
+    if (currentPage > activeTotalPages) {
+      setCurrentPage(activeTotalPages);
+    }
+  }, [currentPage, activeTotalPages]);
+
+  const paginatedActiveList = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return activeList.slice(start, start + itemsPerPage);
+  }, [activeList, currentPage, itemsPerPage]);
+
+  const filteredHisabDeliveries = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return rawDeliveries.filter(d => {
+      if (!d.transporter_id) return false;
+      const item = d.purchase_indent_items || {};
+      if (item.purchase_indents?.is_void === true) return false;
+      if (transporterFilter && d.transporter_id !== transporterFilter) return false;
+      if (productFilter && String(item.product_id) !== productFilter) return false;
+      const dDate = String(d.delivery_date || d.receiving_date || '').slice(0, 10);
+      if (fromDate && dDate < fromDate) return false;
+      if (toDate && dDate > toDate) return false;
+      if (!term) return true;
+      const product = item.products || {};
+      const vendor = item.item_vendor || {};
+      const transporter = d.transporters || {};
+      const indent = item.purchase_indents || {};
+      return [
+        d.lifting_number,
+        d.lr_number,
+        transporter.name,
+        d.vehicle_number,
+        product.name,
+        vendor.name,
+        vendor.location,
+        indent.indent_number,
+        d.remarks,
+      ].some(v => String(v || '').toLowerCase().includes(term));
+    });
+  }, [rawDeliveries, transporterFilter, productFilter, fromDate, toDate, search]);
+
   // Opens Purchase → Aawak Details on the matching sub-tab, searched.
   const openAawak = (sub, text) => {
     navigate(`/purchase?tab=aawak-details&sub=${sub}&q=${encodeURIComponent(text)}`);
@@ -231,8 +300,8 @@ const TransporterTransactions = () => {
     </div>
   );
 
-  const currentCount = tab === 'transporters' ? transporterRows.length : tab === 'products' ? productRows.length : sortedLifts.length;
-  const countLabel = tab === 'transporters' ? 'transporter' : tab === 'products' ? 'product line' : 'lift';
+  const currentCount = tab === 'transporters' ? transporterRows.length : tab === 'products' ? productRows.length : tab === 'hisab' ? filteredHisabDeliveries.length : sortedLifts.length;
+  const countLabel = tab === 'transporters' ? 'transporter' : tab === 'products' ? 'product line' : tab === 'hisab' ? 'entry' : 'lift';
 
   return (
     <div className="flex flex-col gap-4 pb-8 min-w-0 w-full max-w-full">
@@ -314,6 +383,30 @@ const TransporterTransactions = () => {
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto mb-3"></div>
             <p className="text-sm text-slate-400">Loading transporter transactions...</p>
           </div>
+        ) : tab === 'hisab' ? (
+          <div className="flex flex-col flex-1">
+            {/* Pending / History sub-tabs */}
+            <div className="flex gap-1 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60">
+              {[['pending', 'Pending'], ['history', 'History (Paid)']].map(([sub, label]) => (
+                <button key={sub}
+                  onClick={() => setHisabSubTab(sub)}
+                  className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all
+                    ${hisabSubTab === sub
+                      ? 'bg-white text-primary shadow-sm border border-slate-200'
+                      : 'text-slate-500 hover:text-slate-700'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <HisabSheet
+              deliveries={filteredHisabDeliveries}
+              freightRates={freightRates}
+              subTab={hisabSubTab}
+              onRowSaved={loadData}
+              openAawak={openAawak}
+              resetKey={`${search}|${transporterFilter}|${productFilter}|${fromDate}|${toDate}`}
+            />
+          </div>
         ) : currentCount === 0 ? (
           <div className="p-12 text-center">
             <Truck size={32} className="text-slate-300 mx-auto mb-3" />
@@ -334,7 +427,7 @@ const TransporterTransactions = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {transporterRows.map(r => (
+                {paginatedActiveList.map(r => (
                   <tr key={r.key} className="hover:bg-slate-50">
                     <td className={`${td} font-semibold text-slate-800`}>
                       <button type="button" onClick={() => { setTransporterFilter(r.transporterId); setTab('products'); }}
@@ -371,7 +464,7 @@ const TransporterTransactions = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {productRows.map(r => (
+                {paginatedActiveList.map(r => (
                   <tr key={r.key} className="hover:bg-slate-50">
                     <td className={`${td} font-medium text-slate-800`}>{r.transporterName}</td>
                     <td className={`${td} text-slate-700`}>{r.productName}</td>
@@ -409,7 +502,7 @@ const TransporterTransactions = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {sortedLifts.map(l => (
+                {paginatedActiveList.map(l => (
                   <tr key={l.id} className="hover:bg-slate-50">
                     <td className={td}>
                       {l.liftNo !== '—' ? (
@@ -455,7 +548,37 @@ const TransporterTransactions = () => {
             </table>
           </TableScrollSync>
         )}
-        {!loading && currentCount > 0 && tab !== 'lifts' && (
+        {!loading && tab !== 'hisab' && activeTotalItems > 0 && (
+          <div className="border-t border-slate-100 bg-white px-4 py-2.5 flex flex-col md:flex-row items-center justify-between gap-3 shrink-0">
+            <div className="flex items-center gap-2 text-xs text-slate-500 shrink-0">
+              <span>Show</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="border border-slate-200 rounded px-2 py-1 text-xs bg-white text-slate-700 font-medium outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+              >
+                {[25, 50, 100, 200].map(size => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+              <span>records per page</span>
+            </div>
+
+            <Pagination
+              currentPage={currentPage}
+              totalPages={activeTotalPages}
+              totalItems={activeTotalItems}
+              startIndex={activeStartIndex}
+              endIndex={activeEndIndex}
+              onPageChange={setCurrentPage}
+              className="!p-0 w-full md:w-auto flex-1 md:justify-end gap-3 sm:gap-6"
+            />
+          </div>
+        )}
+        {!loading && currentCount > 0 && tab !== 'lifts' && tab !== 'hisab' && (
           <p className="px-4 py-2 text-[11px] text-slate-400 border-t border-slate-100">
             TP Godown In = came in to the transporter's godown · Out = moved on to our godowns · Remaining = still there (click to open in Aawak Details).
           </p>

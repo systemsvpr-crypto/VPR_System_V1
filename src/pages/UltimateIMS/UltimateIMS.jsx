@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, Boxes, ChevronLeft, ChevronRight, Save, X } from 'lucide-react';
+import { Search, Boxes, ChevronLeft, ChevronRight, Save, X, Download, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
 import { updateProductPlanning } from '../../services/masterService';
@@ -11,6 +11,8 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { sanitizeQtyInput, roundQty } from '@/lib/qty';
 import { canEditOrDelete } from '../../lib/permissions';
 import TableScrollSync from '@/components/TableScrollSync';
+import { downloadImsTemplate } from './imsImportTemplate';
+import ImsImportModal from './components/ImsImportModal';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200];
 
@@ -70,6 +72,7 @@ const UltimateIMS = () => {
   // Unsaved Lead Time / Safety Factor typed on a checked row, keyed by
   // product — each field saves to the product master on blur.
   const [planningEdits, setPlanningEdits] = useState({});
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // "Save" raises one Indent (+ one item per selected row, qty = its Reorder
   // Qty) straight from this dashboard — it lands in Purchase > Indent >
@@ -340,6 +343,31 @@ const UltimateIMS = () => {
           ))}
         </select>
 
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => downloadImsTemplate(rows)}
+            className="h-9 px-2.5 text-xs text-slate-600 gap-1.5"
+            title="Download CSV template for bulk updating Lead Time & Safety Factor"
+          >
+            <Download size={14} />
+            <span className="hidden md:inline">Download Template</span>
+          </Button>
+          {canModify && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowImportModal(true)}
+              className="h-9 px-2.5 text-xs text-primary border-primary/30 hover:bg-primary/5 gap-1.5"
+              title="Import Lead Time & Safety Factor from CSV"
+            >
+              <Upload size={14} />
+              <span>Import CSV</span>
+            </Button>
+          )}
+        </div>
+
         <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto">
           {selectedRows.size > 0 && (
             <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-1 rounded-md whitespace-nowrap shrink-0">
@@ -580,6 +608,14 @@ const UltimateIMS = () => {
           </div>
         </div>
       </div>
+
+      <ImsImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        products={rows}
+        onImportComplete={loadData}
+        canModify={canModify}
+      />
     </div>
   );
 };
