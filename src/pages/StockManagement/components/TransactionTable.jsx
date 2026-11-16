@@ -154,11 +154,21 @@ const TransactionTable = ({
             {userCanEdit && (
             <td className="px-4 py-3 text-center">
               {canEdit(t.txn_type) ? (
-                <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                  <button onClick={() => onEdit(t)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-primary transition-colors" title="Edit transaction">
+                <div className="flex items-center justify-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onEdit(t)}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-primary transition-colors cursor-pointer"
+                    title="Edit transaction"
+                  >
                     <Pencil size={15} />
                   </button>
-                  <button onClick={() => onDelete(t)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors" title="Delete transaction">
+                  <button
+                    type="button"
+                    onClick={() => onDelete(t)}
+                    className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                    title="Delete transaction"
+                  >
                     <Trash2 size={15} />
                   </button>
                 </div>
